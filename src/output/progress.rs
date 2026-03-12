@@ -1,0 +1,34 @@
+use indicatif::{ProgressBar, ProgressStyle};
+
+/// Create a spinner for async operations (e.g., team create/clone).
+/// Only visible when stderr is a TTY.
+pub fn spinner(message: &str) -> ProgressBar {
+    if !atty::is(atty::Stream::Stderr) {
+        return ProgressBar::hidden();
+    }
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::with_template("{spinner:.cyan} {msg}")
+            .unwrap()
+            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"),
+    );
+    pb.set_message(message.to_string());
+    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+    pb
+}
+
+/// Create a progress bar for --all-pages pagination.
+/// Only visible when stderr is a TTY.
+pub fn paging_bar() -> ProgressBar {
+    if !atty::is(atty::Stream::Stderr) {
+        return ProgressBar::hidden();
+    }
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::with_template("{spinner:.cyan} Fetching pages: {pos}")
+            .unwrap()
+            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"),
+    );
+    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+    pb
+}
