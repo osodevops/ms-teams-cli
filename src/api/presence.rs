@@ -15,10 +15,7 @@ pub async fn get_user_presence(client: &GraphClient, user_id: &str) -> Result<Pr
     client.get(&endpoints::user_presence(user_id), &[]).await
 }
 
-pub async fn get_presence_batch(
-    client: &GraphClient,
-    ids: Vec<String>,
-) -> Result<Vec<Presence>> {
+pub async fn get_presence_batch(client: &GraphClient, ids: Vec<String>) -> Result<Vec<Presence>> {
     let req = GetPresenceBatchRequest { ids };
     let resp: PageResponse<Presence> = client.post(&endpoints::presence_batch(), &req).await?;
     Ok(resp.value)

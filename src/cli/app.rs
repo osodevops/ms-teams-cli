@@ -56,10 +56,8 @@ pub async fn run(
                         let def = a.teams_app_definition.as_ref();
                         vec![
                             a.id.clone().unwrap_or_default(),
-                            app.and_then(|a| a.display_name.clone())
-                                .unwrap_or_default(),
-                            def.and_then(|d| d.version.clone())
-                                .unwrap_or_default(),
+                            app.and_then(|a| a.display_name.clone()).unwrap_or_default(),
+                            def.and_then(|d| d.version.clone()).unwrap_or_default(),
                             app.and_then(|a| a.distribution_method.clone())
                                 .unwrap_or_default(),
                         ]

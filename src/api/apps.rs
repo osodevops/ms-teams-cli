@@ -75,10 +75,7 @@ pub async fn update_tab(
     req: &UpdateTabRequest,
 ) -> Result<TeamsTab> {
     client
-        .patch(
-            &endpoints::channel_tab(team_id, channel_id, tab_id),
-            req,
-        )
+        .patch(&endpoints::channel_tab(team_id, channel_id, tab_id), req)
         .await
 }
 

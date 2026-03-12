@@ -185,18 +185,12 @@ fn search_help_shows_subcommands() {
 
 #[test]
 fn presence_unknown_subcommand_fails() {
-    teams()
-        .args(["presence", "nonexistent"])
-        .assert()
-        .failure();
+    teams().args(["presence", "nonexistent"]).assert().failure();
 }
 
 #[test]
 fn search_unknown_subcommand_fails() {
-    teams()
-        .args(["search", "nonexistent"])
-        .assert()
-        .failure();
+    teams().args(["search", "nonexistent"]).assert().failure();
 }
 
 // --- Phase 4: Tags, Meetings, Notifications, Apps, Tabs, Files ---
@@ -279,18 +273,12 @@ fn tag_unknown_subcommand_fails() {
 
 #[test]
 fn meeting_unknown_subcommand_fails() {
-    teams()
-        .args(["meeting", "nonexistent"])
-        .assert()
-        .failure();
+    teams().args(["meeting", "nonexistent"]).assert().failure();
 }
 
 #[test]
 fn notify_unknown_subcommand_fails() {
-    teams()
-        .args(["notify", "nonexistent"])
-        .assert()
-        .failure();
+    teams().args(["notify", "nonexistent"]).assert().failure();
 }
 
 #[test]

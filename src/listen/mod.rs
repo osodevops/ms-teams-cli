@@ -18,9 +18,9 @@ use crate::error::{Result, TeamsError};
 /// in front of this listener for production use.
 pub async fn run_listener(port: u16) -> Result<()> {
     let addr: SocketAddr = ([0, 0, 0, 0], port).into();
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .map_err(|e| TeamsError::AuthError(format!("Failed to bind listener on port {port}: {e}")))?;
+    let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
+        TeamsError::AuthError(format!("Failed to bind listener on port {port}: {e}"))
+    })?;
 
     eprintln!("Webhook listener started on http://0.0.0.0:{port}");
     eprintln!("Press Ctrl+C to stop");

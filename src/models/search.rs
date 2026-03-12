@@ -102,6 +102,9 @@ mod tests {
         let resp: SearchResponse = serde_json::from_str(json).unwrap();
         assert_eq!(resp.value.len(), 1);
         let hits = resp.value[0].hits_containers.as_ref().unwrap();
-        assert_eq!(hits[0].hits.as_ref().unwrap()[0].hit_id.as_deref(), Some("hit-1"));
+        assert_eq!(
+            hits[0].hits.as_ref().unwrap()[0].hit_id.as_deref(),
+            Some("hit-1")
+        );
     }
 }

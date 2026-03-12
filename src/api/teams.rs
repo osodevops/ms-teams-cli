@@ -35,7 +35,9 @@ pub async fn clone_team(
     id: &str,
     req: &TeamCloneRequest,
 ) -> Result<Option<String>> {
-    client.post_for_location(&endpoints::team_clone(id), req).await
+    client
+        .post_for_location(&endpoints::team_clone(id), req)
+        .await
 }
 
 pub async fn archive_team(client: &GraphClient, id: &str) -> Result<()> {

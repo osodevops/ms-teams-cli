@@ -82,8 +82,12 @@ mod tests {
         let req = CreateTagRequest {
             display_name: "Engineers".into(),
             members: vec![
-                CreateTagMemberEntry { user_id: "u1".into() },
-                CreateTagMemberEntry { user_id: "u2".into() },
+                CreateTagMemberEntry {
+                    user_id: "u1".into(),
+                },
+                CreateTagMemberEntry {
+                    user_id: "u2".into(),
+                },
             ],
         };
         let json = serde_json::to_value(&req).unwrap();

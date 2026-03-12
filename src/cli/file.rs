@@ -109,18 +109,13 @@ pub async fn run(
     match cmd {
         FileCommand::List { team, channel } => {
             let start = Instant::now();
-            let files =
-                api::files::list_files(&client, &team, &channel, pagination).await?;
+            let files = api::files::list_files(&client, &team, &channel, pagination).await?;
             if format == OutputFormat::Human {
                 let headers = vec!["ID", "Name", "Size", "Type", "Modified"];
                 let rows: Vec<Vec<String>> = files
                     .iter()
                     .map(|f| {
-                        let file_type = if f.folder.is_some() {
-                            "folder"
-                        } else {
-                            "file"
-                        };
+                        let file_type = if f.folder.is_some() { "folder" } else { "file" };
                         vec![
                             f.id.clone().unwrap_or_default(),
                             f.name.clone().unwrap_or_default(),
@@ -143,8 +138,7 @@ pub async fn run(
             file_id,
         } => {
             let start = Instant::now();
-            let file =
-                api::files::get_file(&client, &team, &channel, &file_id).await?;
+            let file = api::files::get_file(&client, &team, &channel, &file_id).await?;
             output::print_success(format, &file, start);
             Ok(())
         }
@@ -166,9 +160,7 @@ pub async fn run(
                 })?;
                 let mut buf = Vec::new();
                 io::stdin().read_to_end(&mut buf).map_err(|e| {
-                    crate::error::TeamsError::InvalidInput(format!(
-                        "Failed to read stdin: {e}"
-                    ))
+                    crate::error::TeamsError::InvalidInput(format!("Failed to read stdin: {e}"))
                 })?;
                 let ct = mime_guess::from_path(&filename)
                     .first_or_octet_stream()
@@ -197,15 +189,9 @@ pub async fn run(
                 ));
             };
 
-            let item = api::files::upload_file(
-                &client,
-                &team,
-                &channel,
-                &filename,
-                bytes,
-                &content_type,
-            )
-            .await?;
+            let item =
+                api::files::upload_file(&client, &team, &channel, &filename, bytes, &content_type)
+                    .await?;
             output::print_success(format, &item, start);
             Ok(())
         }
@@ -216,8 +202,7 @@ pub async fn run(
             file_id,
             output: output_path,
         } => {
-            let bytes =
-                api::files::download_file(&client, &team, &channel, &file_id).await?;
+            let bytes = api::files::download_file(&client, &team, &channel, &file_id).await?;
 
             if let Some(path) = output_path {
                 std::fs::write(&path, &bytes).map_err(|e| {

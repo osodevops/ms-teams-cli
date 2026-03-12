@@ -5,7 +5,9 @@ use crate::api::{self, GraphClient, PaginationOpts};
 use crate::auth;
 use crate::config::ConfigFile;
 use crate::error::Result;
-use crate::models::tag::{AddTagMemberRequest, CreateTagMemberEntry, CreateTagRequest, UpdateTagRequest};
+use crate::models::tag::{
+    AddTagMemberRequest, CreateTagMemberEntry, CreateTagRequest, UpdateTagRequest,
+};
 use crate::output::{self, OutputFormat};
 
 #[derive(Debug, Subcommand)]
@@ -95,9 +97,7 @@ pub async fn run(
                             t.id.clone().unwrap_or_default(),
                             t.display_name.clone().unwrap_or_default(),
                             t.description.clone().unwrap_or_default(),
-                            t.member_count
-                                .map(|c| c.to_string())
-                                .unwrap_or_default(),
+                            t.member_count.map(|c| c.to_string()).unwrap_or_default(),
                         ]
                     })
                     .collect();
@@ -144,9 +144,7 @@ pub async fn run(
             name,
         } => {
             let start = Instant::now();
-            let req = UpdateTagRequest {
-                display_name: name,
-            };
+            let req = UpdateTagRequest { display_name: name };
             let tag = api::tags::update_tag(&client, &team_id, &tag_id, &req).await?;
             output::print_success(format, &tag, start);
             Ok(())
@@ -166,11 +164,8 @@ pub async fn run(
             user,
         } => {
             let start = Instant::now();
-            let req = AddTagMemberRequest {
-                user_id: user,
-            };
-            let member =
-                api::tags::add_tag_member(&client, &team_id, &tag_id, &req).await?;
+            let req = AddTagMemberRequest { user_id: user };
+            let member = api::tags::add_tag_member(&client, &team_id, &tag_id, &req).await?;
             output::print_success(format, &member, start);
             Ok(())
         }

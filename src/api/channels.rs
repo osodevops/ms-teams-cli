@@ -15,11 +15,7 @@ pub async fn list_channels(
         .await
 }
 
-pub async fn get_channel(
-    client: &GraphClient,
-    team_id: &str,
-    channel_id: &str,
-) -> Result<Channel> {
+pub async fn get_channel(client: &GraphClient, team_id: &str, channel_id: &str) -> Result<Channel> {
     client
         .get(&endpoints::channel(team_id, channel_id), &[])
         .await
@@ -44,11 +40,7 @@ pub async fn update_channel(
         .await
 }
 
-pub async fn delete_channel(
-    client: &GraphClient,
-    team_id: &str,
-    channel_id: &str,
-) -> Result<()> {
+pub async fn delete_channel(client: &GraphClient, team_id: &str, channel_id: &str) -> Result<()> {
     client
         .delete(&endpoints::channel(team_id, channel_id))
         .await

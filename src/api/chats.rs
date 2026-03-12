@@ -5,10 +5,7 @@ use crate::models::member::{AddMemberRequest, ConversationMember};
 use super::client::{GraphClient, PaginationOpts};
 use super::endpoints;
 
-pub async fn list_chats(
-    client: &GraphClient,
-    pagination: &PaginationOpts,
-) -> Result<Vec<Chat>> {
+pub async fn list_chats(client: &GraphClient, pagination: &PaginationOpts) -> Result<Vec<Chat>> {
     client
         .get_paged(&endpoints::my_chats(), &[], pagination)
         .await
@@ -44,11 +41,7 @@ pub async fn add_member(
     client.post(&endpoints::chat_members(chat_id), req).await
 }
 
-pub async fn remove_member(
-    client: &GraphClient,
-    chat_id: &str,
-    member_id: &str,
-) -> Result<()> {
+pub async fn remove_member(client: &GraphClient, chat_id: &str, member_id: &str) -> Result<()> {
     client
         .delete(&endpoints::chat_member(chat_id, member_id))
         .await

@@ -1,7 +1,5 @@
 use crate::error::{Result, TeamsError};
-use crate::models::file::{
-    DriveItem, FilesFolder, ShareLinkRequest, ShareLinkResponse,
-};
+use crate::models::file::{DriveItem, FilesFolder, ShareLinkRequest, ShareLinkResponse};
 
 use super::client::{GraphClient, PaginationOpts};
 use super::endpoints;

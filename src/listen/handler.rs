@@ -13,10 +13,9 @@ pub async fn handle_request(req: Request<Incoming>) -> HandlerResult {
         (&Method::POST, "/") | (&Method::POST, "/webhook") => {
             // Check for validation token in query string
             if let Some(query) = req.uri().query() {
-                let params: Vec<(String, String)> =
-                    url::form_urlencoded::parse(query.as_bytes())
-                        .into_owned()
-                        .collect();
+                let params: Vec<(String, String)> = url::form_urlencoded::parse(query.as_bytes())
+                    .into_owned()
+                    .collect();
 
                 if let Some((_, token)) = params.iter().find(|(k, _)| k == "validationToken") {
                     return Ok(plain_response(StatusCode::OK, token));

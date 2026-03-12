@@ -51,8 +51,7 @@ pub async fn run(
 
         UserCommand::List { filter } => {
             let start = Instant::now();
-            let users =
-                api::users::list_users(&client, filter.as_deref(), pagination).await?;
+            let users = api::users::list_users(&client, filter.as_deref(), pagination).await?;
 
             if format == OutputFormat::Human {
                 let headers = vec!["ID", "Display Name", "Email", "Job Title"];

@@ -30,8 +30,7 @@ impl TeamCreateRequest {
         Self {
             display_name,
             description,
-            template: "https://graph.microsoft.com/v1.0/teamsTemplates('standard')"
-                .to_string(),
+            template: "https://graph.microsoft.com/v1.0/teamsTemplates('standard')".to_string(),
         }
     }
 }
@@ -79,6 +78,9 @@ mod tests {
         let req = TeamCreateRequest::new("My Team".into(), Some("desc".into()));
         let json = serde_json::to_value(&req).unwrap();
         assert_eq!(json["displayName"], "My Team");
-        assert!(json["template@odata.bind"].as_str().unwrap().contains("standard"));
+        assert!(json["template@odata.bind"]
+            .as_str()
+            .unwrap()
+            .contains("standard"));
     }
 }

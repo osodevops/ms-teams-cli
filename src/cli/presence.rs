@@ -6,7 +6,7 @@ use crate::auth;
 use crate::config::ConfigFile;
 use crate::error::Result;
 use crate::models::presence::{
-    SetPresenceRequest, SetStatusMessageBody, SetStatusMessageRequest, SetStatusExpiry,
+    SetPresenceRequest, SetStatusExpiry, SetStatusMessageBody, SetStatusMessageRequest,
     StatusMessageContent,
 };
 use crate::output::{self, OutputFormat};

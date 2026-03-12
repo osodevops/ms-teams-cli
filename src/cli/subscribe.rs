@@ -84,7 +84,13 @@ pub async fn run(
             let start = Instant::now();
             let subs = api::subscriptions::list_subscriptions(&client, pagination).await?;
             if format == OutputFormat::Human {
-                let headers = vec!["ID", "Resource", "Change Type", "Expiration", "Notification URL"];
+                let headers = vec![
+                    "ID",
+                    "Resource",
+                    "Change Type",
+                    "Expiration",
+                    "Notification URL",
+                ];
                 let rows: Vec<Vec<String>> = subs
                     .iter()
                     .map(|s| {

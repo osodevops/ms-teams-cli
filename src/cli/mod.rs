@@ -179,7 +179,9 @@ pub async fn run(cli: Cli, config: &ConfigFile) -> Result<()> {
 
     match cli.command {
         Commands::Auth { command } => auth::run(command, config, profile, format).await,
-        Commands::User { command } => user::run(command, config, profile, format, &pagination).await,
+        Commands::User { command } => {
+            user::run(command, config, profile, format, &pagination).await
+        }
         Commands::Config { command } => {
             config_cmd::run(command, config, cli.config.as_deref(), format).await
         }
@@ -200,27 +202,15 @@ pub async fn run(cli: Cli, config: &ConfigFile) -> Result<()> {
         Commands::Chat { command } => {
             chat::run(command, config, profile, format, &pagination).await
         }
-        Commands::Presence { command } => {
-            presence::run(command, config, profile, format).await
-        }
-        Commands::Search { command } => {
-            search::run(command, config, profile, format).await
-        }
-        Commands::Tag { command } => {
-            tag::run(command, config, profile, format, &pagination).await
-        }
+        Commands::Presence { command } => presence::run(command, config, profile, format).await,
+        Commands::Search { command } => search::run(command, config, profile, format).await,
+        Commands::Tag { command } => tag::run(command, config, profile, format, &pagination).await,
         Commands::Meeting { command } => {
             meeting::run(command, config, profile, format, &pagination).await
         }
-        Commands::Notify { command } => {
-            notification::run(command, config, profile, format).await
-        }
-        Commands::App { command } => {
-            app::run(command, config, profile, format, &pagination).await
-        }
-        Commands::Tab { command } => {
-            tab::run(command, config, profile, format, &pagination).await
-        }
+        Commands::Notify { command } => notification::run(command, config, profile, format).await,
+        Commands::App { command } => app::run(command, config, profile, format, &pagination).await,
+        Commands::Tab { command } => tab::run(command, config, profile, format, &pagination).await,
         Commands::File { command } => {
             file::run(command, config, profile, format, &pagination).await
         }

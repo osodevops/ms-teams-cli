@@ -114,7 +114,9 @@ pub async fn run(
     }
 }
 
-fn extract_hits(result: &crate::models::search::SearchResponse) -> Vec<&crate::models::search::SearchHit> {
+fn extract_hits(
+    result: &crate::models::search::SearchResponse,
+) -> Vec<&crate::models::search::SearchHit> {
     result
         .value
         .iter()

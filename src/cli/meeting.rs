@@ -145,8 +145,7 @@ pub async fn run(
                 end_date_time: end,
                 allowed_presenters,
             };
-            let meeting =
-                api::meetings::update_meeting(&client, &meeting_id, &req).await?;
+            let meeting = api::meetings::update_meeting(&client, &meeting_id, &req).await?;
             output::print_success(format, &meeting, start_time);
             Ok(())
         }
@@ -178,13 +177,9 @@ pub async fn run(
         } => {
             let start = Instant::now();
             if let Some(rid) = report_id {
-                let records = api::meetings::list_attendance_records(
-                    &client,
-                    &meeting_id,
-                    &rid,
-                    pagination,
-                )
-                .await?;
+                let records =
+                    api::meetings::list_attendance_records(&client, &meeting_id, &rid, pagination)
+                        .await?;
                 if format == OutputFormat::Human {
                     let headers = vec!["ID", "Email", "Role", "Attendance (s)"];
                     let rows: Vec<Vec<String>> = records
@@ -205,12 +200,9 @@ pub async fn run(
                     output::print_success_list(format, &records, start);
                 }
             } else {
-                let reports = api::meetings::list_attendance_reports(
-                    &client,
-                    &meeting_id,
-                    pagination,
-                )
-                .await?;
+                let reports =
+                    api::meetings::list_attendance_reports(&client, &meeting_id, pagination)
+                        .await?;
                 if format == OutputFormat::Human {
                     let headers = vec!["Report ID", "Participants", "Start", "End"];
                     let rows: Vec<Vec<String>> = reports

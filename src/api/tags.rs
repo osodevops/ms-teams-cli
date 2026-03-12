@@ -17,9 +17,7 @@ pub async fn list_tags(
 }
 
 pub async fn get_tag(client: &GraphClient, team_id: &str, tag_id: &str) -> Result<TeamworkTag> {
-    client
-        .get(&endpoints::team_tag(team_id, tag_id), &[])
-        .await
+    client.get(&endpoints::team_tag(team_id, tag_id), &[]).await
 }
 
 pub async fn create_tag(
@@ -42,9 +40,7 @@ pub async fn update_tag(
 }
 
 pub async fn delete_tag(client: &GraphClient, team_id: &str, tag_id: &str) -> Result<()> {
-    client
-        .delete(&endpoints::team_tag(team_id, tag_id))
-        .await
+    client.delete(&endpoints::team_tag(team_id, tag_id)).await
 }
 
 #[allow(dead_code)]
@@ -55,11 +51,7 @@ pub async fn list_tag_members(
     pagination: &PaginationOpts,
 ) -> Result<Vec<TeamworkTagMember>> {
     client
-        .get_paged(
-            &endpoints::tag_members(team_id, tag_id),
-            &[],
-            pagination,
-        )
+        .get_paged(&endpoints::tag_members(team_id, tag_id), &[], pagination)
         .await
 }
 

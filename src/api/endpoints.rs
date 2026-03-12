@@ -102,14 +102,8 @@ pub fn channel_pinned_messages(team_id: &str, channel_id: &str) -> String {
     format!("{GRAPH_V1}/teams/{team_id}/channels/{channel_id}/pinnedMessages")
 }
 
-pub fn channel_pinned_message(
-    team_id: &str,
-    channel_id: &str,
-    pinned_message_id: &str,
-) -> String {
-    format!(
-        "{GRAPH_V1}/teams/{team_id}/channels/{channel_id}/pinnedMessages/{pinned_message_id}"
-    )
+pub fn channel_pinned_message(team_id: &str, channel_id: &str, pinned_message_id: &str) -> String {
+    format!("{GRAPH_V1}/teams/{team_id}/channels/{channel_id}/pinnedMessages/{pinned_message_id}")
 }
 
 // --- Chats ---

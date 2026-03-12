@@ -151,9 +151,7 @@ pub async fn run(
 
         ChatCommand::Update { id, topic } => {
             let start = Instant::now();
-            let req = ChatUpdateRequest {
-                topic: Some(topic),
-            };
+            let req = ChatUpdateRequest { topic: Some(topic) };
             let chat = api::chats::update_chat(&client, &id, &req).await?;
             output::print_success(format, &chat, start);
             Ok(())
@@ -175,9 +173,7 @@ pub async fn run(
             Ok(())
         }
 
-        ChatCommand::Members { command } => {
-            run_members(command, &client, format, pagination).await
-        }
+        ChatCommand::Members { command } => run_members(command, &client, format, pagination).await,
     }
 }
 
@@ -199,10 +195,7 @@ async fn run_members(
                         vec![
                             m.id.clone().unwrap_or_default(),
                             m.display_name.clone().unwrap_or_default(),
-                            m.roles
-                                .as_ref()
-                                .map(|r| r.join(", "))
-                                .unwrap_or_default(),
+                            m.roles.as_ref().map(|r| r.join(", ")).unwrap_or_default(),
                             m.email.clone().unwrap_or_default(),
                         ]
                     })
@@ -220,21 +213,14 @@ async fn run_members(
             role,
         } => {
             let start = Instant::now();
-            let roles = if role == "member" {
-                vec![]
-            } else {
-                vec![role]
-            };
+            let roles = if role == "member" { vec![] } else { vec![role] };
             let req = AddMemberRequest::new(&user_id, roles);
             let member = api::chats::add_member(client, &chat_id, &req).await?;
             output::print_success(format, &member, start);
             Ok(())
         }
 
-        ChatMemberCommand::Remove {
-            chat_id,
-            member_id,
-        } => {
+        ChatMemberCommand::Remove { chat_id, member_id } => {
             let start = Instant::now();
             api::chats::remove_member(client, &chat_id, &member_id).await?;
             let result = serde_json::json!({"status": "removed"});

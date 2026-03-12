@@ -24,10 +24,7 @@ pub async fn search_users(
     client.post(&endpoints::search_query(), &req).await
 }
 
-pub async fn search_teams(
-    client: &GraphClient,
-    query: &str,
-) -> Result<Vec<Team>> {
+pub async fn search_teams(client: &GraphClient, query: &str) -> Result<Vec<Team>> {
     // Graph doesn't support "group" in /search/query; use $search on joinedTeams instead
     let resp: PageResponse<Team> = client
         .get(

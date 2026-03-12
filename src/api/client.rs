@@ -159,7 +159,10 @@ impl GraphClient {
 
             let status = resp.status();
 
-            if let Some(err) = self.check_retryable_error(&resp, status, attempt, max_retries, backoff_base).await? {
+            if let Some(err) = self
+                .check_retryable_error(&resp, status, attempt, max_retries, backoff_base)
+                .await?
+            {
                 if err {
                     continue;
                 }
@@ -323,9 +326,7 @@ impl GraphClient {
             ));
         }
         if status == StatusCode::FORBIDDEN {
-            return Err(TeamsError::PermissionDenied(
-                "Forbidden (403)".to_string(),
-            ));
+            return Err(TeamsError::PermissionDenied("Forbidden (403)".to_string()));
         }
         if status == StatusCode::NOT_FOUND {
             return Err(TeamsError::NotFound("Not found (404)".to_string()));

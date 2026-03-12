@@ -61,8 +61,7 @@ pub async fn run(
             channel_id,
         } => {
             let start = Instant::now();
-            let tabs =
-                api::apps::list_tabs(&client, &team_id, &channel_id, pagination).await?;
+            let tabs = api::apps::list_tabs(&client, &team_id, &channel_id, pagination).await?;
             if format == OutputFormat::Human {
                 let headers = vec!["Tab ID", "Display Name", "App Name", "Web URL"];
                 let rows: Vec<Vec<String>> = tabs
@@ -107,8 +106,7 @@ pub async fn run(
                     remove_url: None,
                 },
             };
-            let tab =
-                api::apps::create_tab(&client, &team_id, &channel_id, &req).await?;
+            let tab = api::apps::create_tab(&client, &team_id, &channel_id, &req).await?;
             output::print_success(format, &tab, start);
             Ok(())
         }

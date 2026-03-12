@@ -116,7 +116,10 @@ mod tests {
 
     #[test]
     fn error_codes_are_correct() {
-        assert_eq!(TeamsError::AuthError("x".into()).error_code(), "AUTH_FAILED");
+        assert_eq!(
+            TeamsError::AuthError("x".into()).error_code(),
+            "AUTH_FAILED"
+        );
         assert_eq!(TeamsError::TokenExpired.error_code(), "AUTH_TOKEN_EXPIRED");
         assert_eq!(TeamsError::NotFound("x".into()).error_code(), "NOT_FOUND");
         assert_eq!(

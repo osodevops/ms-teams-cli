@@ -127,9 +127,7 @@ pub async fn run(
                             t.id.clone().unwrap_or_default(),
                             t.display_name.clone().unwrap_or_default(),
                             t.description.clone().unwrap_or_default(),
-                            t.is_archived
-                                .map(|a| a.to_string())
-                                .unwrap_or_default(),
+                            t.is_archived.map(|a| a.to_string()).unwrap_or_default(),
                         ]
                     })
                     .collect();
@@ -227,9 +225,7 @@ pub async fn run(
             Ok(())
         }
 
-        TeamCommand::Members { command } => {
-            run_members(command, &client, format, pagination).await
-        }
+        TeamCommand::Members { command } => run_members(command, &client, format, pagination).await,
     }
 }
 
@@ -251,10 +247,7 @@ async fn run_members(
                         vec![
                             m.id.clone().unwrap_or_default(),
                             m.display_name.clone().unwrap_or_default(),
-                            m.roles
-                                .as_ref()
-                                .map(|r| r.join(", "))
-                                .unwrap_or_default(),
+                            m.roles.as_ref().map(|r| r.join(", ")).unwrap_or_default(),
                             m.email.clone().unwrap_or_default(),
                         ]
                     })
@@ -272,21 +265,14 @@ async fn run_members(
             role,
         } => {
             let start = Instant::now();
-            let roles = if role == "member" {
-                vec![]
-            } else {
-                vec![role]
-            };
+            let roles = if role == "member" { vec![] } else { vec![role] };
             let req = AddMemberRequest::new(&user_id, roles);
             let member = api::teams::add_member(client, &team_id, &req).await?;
             output::print_success(format, &member, start);
             Ok(())
         }
 
-        TeamMemberCommand::Remove {
-            team_id,
-            member_id,
-        } => {
+        TeamMemberCommand::Remove { team_id, member_id } => {
             let start = Instant::now();
             api::teams::remove_member(client, &team_id, &member_id).await?;
             let result = serde_json::json!({"status": "removed"});

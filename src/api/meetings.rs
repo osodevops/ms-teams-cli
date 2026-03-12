@@ -40,9 +40,7 @@ pub async fn update_meeting(
 }
 
 pub async fn delete_meeting(client: &GraphClient, meeting_id: &str) -> Result<()> {
-    client
-        .delete(&endpoints::online_meeting(meeting_id))
-        .await
+    client.delete(&endpoints::online_meeting(meeting_id)).await
 }
 
 pub async fn list_attendance_reports(

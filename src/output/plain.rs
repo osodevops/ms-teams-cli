@@ -17,7 +17,10 @@ pub fn print_object<T: Serialize>(data: &T) {
         }
     } else {
         // Fallback for non-objects
-        println!("{}", serde_json::to_string_pretty(&value).unwrap_or_default());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).unwrap_or_default()
+        );
     }
 }
 
@@ -47,12 +50,10 @@ pub fn print_list<T: Serialize>(items: &[T]) {
         if let serde_json::Value::Object(map) = val {
             let row: Vec<String> = headers
                 .iter()
-                .map(|h| {
-                    match map.get(h) {
-                        Some(serde_json::Value::Null) | None => String::new(),
-                        Some(serde_json::Value::String(s)) => s.clone(),
-                        Some(other) => other.to_string(),
-                    }
+                .map(|h| match map.get(h) {
+                    Some(serde_json::Value::Null) | None => String::new(),
+                    Some(serde_json::Value::String(s)) => s.clone(),
+                    Some(other) => other.to_string(),
                 })
                 .collect();
             println!("{}", row.join("\t"));

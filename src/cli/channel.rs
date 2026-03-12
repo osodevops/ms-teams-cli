@@ -110,8 +110,7 @@ pub async fn run(
     match cmd {
         ChannelCommand::List { team_id } => {
             let start = Instant::now();
-            let channels =
-                api::channels::list_channels(&client, &team_id, pagination).await?;
+            let channels = api::channels::list_channels(&client, &team_id, pagination).await?;
             if format == OutputFormat::Human {
                 let headers = vec!["ID", "Display Name", "Type", "Email"];
                 let rows: Vec<Vec<String>> = channels
@@ -137,8 +136,7 @@ pub async fn run(
             channel_id,
         } => {
             let start = Instant::now();
-            let channel =
-                api::channels::get_channel(&client, &team_id, &channel_id).await?;
+            let channel = api::channels::get_channel(&client, &team_id, &channel_id).await?;
             output::print_success(format, &channel, start);
             Ok(())
         }
@@ -216,10 +214,7 @@ async fn run_members(
                         vec![
                             m.id.clone().unwrap_or_default(),
                             m.display_name.clone().unwrap_or_default(),
-                            m.roles
-                                .as_ref()
-                                .map(|r| r.join(", "))
-                                .unwrap_or_default(),
+                            m.roles.as_ref().map(|r| r.join(", ")).unwrap_or_default(),
                             m.email.clone().unwrap_or_default(),
                         ]
                     })
@@ -238,14 +233,9 @@ async fn run_members(
             role,
         } => {
             let start = Instant::now();
-            let roles = if role == "member" {
-                vec![]
-            } else {
-                vec![role]
-            };
+            let roles = if role == "member" { vec![] } else { vec![role] };
             let req = AddMemberRequest::new(&user_id, roles);
-            let member =
-                api::channels::add_member(client, &team_id, &channel_id, &req).await?;
+            let member = api::channels::add_member(client, &team_id, &channel_id, &req).await?;
             output::print_success(format, &member, start);
             Ok(())
         }
@@ -256,8 +246,7 @@ async fn run_members(
             member_id,
         } => {
             let start = Instant::now();
-            api::channels::remove_member(client, &team_id, &channel_id, &member_id)
-                .await?;
+            api::channels::remove_member(client, &team_id, &channel_id, &member_id).await?;
             let result = serde_json::json!({"status": "removed"});
             output::print_success(format, &result, start);
             Ok(())

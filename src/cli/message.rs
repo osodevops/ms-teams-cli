@@ -188,7 +188,10 @@ pub async fn run(
                 api::messages::send_chat_message(&client, &chat_id, &req).await?
             } else {
                 let team_id = team.ok_or_else(|| {
-                    TeamsError::InvalidInput("--team and --channel are required for channel messages, or use --chat".into())
+                    TeamsError::InvalidInput(
+                        "--team and --channel are required for channel messages, or use --chat"
+                            .into(),
+                    )
                 })?;
                 let channel_id = channel.ok_or_else(|| {
                     TeamsError::InvalidInput("--channel is required for channel messages".into())
@@ -212,10 +215,10 @@ pub async fn run(
                 let team_id = team.ok_or_else(|| {
                     TeamsError::InvalidInput("--team and --channel required, or use --chat".into())
                 })?;
-                let channel_id = channel.ok_or_else(|| {
-                    TeamsError::InvalidInput("--channel is required".into())
-                })?;
-                api::messages::list_channel_messages(&client, &team_id, &channel_id, pagination).await?
+                let channel_id = channel
+                    .ok_or_else(|| TeamsError::InvalidInput("--channel is required".into()))?;
+                api::messages::list_channel_messages(&client, &team_id, &channel_id, pagination)
+                    .await?
             };
 
             if format == OutputFormat::Human {
@@ -276,9 +279,8 @@ pub async fn run(
             let start = Instant::now();
             let content = resolve_body(body, stdin)?;
             let req = build_send_request(content, &content_type, None)?;
-            let msg =
-                api::messages::reply_to_message(&client, &team, &channel, &message_id, &req)
-                    .await?;
+            let msg = api::messages::reply_to_message(&client, &team, &channel, &message_id, &req)
+                .await?;
             output::print_success(format, &msg, start);
             Ok(())
         }
@@ -303,8 +305,7 @@ pub async fn run(
             reaction,
         } => {
             let start = Instant::now();
-            api::messages::unset_reaction(&client, &team, &channel, &message_id, &reaction)
-                .await?;
+            api::messages::unset_reaction(&client, &team, &channel, &message_id, &reaction).await?;
             let result = serde_json::json!({"status": "reaction_removed", "reaction": reaction});
             output::print_success(format, &result, start);
             Ok(())
@@ -316,8 +317,7 @@ pub async fn run(
             message_id,
         } => {
             let start = Instant::now();
-            let pinned =
-                api::messages::pin_message(&client, &team, &channel, &message_id).await?;
+            let pinned = api::messages::pin_message(&client, &team, &channel, &message_id).await?;
             output::print_success(format, &pinned, start);
             Ok(())
         }
@@ -385,9 +385,8 @@ fn build_send_request(
             TeamsError::InvalidInput(format!("Failed to read adaptive card file: {e}"))
         })?;
         // Validate JSON
-        serde_json::from_str::<serde_json::Value>(&card_json).map_err(|e| {
-            TeamsError::InvalidInput(format!("Invalid adaptive card JSON: {e}"))
-        })?;
+        serde_json::from_str::<serde_json::Value>(&card_json)
+            .map_err(|e| TeamsError::InvalidInput(format!("Invalid adaptive card JSON: {e}")))?;
         Some(vec![ChatMessageAttachment {
             id: Some(uuid::Uuid::new_v4().to_string()),
             content_type: Some("application/vnd.microsoft.card.adaptive".to_string()),
