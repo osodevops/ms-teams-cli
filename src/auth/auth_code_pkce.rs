@@ -16,7 +16,7 @@ const REDIRECT_URI: &str = "http://localhost:8400/callback";
 fn generate_pkce() -> (String, String) {
     use rand::Rng;
     let mut rng = rand::thread_rng();
-    let verifier_bytes: Vec<u8> = (0..32).map(|_| rng.gen()).collect();
+    let verifier_bytes: Vec<u8> = (0..32).map(|_| rng.gen::<u8>()).collect();
     let verifier = URL_SAFE_NO_PAD.encode(&verifier_bytes);
 
     let mut hasher = Sha256::new();
@@ -39,7 +39,7 @@ pub async fn authenticate(
     let state: String = {
         use rand::Rng;
         let mut rng = rand::thread_rng();
-        let bytes: Vec<u8> = (0..16).map(|_| rng.gen()).collect();
+        let bytes: Vec<u8> = (0..16).map(|_| rng.gen::<u8>()).collect();
         URL_SAFE_NO_PAD.encode(&bytes)
     };
 
