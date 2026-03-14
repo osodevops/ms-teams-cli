@@ -1,12 +1,63 @@
-# teams — Microsoft Teams CLI for Developers, Bots, and AI Agents (Rust)
+# teams — Microsoft Teams CLI for AI Agents and Developers (Rust)
 
-A fast, single-binary CLI for [Microsoft Teams](https://teams.microsoft.com), built in Rust.
+A fast, single-binary CLI that gives AI agents and automation full access to [Microsoft Teams](https://teams.microsoft.com) via the Microsoft Graph API.
 
-Manage teams, channels, messages, meetings, presence, files, and more from your terminal — with structured JSON output, real-time webhook support, and full agentic workflow support.
+Every command returns structured JSON with deterministic exit codes — designed from the ground up for autonomous agents (Claude, GPT, custom LLM agents), CI/CD pipelines, and developer scripts. Not a chatbot framework. A tool that agents wield.
 
 [![CI](https://github.com/osodevops/ms-teams-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/osodevops/ms-teams-cli/actions/workflows/ci.yml)
 [![Release](https://github.com/osodevops/ms-teams-cli/actions/workflows/release.yml/badge.svg)](https://github.com/osodevops/ms-teams-cli/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+## Why This Exists
+
+AI agents need to operate in Microsoft Teams — reading messages, posting updates, managing channels, reacting to events — but there is no comprehensive CLI for Teams. Existing MCP servers cover only a fraction of the Graph API. Bot Framework SDKs assume a conversational UI inside Teams, not an external agent calling in.
+
+**teams-cli** fills this gap: a complete, headless, machine-readable interface to Teams that any agent can call as a subprocess.
+
+## Agent Integration Contract
+
+Every command, when piped or called programmatically, returns a **JSON envelope**:
+
+```json
+{
+  "success": true,
+  "data": { "id": "...", "displayName": "Engineering", "..." : "..." },
+  "metadata": {
+    "request_id": "550e8400-e29b-41d4-a716-446655440000",
+    "timestamp": "2026-03-15T00:00:00Z",
+    "duration_ms": 123
+  }
+}
+```
+
+On failure:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "AUTH_TOKEN_EXPIRED",
+    "message": "Access token has expired. Run `teams auth login` to re-authenticate."
+  }
+}
+```
+
+**Exit codes** map directly to error categories — agents can branch on `$?` without parsing:
+
+| Code | Meaning | Agent Action |
+|------|---------|--------------|
+| 0 | Success | Parse `.data` from stdout |
+| 1 | General error | Log and investigate |
+| 2 | Invalid arguments | Fix command syntax |
+| 3 | Authentication error | Re-authenticate |
+| 4 | Permission denied (403) | Escalate or skip |
+| 5 | Resource not found (404) | Handle missing resource |
+| 6 | Rate limited (429) | Back off and retry |
+| 7 | Network error / timeout | Retry with backoff |
+| 8 | Server error (5xx) | Retry with backoff |
+| 10 | Configuration error | Check config/env vars |
+
+**Output auto-detection**: When stdout is a TTY, output defaults to human-readable tables. When piped (which is how agents call it), output defaults to JSON. Override with `--output json|human|plain`.
 
 ## Install
 
@@ -21,68 +72,109 @@ brew install osodevops/tap/teams
 cargo install --git https://github.com/osodevops/ms-teams-cli
 ```
 
-## Setup
+## Agent Authentication
 
-Authenticate with your Azure AD application:
+For AI agents and automation, use **client credentials** (fully headless, no browser):
 
 ```bash
-# Interactive login (opens browser, Authorization Code + PKCE)
-teams auth login --client-id <client-id> --tenant-id <tenant-id>
+# Option 1: Environment variables (recommended for agents)
+export TEAMS_CLI_CLIENT_ID=your-client-id
+export TEAMS_CLI_CLIENT_SECRET=your-secret
+export TEAMS_CLI_TENANT_ID=your-tenant-id
+teams auth login --client-credentials
 
-# Device code flow (headless/SSH)
-teams auth login --device-code --client-id <client-id> --tenant-id <tenant-id>
+# Option 2: Pass a pre-obtained token directly
+export TEAMS_CLI_ACCESS_TOKEN=eyJ0eXAi...
+teams team list  # no login step needed
 
-# Client credentials (non-interactive, for CI/CD and agents)
+# Option 3: Explicit flags
 teams auth login --client-credentials \
   --client-id <client-id> --client-secret <secret> --tenant-id <tenant-id>
 ```
 
-Or use environment variables:
+Tokens are cached in the OS keyring — subsequent commands reuse the session without re-authentication.
+
+**Other auth flows** (for interactive/developer use):
 
 ```bash
-export TEAMS_CLI_CLIENT_ID=your-client-id
-export TEAMS_CLI_TENANT_ID=your-tenant-id
-export TEAMS_CLI_CLIENT_SECRET=your-secret  # client credentials only
-teams auth login --client-credentials
+# Browser-based login (Authorization Code + PKCE)
+teams auth login --client-id <client-id> --tenant-id <tenant-id>
+
+# Device code flow (headless/SSH, still requires a human to approve once)
+teams auth login --device-code --client-id <client-id> --tenant-id <tenant-id>
 ```
 
-Tokens are stored in the OS keyring (macOS Keychain, Windows Credential Manager, Linux Secret Service). Sessions persist across CLI invocations.
+**Credential resolution order**: CLI flags > environment variables > config file profiles.
 
-## Quick Start
+## Agent Workflow Patterns
+
+### Pattern 1: Read-Act-Respond
 
 ```bash
-# List your teams
-teams team list
-
-# List channels in a team
-teams channel list <team-id>
-
-# Send a message to a channel
-teams message send --team <team-id> --channel <channel-id> --body "Hello from CLI"
-
-# Search messages across Teams
-teams search messages --query "deployment failed"
-
-# Check your presence
-teams presence get
-
-# List upcoming meetings
-teams meeting list
+# Agent reads recent messages, decides how to respond
+MESSAGES=$(teams message list --team $TEAM --channel $CHANNEL --output json)
+# Parse with jq, pass to LLM, then act
+echo "$MESSAGES" | jq -r '.data[].body.content' | my-agent-process
+teams message send --team $TEAM --channel $CHANNEL --body "$RESPONSE"
 ```
 
-## Commands
+### Pattern 2: Fan-Out Notifications
+
+```bash
+# Send a message to every channel in a team
+teams channel list $TEAM_ID --output json | \
+  jq -r '.data[].id' | \
+  xargs -I{} teams message send --team $TEAM_ID --channel {} --body "Deploy v2.3.1 complete"
+```
+
+### Pattern 3: Real-Time Event Loop
+
+```bash
+# Listen for new messages via webhook and pipe to agent processing
+teams listen --port 8080 | \
+  jq --unbuffered 'select(.changeType == "created")' | \
+  while IFS= read -r event; do
+    my-agent-handler "$event"
+  done
+```
+
+### Pattern 4: Stdin Composition
+
+```bash
+# Pipe any command output as a Teams message
+kubectl get pods --namespace prod | \
+  teams message send --team $TEAM --channel $CHANNEL --stdin
+
+# Pipe a file as message body
+cat report.md | teams message send --team $TEAM --channel $CHANNEL --stdin --content-type html
+```
+
+### Pattern 5: Conditional Error Handling
+
+```bash
+teams message send --team $TEAM --channel $CHANNEL --body "Hello"
+case $? in
+  0) echo "Sent" ;;
+  3) teams auth login --client-credentials && retry ;;
+  6) sleep 30 && retry ;;  # Rate limited
+  5) echo "Channel not found" ;;
+  *) echo "Unexpected error" ;;
+esac
+```
+
+## Capabilities
 
 ### Authentication
 
 ```bash
 teams auth login             # Interactive login (browser)
 teams auth login --device-code  # Device code flow
-teams auth login --client-credentials  # Client credentials
+teams auth login --client-credentials  # Client credentials (agents)
 teams auth status            # Check if session is valid (exit code 0/1)
 teams auth list              # List authenticated profiles
 teams auth switch <profile>  # Switch active profile
 teams auth logout            # Clear stored credentials
-teams auth token             # Export access token
+teams auth token             # Export access token to stdout
 ```
 
 ### Teams
@@ -197,17 +289,12 @@ teams notify send-to-chat --chat-id <chat-id> --topic "Update" \
   --activity-type statusUpdate --preview "Status changed"
 ```
 
-### Apps
+### Apps & Tabs
 
 ```bash
 teams app list <team-id>
 teams app install <team-id> --app-id <catalog-app-id>
 teams app uninstall <team-id> <installation-id>
-```
-
-### Tabs
-
-```bash
 teams tab list <team-id> <channel-id>
 teams tab create <team-id> <channel-id> --app-id <app-id> --name "Wiki" --content-url <url>
 teams tab delete <team-id> <channel-id> <tab-id>
@@ -224,9 +311,10 @@ teams file delete --team <team-id> --channel <channel-id> --file-id <id>
 teams file share --team <team-id> --channel <channel-id> --file-id <id> --scope organization
 ```
 
-### Subscriptions
+### Subscriptions & Webhooks
 
 ```bash
+# Create a subscription for real-time change notifications
 teams subscribe create \
   --resource "/teams/{team-id}/channels/{channel-id}/messages" \
   --change-type created,updated \
@@ -234,25 +322,16 @@ teams subscribe create \
 teams subscribe list
 teams subscribe renew <subscription-id> [--expiration <datetime>]
 teams subscribe delete <subscription-id>
-```
 
-### Webhook Listener
-
-```bash
-# Start a webhook listener to receive change notifications
+# Start a webhook listener (outputs NDJSON to stdout)
 teams listen --port 8080
-```
-
-The listener outputs one JSON object per line (NDJSON) to stdout, suitable for piping:
-
-```bash
 teams listen --port 8080 | jq '.changeType, .resource'
 ```
 
-**Note:** Microsoft Graph requires HTTPS for webhook notification URLs. Use a reverse proxy such as [ngrok](https://ngrok.com) in front of the listener:
+**Note:** Microsoft Graph requires HTTPS for webhook URLs. Use [ngrok](https://ngrok.com) or similar:
 
 ```bash
-ngrok http 8080  # exposes https://xxxx.ngrok.io -> localhost:8080
+ngrok http 8080
 teams subscribe create --resource "/teams/all/messages" \
   --change-type created --webhook-url https://xxxx.ngrok.io/webhook
 teams listen --port 8080
@@ -276,67 +355,35 @@ teams config get <key>
 teams config init            # Create default config file
 ```
 
-### Shell Completions
+## Resilience & Rate Limiting
+
+The Graph API client handles transient failures automatically:
+
+- **Retry with exponential backoff** on 429 (rate limited) and 5xx errors
+- **Respects `Retry-After` header** from Microsoft Graph
+- **Configurable**: `--retry <max>` flag, or `network.max_retries` in config
+- **Pagination**: `--all-pages` fetches all results; `--page-size` controls batch size
+- **Idempotent operations**: safe to retry on failure
+
+Agents should treat exit code 6 (rate limited) as "retry later" — the CLI has already retried internally.
+
+## Multi-Profile Support
+
+Manage multiple tenants or service principals:
 
 ```bash
-teams completions bash >> ~/.bashrc
-teams completions zsh >> ~/.zshrc
-teams completions fish > ~/.config/fish/completions/teams.fish
-teams completions powershell > teams.ps1
+teams --profile prod auth login --client-credentials --client-id ... --tenant-id ...
+teams --profile staging auth login --client-credentials --client-id ... --tenant-id ...
+
+teams --profile prod team list
+teams --profile staging message send --team <id> --channel <id> --body "Deployed"
 ```
 
-## Output Formats
-
-teams auto-detects the output format:
-
-- **TTY** (interactive terminal): Human-readable tables
-- **Pipe** (non-interactive): Machine-readable JSON envelope
-
-Override with `--output`:
-
-```bash
-teams team list --output json      # Force JSON
-teams team list --output human     # Force human-readable tables
-teams team list --output plain     # Plain text
-```
-
-### JSON Envelope
-
-All JSON output follows a standard envelope:
-
-```json
-{
-  "success": true,
-  "data": { ... },
-  "metadata": {
-    "request_id": "uuid",
-    "timestamp": "2026-03-15T00:00:00Z",
-    "duration_ms": 123
-  }
-}
-```
-
-Error responses:
-
-```json
-{
-  "success": false,
-  "error": {
-    "code": "AUTH_TOKEN_EXPIRED",
-    "message": "Token expired"
-  }
-}
-```
-
-## Configuration
-
-Config file location:
-- Linux: `~/.config/teams-cli/config.toml`
-- macOS: `~/Library/Application Support/teams-cli/config.toml`
+Config file (`~/.config/teams-cli/config.toml` on Linux, `~/Library/Application Support/teams-cli/config.toml` on macOS):
 
 ```toml
 [default]
-profile = "work"
+profile = "prod"
 
 [output]
 format = "auto"    # auto, json, human, plain
@@ -348,27 +395,15 @@ timeout = 30
 max_retries = 3
 retry_backoff_base = 2
 
-[profiles.work]
+[profiles.prod]
 client_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 tenant_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-auth_flow = "device-code"
+auth_flow = "client-credentials"
 
-[profiles.ci]
+[profiles.staging]
 client_id = "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy"
 tenant_id = "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy"
 auth_flow = "client-credentials"
-```
-
-### Profiles
-
-Use named profiles for multiple accounts:
-
-```bash
-teams --profile work auth login --client-id ... --tenant-id ...
-teams --profile ci auth login --client-credentials --client-id ... --tenant-id ...
-
-teams --profile work team list
-teams --profile ci message send --team <id> --channel <id> --body "Deploy complete"
 ```
 
 ## Environment Variables
@@ -378,63 +413,27 @@ teams --profile ci message send --team <id> --channel <id> --body "Deploy comple
 | `TEAMS_CLI_CLIENT_ID` | Azure AD application (client) ID |
 | `TEAMS_CLI_CLIENT_SECRET` | Azure AD client secret |
 | `TEAMS_CLI_TENANT_ID` | Azure AD tenant ID |
-| `TEAMS_CLI_ACCESS_TOKEN` | Pre-obtained access token (skips login) |
+| `TEAMS_CLI_ACCESS_TOKEN` | Pre-obtained access token (skips login entirely) |
 | `RUST_LOG` | Tracing filter (e.g., `debug`, `teams=trace`) |
 
 ## Verbosity
 
 ```bash
-teams team list              # Warnings only
+teams team list              # Warnings only (stderr)
 teams -v team list           # Info level
 teams -vv team list          # Debug level
 teams -vvv team list         # Trace level
 ```
 
-## Exit Codes
+Trace output goes to stderr, never polluting stdout JSON.
 
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | General error |
-| 2 | Invalid arguments / usage error |
-| 3 | Authentication error |
-| 4 | Permission denied (403) |
-| 5 | Resource not found (404) |
-| 6 | Rate limited (429) |
-| 7 | Network error / timeout |
-| 8 | Server error (5xx) |
-| 10 | Configuration error |
-
-## Agentic Usage
-
-teams is designed for use by AI agents and automation. Key features:
-
-- **Structured JSON output** when piped — parse with `jq` or any JSON library
-- **Deterministic exit codes** for error handling
-- **No interactive prompts** in client-credentials flow
-- **Environment variable auth** — no interactive login needed
-- **Real-time events** via webhook listener with NDJSON output
-- **Idempotent operations** — safe to retry
-
-Example in a script:
+## Shell Completions
 
 ```bash
-#!/bin/bash
-export TEAMS_CLI_CLIENT_ID=your-client-id
-export TEAMS_CLI_CLIENT_SECRET=your-secret
-export TEAMS_CLI_TENANT_ID=your-tenant
-
-# Login
-teams auth login --client-credentials
-
-# Get all channels, send a message to each
-teams channel list <team-id> --output json | \
-  jq -r '.data[].id' | \
-  xargs -I{} teams message send --team <team-id> --channel {} --body "Reminder: standup in 5"
-
-# Monitor a channel via webhook and pipe to processing
-teams listen --port 8080 | \
-  jq 'select(.changeType == "created") | .resource'
+teams completions bash >> ~/.bashrc
+teams completions zsh >> ~/.zshrc
+teams completions fish > ~/.config/fish/completions/teams.fish
+teams completions powershell > teams.ps1
 ```
 
 ## Development

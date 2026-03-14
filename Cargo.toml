@@ -5,10 +5,10 @@ edition = "2021"
 rust-version = "1.75"
 license = "MIT"
 authors = ["OSO DevOps"]
-description = "A Rust CLI for Microsoft Teams — agent-first design"
+description = "Microsoft Teams CLI for AI agents — structured JSON output, deterministic exit codes, headless auth, real-time webhooks"
 repository = "https://github.com/osodevops/ms-teams-cli"
 readme = "README.md"
-keywords = ["teams", "microsoft", "cli", "graph-api", "mcp"]
+keywords = ["teams", "microsoft", "ai-agent", "graph-api", "mcp"]
 categories = ["command-line-utilities"]
 
 [[bin]]
