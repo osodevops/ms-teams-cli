@@ -1,1 +1,19 @@
 /target
+
+# Secrets and credentials
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.cert
+*.der
+tokens.enc
+
+# User config (may contain real client IDs/tenant IDs)
+config.toml
+
+# OS artifacts
+.DS_Store
+Thumbs.db
