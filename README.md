@@ -72,37 +72,127 @@ brew install osodevops/tap/teams
 cargo install --git https://github.com/osodevops/ms-teams-cli
 ```
 
-## Agent Authentication
+## Documentation
 
-For AI agents and automation, use **client credentials** (fully headless, no browser):
+- [Docs index](docs/README.md)
+- [Quickstarts](docs/quickstarts/README.md)
+- [Authentication guide](docs/auth.md)
+- [Command reference](docs/command-reference.md)
+- [Examples](docs/examples.md)
+- [Use cases](docs/use-cases.md)
+- [FAQ](docs/faq.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Release readiness](docs/release-readiness.md)
+- Man pages: `docs/man/teams.1`, `docs/man/teams-config.5`, `docs/man/teams-auth.7`, `docs/man/teams-agent-contract.7`, `docs/man/teams-examples.7`
+
+## Quickstart
 
 ```bash
-# Option 1: Environment variables (recommended for agents)
-export TEAMS_CLI_CLIENT_ID=your-client-id
-export TEAMS_CLI_CLIENT_SECRET=your-secret
-export TEAMS_CLI_TENANT_ID=your-tenant-id
+# 1. Sign in with the built-in OSO public client app
+teams auth login --device-code
+
+# 2. Check auth, tenant, token type, and consent URL
+teams auth doctor --output json
+
+# 3. Read Teams context
+teams user me --output json
+teams chat list --page-size 10 --output json
+teams team list --output json
+
+# 4. Send only to a known safe test chat or channel
+teams message send --chat <chat-id> --body "teams-cli smoke test" --output json
+```
+
+Use a dedicated test target for first writes. Do not test against client or production chats.
+
+## Commercial Microsoft Setup
+
+The CLI has OSO's multi-tenant delegated public client app baked in:
+
+```text
+Client ID: fba1b5d0-fdd0-4fe2-9729-9ccdc38f9595
+Default authority: organizations
+Loopback redirect URI: http://localhost:8400/callback
+```
+
+Customer admin consent:
+
+```bash
+teams auth consent-url --tenant-id <customer-tenant-id-or-domain> --output json
+```
+
+For enterprises that require their own app registration, configure BYO mode:
+
+```toml
+[profiles.customer]
+auth_app = "byo"
+client_id = "11111111-1111-1111-1111-111111111111"
+tenant_id = "22222222-2222-2222-2222-222222222222"
+auth_flow = "device-code"
+```
+
+Then sign in:
+
+```bash
+teams --profile customer auth login --device-code
+teams --profile customer auth doctor --output json
+```
+
+Official Microsoft trust checklist before broad external rollout:
+
+- Complete Microsoft Entra publisher verification for the OSO app.
+- Set clear Entra branding: display name, logo, publisher domain, homepage, privacy policy, and terms URLs.
+- Document every delegated Graph scope requested.
+- Use tenant-specific admin consent URLs for customer onboarding.
+- Teams Store submission is not required for this CLI-only Graph app. It becomes relevant only if OSO ships a Teams app/bot package.
+
+## Agent Authentication
+
+For Teams message posting and most user-facing actions, use **delegated auth**.
+Messages sent through Microsoft Graph appear as the signed-in user, and Microsoft
+Graph does not generally support app-only tokens for normal live Teams
+chat/channel message posting.
+
+Delegated login defaults to the OSO multi-tenant public client app. Customers
+can still bring their own Entra app by passing `--client-id` and `--tenant-id`
+or configuring a profile; see
+[`docs/auth-implementation-plan.md`](docs/auth-implementation-plan.md).
+
+```bash
+# Browser-based login with OSO's public client app
+teams auth login
+
+# Device code flow with OSO's public client app
+teams auth login --device-code
+
+# Browser-based login with a customer-owned app
+teams auth login --client-id <client-id> --tenant-id <tenant-id>
+
+# Device code flow with a customer-owned app
+teams auth login --device-code --client-id <client-id> --tenant-id <tenant-id>
+```
+
+Use **client credentials** only for commands backed by Graph application
+permissions, such as supported read/admin automation. Do not use this as the
+primary model for sending normal Teams messages:
+
+```bash
+# Environment variables for app-only Graph operations
+export TEAMS_CLI_CLIENT_ID=<client-id>
+export TEAMS_CLI_CLIENT_SECRET=<client-secret>
+export TEAMS_CLI_TENANT_ID=<tenant-id>
 teams auth login --client-credentials
 
-# Option 2: Pass a pre-obtained token directly
-export TEAMS_CLI_ACCESS_TOKEN=eyJ0eXAi...
+# Pass a pre-obtained token directly
+export TEAMS_CLI_ACCESS_TOKEN=<access-token>
 teams team list  # no login step needed
 
-# Option 3: Explicit flags
+# Explicit flags
 teams auth login --client-credentials \
-  --client-id <client-id> --client-secret <secret> --tenant-id <tenant-id>
+  --client-id <client-id> --client-secret <client-secret> --tenant-id <tenant-id>
 ```
 
 Tokens are cached in the OS keyring — subsequent commands reuse the session without re-authentication.
-
-**Other auth flows** (for interactive/developer use):
-
-```bash
-# Browser-based login (Authorization Code + PKCE)
-teams auth login --client-id <client-id> --tenant-id <tenant-id>
-
-# Device code flow (headless/SSH, still requires a human to approve once)
-teams auth login --device-code --client-id <client-id> --tenant-id <tenant-id>
-```
 
 **Credential resolution order**: CLI flags > environment variables > config file profiles.
 
@@ -155,7 +245,7 @@ cat report.md | teams message send --team $TEAM --channel $CHANNEL --stdin --con
 teams message send --team $TEAM --channel $CHANNEL --body "Hello"
 case $? in
   0) echo "Sent" ;;
-  3) teams auth login --client-credentials && retry ;;
+  3) teams auth login --device-code && retry ;;
   6) sleep 30 && retry ;;  # Rate limited
   5) echo "Channel not found" ;;
   *) echo "Unexpected error" ;;
@@ -169,8 +259,10 @@ esac
 ```bash
 teams auth login             # Interactive login (browser)
 teams auth login --device-code  # Device code flow
-teams auth login --client-credentials  # Client credentials (agents)
+teams auth login --client-credentials  # App-only Graph operations where supported
 teams auth status            # Check if session is valid (exit code 0/1)
+teams auth consent-url       # Print admin consent URL for the active auth app
+teams auth doctor            # Diagnose config and token state
 teams auth list              # List authenticated profiles
 teams auth switch <profile>  # Switch active profile
 teams auth logout            # Clear stored credentials
@@ -263,8 +355,8 @@ teams tag list <team-id>
 teams tag get <team-id> <tag-id>
 teams tag create <team-id> --name "Frontend" --members <user-id-1>,<user-id-2>
 teams tag delete <team-id> <tag-id>
-teams tag add-member <team-id> <tag-id> --user-id <user-id>
-teams tag remove-member <team-id> <tag-id> <member-id>
+teams tag add-member <team-id> <tag-id> --user <user-id>
+teams tag remove-member <team-id> <tag-id> --user <user-id>
 ```
 
 ### Meetings
@@ -281,11 +373,11 @@ teams meeting attendance <meeting-id>
 ### Notifications
 
 ```bash
-teams notify send --user-id <user-id> --topic "New Assignment" \
+teams notify send --user <user-id> --topic "New Assignment" \
   --activity-type taskCreated --preview "You have a new task"
-teams notify send-to-team --team-id <team-id> --topic "Deploy" \
+teams notify send-to-team <team-id> --topic "Deploy" \
   --activity-type deploymentComplete --preview "v2.3.1 deployed"
-teams notify send-to-chat --chat-id <chat-id> --topic "Update" \
+teams notify send-to-chat <chat-id> --topic "Update" \
   --activity-type statusUpdate --preview "Status changed"
 ```
 
@@ -294,10 +386,10 @@ teams notify send-to-chat --chat-id <chat-id> --topic "Update" \
 ```bash
 teams app list <team-id>
 teams app install <team-id> --app-id <catalog-app-id>
-teams app uninstall <team-id> <installation-id>
+teams app uninstall <team-id> --app-id <installation-id>
 teams tab list <team-id> <channel-id>
 teams tab create <team-id> <channel-id> --app-id <app-id> --name "Wiki" --content-url <url>
-teams tab delete <team-id> <channel-id> <tab-id>
+teams tab delete <team-id> <channel-id> --tab-id <tab-id>
 ```
 
 ### Files
@@ -306,7 +398,7 @@ teams tab delete <team-id> <channel-id> <tab-id>
 teams file list --team <team-id> --channel <channel-id>
 teams file get --team <team-id> --channel <channel-id> --file-id <id>
 teams file upload --team <team-id> --channel <channel-id> --file ./report.pdf
-teams file download --team <team-id> --channel <channel-id> --file-id <id> --output ./local.pdf
+teams file download --team <team-id> --channel <channel-id> --file-id <id> --path ./local.pdf
 teams file delete --team <team-id> --channel <channel-id> --file-id <id>
 teams file share --team <team-id> --channel <channel-id> --file-id <id> --scope organization
 ```
@@ -369,17 +461,17 @@ Agents should treat exit code 6 (rate limited) as "retry later" — the CLI has 
 
 ## Multi-Profile Support
 
-Manage multiple tenants or service principals:
+Manage multiple tenants, delegated users, or service principals:
 
 ```bash
-teams --profile prod auth login --client-credentials --client-id ... --tenant-id ...
-teams --profile staging auth login --client-credentials --client-id ... --tenant-id ...
+teams --profile prod auth login --device-code
+teams --profile staging auth login --device-code --client-id ... --tenant-id ...
 
 teams --profile prod team list
 teams --profile staging message send --team <id> --channel <id> --body "Deployed"
 ```
 
-Config file (`~/.config/teams-cli/config.toml` on Linux, `~/Library/Application Support/teams-cli/config.toml` on macOS):
+Config file (`~/.config/teams-cli/config.toml` on Linux, `~/Library/Application Support/teams-cli/config.toml` on macOS, `%APPDATA%\teams-cli\config.toml` on Windows):
 
 ```toml
 [default]
@@ -396,14 +488,14 @@ max_retries = 3
 retry_backoff_base = 2
 
 [profiles.prod]
-client_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 tenant_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-auth_flow = "client-credentials"
+auth_flow = "device-code"
 
 [profiles.staging]
+auth_app = "byo"
 client_id = "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy"
 tenant_id = "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy"
-auth_flow = "client-credentials"
+auth_flow = "device-code"
 ```
 
 ## Environment Variables
@@ -434,6 +526,18 @@ teams completions bash >> ~/.bashrc
 teams completions zsh >> ~/.zshrc
 teams completions fish > ~/.config/fish/completions/teams.fish
 teams completions powershell > teams.ps1
+```
+
+## Man Pages
+
+Man pages are maintained under `docs/man/` and included in release archives:
+
+```bash
+man ./docs/man/teams.1
+man ./docs/man/teams-config.5
+man ./docs/man/teams-auth.7
+man ./docs/man/teams-agent-contract.7
+man ./docs/man/teams-examples.7
 ```
 
 ## Development

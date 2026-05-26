@@ -16,11 +16,22 @@ pub enum PresenceCommand {
     /// Get presence status (yours or another user's)
     Get {
         /// User ID (omit for your own presence)
-        #[arg(long)]
+        #[arg(long = "user", alias = "user-id")]
         user: Option<String>,
         /// Comma-separated user IDs for batch lookup
-        #[arg(long, value_delimiter = ',')]
+        #[arg(long = "users", alias = "user-ids", value_delimiter = ',')]
         users: Option<Vec<String>>,
+    },
+    /// Get presence for multiple users
+    GetBatch {
+        /// Comma-separated user IDs for batch lookup
+        #[arg(
+            long = "user-ids",
+            alias = "users",
+            value_delimiter = ',',
+            required = true
+        )]
+        user_ids: Vec<String>,
     },
     /// Set your presence status
     Set {
@@ -84,6 +95,28 @@ pub async fn run(
             } else {
                 let presence = api::presence::get_my_presence(&client).await?;
                 output::print_success(format, &presence, start);
+            }
+            Ok(())
+        }
+
+        PresenceCommand::GetBatch { user_ids } => {
+            let start = Instant::now();
+            let presences = api::presence::get_presence_batch(&client, user_ids).await?;
+            if format == OutputFormat::Human {
+                let headers = vec!["ID", "Availability", "Activity"];
+                let rows: Vec<Vec<String>> = presences
+                    .iter()
+                    .map(|p| {
+                        vec![
+                            p.id.clone().unwrap_or_default(),
+                            p.availability.clone().unwrap_or_default(),
+                            p.activity.clone().unwrap_or_default(),
+                        ]
+                    })
+                    .collect();
+                output::table::print_table(headers, rows);
+            } else {
+                output::print_success_list(format, &presences, start);
             }
             Ok(())
         }

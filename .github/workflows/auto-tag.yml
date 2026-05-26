@@ -33,7 +33,7 @@ jobs:
         if: steps.version.outputs.changed == 'true'
         id: tag-check
         run: |
-          if git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+          if git ls-remote --exit-code --tags origin "refs/tags/v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"

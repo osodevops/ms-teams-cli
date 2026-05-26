@@ -1,0 +1,103 @@
+.TH TEAMS-EXAMPLES 7 "May 26, 2026" "teams-cli 0.2.0" "Miscellaneous Information"
+.SH NAME
+teams-examples \- practical examples for the teams CLI
+.SH DESCRIPTION
+This page contains copyable examples for common
+.B teams
+workflows. Replace placeholder IDs before running write commands.
+.SH LOGIN
+.nf
+teams auth login --device-code
+teams auth doctor --output json
+teams auth status --output json
+.fi
+.SH DISCOVER TEAM AND CHANNEL IDS
+.nf
+TEAM_ID=$(teams team list --output json | jq -r '.data[] | select(.displayName=="Engineering") | .id')
+CHANNEL_ID=$(teams channel list "$TEAM_ID" --output json | jq -r '.data[] | select(.displayName=="General") | .id')
+.fi
+.SH SEND A CHANNEL MESSAGE
+.nf
+teams message send \\
+  --team "$TEAM_ID" \\
+  --channel "$CHANNEL_ID" \\
+  --body "Release 2.4.1 is deployed." \\
+  --output json
+.fi
+.SH SEND A CHAT MESSAGE
+.nf
+teams message send \\
+  --chat "$CHAT_ID" \\
+  --body "The deployment is complete and smoke tests passed." \\
+  --output json
+.fi
+.SH SEND FROM STDIN
+.nf
+git log --oneline -5 | teams message send \\
+  --team "$TEAM_ID" \\
+  --channel "$CHANNEL_ID" \\
+  --stdin \\
+  --output json
+.fi
+.SH READ RECENT CHAT METADATA
+.nf
+CHAT_ID=$(teams chat list --output json | jq -r '.data[0].id')
+teams message list --chat "$CHAT_ID" --page-size 10 --output json | \\
+  jq '.data[] | {id, createdDateTime, messageType, bodyChars: (.body.content | length)}'
+.fi
+.PP
+This pattern avoids printing raw customer message bodies into logs.
+.SH REPLY TO A CHANNEL MESSAGE
+.nf
+MESSAGE_ID=$(teams message list --team "$TEAM_ID" --channel "$CHANNEL_ID" --output json | jq -r '.data[0].id')
+teams message reply \\
+  --team "$TEAM_ID" \\
+  --channel "$CHANNEL_ID" \\
+  --message-id "$MESSAGE_ID" \\
+  --body "Acknowledged." \\
+  --output json
+.fi
+.SH FILE SMOKE TEST
+.nf
+printf 'teams-cli file smoke\\n' | teams file upload \\
+  --team "$TEAM_ID" \\
+  --channel "$CHANNEL_ID" \\
+  --stdin \\
+  --name teams-cli-smoke.txt \\
+  --output json
+.fi
+.SH WEBHOOK LISTENER
+.nf
+teams listen --port 8080
+.fi
+.PP
+Microsoft Graph requires HTTPS notification URLs. Put the local listener behind
+an HTTPS tunnel for live subscription testing.
+.SH ERROR HANDLING
+.nf
+if ! output=$(teams message send --chat "$CHAT_ID" --body "Hello" --output json); then
+  code=$?
+  case "$code" in
+    3) teams auth login --device-code ;;
+    4) echo "permission denied" >&2 ;;
+    6) sleep 30 ;;
+    *) echo "$output" >&2 ;;
+  esac
+fi
+.fi
+.SH POWERSHELL
+.nf
+$env:TEAMS_CLI_TENANT_ID = "<tenant-id>"
+teams auth login --device-code
+teams chat list --output json | ConvertFrom-Json
+teams message send --chat $env:TEAMS_TEST_CHAT_ID --body "Windows smoke test" --output json
+.fi
+.SH SAFETY
+Use dedicated test channels for smoke tests. Do not run destructive commands
+against production Teams resources unless the target and cleanup plan are
+explicit.
+.SH SEE ALSO
+.BR teams (1),
+.BR teams-auth (7),
+.BR teams-agent-contract (7),
+.BR teams-config (5)

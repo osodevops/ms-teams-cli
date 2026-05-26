@@ -45,7 +45,10 @@ async fn main() {
 
     // Run the command
     if let Err(e) = cli::run(cli, &config).await {
-        let format = OutputFormat::detect(output_format_flag.as_deref());
+        let format = OutputFormat::detect(crate::config::resolve_output_format(
+            output_format_flag.as_deref(),
+            &config,
+        ));
         output::print_error(format, &e);
         std::process::exit(e.exit_code());
     }

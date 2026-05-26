@@ -61,8 +61,8 @@ pub enum FileCommand {
         #[arg(long)]
         file_id: String,
         /// Output file path (defaults to stdout)
-        #[arg(long)]
-        output: Option<String>,
+        #[arg(long, alias = "output-file")]
+        path: Option<String>,
     },
     /// Delete a file from a channel
     Delete {
@@ -200,11 +200,11 @@ pub async fn run(
             team,
             channel,
             file_id,
-            output: output_path,
+            path,
         } => {
             let bytes = api::files::download_file(&client, &team, &channel, &file_id).await?;
 
-            if let Some(path) = output_path {
+            if let Some(path) = path {
                 std::fs::write(&path, &bytes).map_err(|e| {
                     crate::error::TeamsError::InvalidInput(format!(
                         "Failed to write file '{}': {e}",

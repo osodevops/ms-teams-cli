@@ -2,12 +2,26 @@ use super::token::TokenInfo;
 use crate::error::{Result, TeamsError};
 
 const SERVICE_NAME: &str = "teams-cli";
+const DISABLE_KEYRING_ENV: &str = "TEAMS_CLI_DISABLE_KEYRING";
 
 fn entry_key(profile: &str) -> String {
     format!("{profile}:token")
 }
 
+fn disabled() -> bool {
+    std::env::var(DISABLE_KEYRING_ENV).is_ok_and(|value| {
+        matches!(
+            value.to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
+}
+
 pub fn store_token(profile: &str, token: &TokenInfo) -> Result<()> {
+    if disabled() {
+        return Err(TeamsError::KeyringError("Keyring is disabled".into()));
+    }
+
     let key = entry_key(profile);
     let json = serde_json::to_string(token)
         .map_err(|e| TeamsError::KeyringError(format!("Failed to serialize token: {e}")))?;
@@ -22,6 +36,10 @@ pub fn store_token(profile: &str, token: &TokenInfo) -> Result<()> {
 }
 
 pub fn get_token(profile: &str) -> Result<TokenInfo> {
+    if disabled() {
+        return Err(TeamsError::KeyringError("Keyring is disabled".into()));
+    }
+
     let key = entry_key(profile);
     let entry = ::keyring::Entry::new(SERVICE_NAME, &key)
         .map_err(|e| TeamsError::KeyringError(format!("Failed to create keyring entry: {e}")))?;
@@ -33,6 +51,10 @@ pub fn get_token(profile: &str) -> Result<TokenInfo> {
 }
 
 pub fn delete_token(profile: &str) -> Result<()> {
+    if disabled() {
+        return Ok(());
+    }
+
     let key = entry_key(profile);
     let entry = ::keyring::Entry::new(SERVICE_NAME, &key)
         .map_err(|e| TeamsError::KeyringError(format!("Failed to create keyring entry: {e}")))?;
@@ -41,6 +63,10 @@ pub fn delete_token(profile: &str) -> Result<()> {
 }
 
 pub fn list_profiles() -> Vec<String> {
+    if disabled() {
+        return vec![];
+    }
+
     // Keyring doesn't support enumeration natively.
     // We maintain a separate index entry.
     let entry = match ::keyring::Entry::new(SERVICE_NAME, "profile-index") {
@@ -54,6 +80,10 @@ pub fn list_profiles() -> Vec<String> {
 }
 
 pub fn add_profile_to_index(profile: &str) -> Result<()> {
+    if disabled() {
+        return Ok(());
+    }
+
     let mut profiles = list_profiles();
     if !profiles.contains(&profile.to_string()) {
         profiles.push(profile.to_string());
@@ -70,6 +100,10 @@ pub fn add_profile_to_index(profile: &str) -> Result<()> {
 }
 
 pub fn remove_profile_from_index(profile: &str) -> Result<()> {
+    if disabled() {
+        return Ok(());
+    }
+
     let mut profiles = list_profiles();
     profiles.retain(|p| p != profile);
     let json = serde_json::to_string(&profiles)

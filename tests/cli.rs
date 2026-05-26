@@ -1,8 +1,11 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
+use std::fs;
 
 fn teams() -> Command {
-    Command::cargo_bin("teams").unwrap()
+    let mut cmd = Command::cargo_bin("teams").unwrap();
+    cmd.env("TEAMS_CLI_DISABLE_KEYRING", "1");
+    cmd
 }
 
 #[test]
@@ -35,7 +38,7 @@ fn version_flag_works() {
         .arg("--version")
         .assert()
         .success()
-        .stdout(predicate::str::contains("0.1.0"));
+        .stdout(predicate::str::contains("0.2.0"));
 }
 
 #[test]
@@ -50,6 +53,31 @@ fn config_path_works() {
 #[test]
 fn auth_status_without_login_exits_nonzero() {
     teams().args(["auth", "status"]).assert().code(1);
+}
+
+#[test]
+fn auth_consent_url_uses_oso_default_client_id() {
+    teams()
+        .args(["auth", "consent-url", "--output", "json"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("fba1b5d0-fdd0-4fe2-9729-9ccdc38f9595")
+                .and(predicate::str::contains("adminconsent"))
+                .and(predicate::str::contains("organizations")),
+        );
+}
+
+#[test]
+fn auth_doctor_reports_oso_default_without_login() {
+    teams()
+        .args(["auth", "doctor", "--output", "json"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("\"auth_app\": \"oso\"")
+                .and(predicate::str::contains("\"authenticated\": false")),
+        );
 }
 
 #[test]
@@ -73,6 +101,73 @@ fn config_show_returns_valid_json_like_output() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"success\": true"));
+}
+
+#[test]
+fn config_init_respects_custom_config_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("custom-config.toml");
+    let path_str = path.to_str().unwrap();
+
+    teams()
+        .args(["--config", path_str, "--output", "json", "config", "init"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(path_str));
+
+    assert!(path.exists());
+}
+
+#[test]
+fn config_set_preserves_numeric_value_types() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    let path_str = path.to_str().unwrap();
+
+    teams()
+        .args([
+            "--config",
+            path_str,
+            "--output",
+            "json",
+            "config",
+            "set",
+            "network.timeout",
+            "60",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"success\": true"));
+
+    teams()
+        .args([
+            "--config",
+            path_str,
+            "--output",
+            "json",
+            "config",
+            "get",
+            "network.timeout",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"data\": 60"));
+}
+
+#[test]
+fn config_output_format_is_honored_without_cli_output_flag() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    let path_str = path.to_str().unwrap();
+    fs::write(&path, "[output]\nformat = \"plain\"\n").unwrap();
+
+    teams()
+        .args(["--config", path_str, "config", "path"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("path:").and(predicate::str::contains("\"success\"").not()),
+        );
 }
 
 // --- Phase 2: Team subcommand tests ---
@@ -120,6 +215,29 @@ fn message_help_shows_subcommands() {
                 .and(predicate::str::contains("pin"))
                 .and(predicate::str::contains("delete")),
         );
+}
+
+#[test]
+fn message_documented_flags_are_available() {
+    teams()
+        .args(["message", "get", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--message <MESSAGE>"));
+
+    teams()
+        .args(["message", "react", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--reaction <REACTION>"));
+
+    teams()
+        .args(["message", "unpin", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "--pinned-message-id <PINNED_MESSAGE_ID>",
+        ));
 }
 
 #[test]
@@ -171,6 +289,15 @@ fn presence_help_shows_subcommands() {
 }
 
 #[test]
+fn presence_documented_batch_command_is_available() {
+    teams()
+        .args(["presence", "get-batch", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--user-ids <USER_IDS>"));
+}
+
+#[test]
 fn search_help_shows_subcommands() {
     teams()
         .args(["search", "--help"])
@@ -181,6 +308,15 @@ fn search_help_shows_subcommands() {
                 .and(predicate::str::contains("users"))
                 .and(predicate::str::contains("teams")),
         );
+}
+
+#[test]
+fn search_documented_query_flag_is_available() {
+    teams()
+        .args(["search", "messages", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--query <QUERY>"));
 }
 
 #[test]
@@ -264,6 +400,18 @@ fn file_help_shows_subcommands() {
             .and(predicate::str::contains("delete"))
             .and(predicate::str::contains("share")),
     );
+}
+
+#[test]
+fn file_download_uses_path_without_shadowing_global_output() {
+    teams()
+        .args(["file", "download", "--help"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("--path <PATH>")
+                .and(predicate::str::contains("-o, --output <OUTPUT>")),
+        );
 }
 
 #[test]

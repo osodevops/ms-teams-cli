@@ -21,7 +21,7 @@ pub enum ChatCommand {
     /// Create a new chat
     Create {
         /// Chat type: oneOnOne or group
-        #[arg(long, default_value = "group")]
+        #[arg(long, alias = "type", default_value = "group")]
         chat_type: String,
         /// Topic for the chat (group chats only)
         #[arg(long)]

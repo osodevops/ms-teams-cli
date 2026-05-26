@@ -170,17 +170,23 @@ pub enum Commands {
 }
 
 pub async fn run(cli: Cli, config: &ConfigFile) -> Result<()> {
-    let format = OutputFormat::detect(cli.output.as_deref());
-    let profile = crate::config::resolve_profile(&cli.profile, config);
+    let format = OutputFormat::detect(crate::config::resolve_output_format(
+        cli.output.as_deref(),
+        config,
+    ));
+    let profile = crate::config::resolve_profile(&cli.profile, config).to_string();
+    let mut runtime_config = config.clone();
+    runtime_config.network =
+        crate::config::effective_network_config(config, cli.timeout, cli.retry);
     let pagination = PaginationOpts {
-        page_size: cli.page_size.unwrap_or(config.output.page_size),
+        page_size: crate::config::effective_page_size(config, cli.page_size),
         all_pages: cli.all_pages,
     };
 
     match cli.command {
-        Commands::Auth { command } => auth::run(command, config, profile, format).await,
+        Commands::Auth { command } => auth::run(command, config, &profile, format).await,
         Commands::User { command } => {
-            user::run(command, config, profile, format, &pagination).await
+            user::run(command, &runtime_config, &profile, format, &pagination).await
         }
         Commands::Config { command } => {
             config_cmd::run(command, config, cli.config.as_deref(), format).await
@@ -191,31 +197,43 @@ pub async fn run(cli: Cli, config: &ConfigFile) -> Result<()> {
             Ok(())
         }
         Commands::Team { command } => {
-            team::run(command, config, profile, format, &pagination).await
+            team::run(command, &runtime_config, &profile, format, &pagination).await
         }
         Commands::Channel { command } => {
-            channel::run(command, config, profile, format, &pagination).await
+            channel::run(command, &runtime_config, &profile, format, &pagination).await
         }
         Commands::Message { command } => {
-            message::run(command, config, profile, format, &pagination).await
+            message::run(command, &runtime_config, &profile, format, &pagination).await
         }
         Commands::Chat { command } => {
-            chat::run(command, config, profile, format, &pagination).await
+            chat::run(command, &runtime_config, &profile, format, &pagination).await
         }
-        Commands::Presence { command } => presence::run(command, config, profile, format).await,
-        Commands::Search { command } => search::run(command, config, profile, format).await,
-        Commands::Tag { command } => tag::run(command, config, profile, format, &pagination).await,
+        Commands::Presence { command } => {
+            presence::run(command, &runtime_config, &profile, format).await
+        }
+        Commands::Search { command } => {
+            search::run(command, &runtime_config, &profile, format).await
+        }
+        Commands::Tag { command } => {
+            tag::run(command, &runtime_config, &profile, format, &pagination).await
+        }
         Commands::Meeting { command } => {
-            meeting::run(command, config, profile, format, &pagination).await
+            meeting::run(command, &runtime_config, &profile, format, &pagination).await
         }
-        Commands::Notify { command } => notification::run(command, config, profile, format).await,
-        Commands::App { command } => app::run(command, config, profile, format, &pagination).await,
-        Commands::Tab { command } => tab::run(command, config, profile, format, &pagination).await,
+        Commands::Notify { command } => {
+            notification::run(command, &runtime_config, &profile, format).await
+        }
+        Commands::App { command } => {
+            app::run(command, &runtime_config, &profile, format, &pagination).await
+        }
+        Commands::Tab { command } => {
+            tab::run(command, &runtime_config, &profile, format, &pagination).await
+        }
         Commands::File { command } => {
-            file::run(command, config, profile, format, &pagination).await
+            file::run(command, &runtime_config, &profile, format, &pagination).await
         }
         Commands::Subscribe { command } => {
-            subscribe::run(command, config, profile, format, &pagination).await
+            subscribe::run(command, &runtime_config, &profile, format, &pagination).await
         }
         Commands::Listen { port } => listen::run(port).await,
     }

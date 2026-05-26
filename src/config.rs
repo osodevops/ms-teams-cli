@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Result, TeamsError};
 
+pub const OSO_PUBLIC_CLIENT_ID: &str = "fba1b5d0-fdd0-4fe2-9729-9ccdc38f9595";
+pub const DEFAULT_DELEGATED_TENANT_ID: &str = "organizations";
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ConfigFile {
     #[serde(default)]
@@ -71,6 +74,7 @@ impl Default for NetworkConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProfileConfig {
+    pub auth_app: Option<String>,
     pub client_id: Option<String>,
     pub tenant_id: Option<String>,
     pub auth_flow: Option<String>,
@@ -181,6 +185,32 @@ pub fn resolve_client_id(
         .and_then(|p| p.client_id.clone())
 }
 
+pub fn resolve_delegated_client_id(
+    cli_flag: Option<&str>,
+    profile: &str,
+    config: &ConfigFile,
+) -> Result<String> {
+    if let Some(client_id) = resolve_client_id(cli_flag, profile, config) {
+        return Ok(client_id);
+    }
+
+    let auth_app = config
+        .profiles
+        .get(profile)
+        .and_then(|p| p.auth_app.as_deref())
+        .unwrap_or("oso");
+
+    match auth_app {
+        "oso" => Ok(OSO_PUBLIC_CLIENT_ID.to_string()),
+        "byo" => Err(TeamsError::InvalidInput(
+            "Client ID is required for auth_app = \"byo\". Use --client-id or set TEAMS_CLI_CLIENT_ID".into(),
+        )),
+        other => Err(TeamsError::InvalidInput(format!(
+            "Unsupported auth_app '{other}'. Use 'oso' or 'byo'."
+        ))),
+    }
+}
+
 pub fn resolve_tenant_id(
     cli_flag: Option<&str>,
     profile: &str,
@@ -198,6 +228,15 @@ pub fn resolve_tenant_id(
         .and_then(|p| p.tenant_id.clone())
 }
 
+pub fn resolve_delegated_tenant_id(
+    cli_flag: Option<&str>,
+    profile: &str,
+    config: &ConfigFile,
+) -> String {
+    resolve_tenant_id(cli_flag, profile, config)
+        .unwrap_or_else(|| DEFAULT_DELEGATED_TENANT_ID.to_string())
+}
+
 pub fn resolve_client_secret(cli_flag: Option<&str>) -> Option<String> {
     if let Some(v) = cli_flag {
         return Some(v.to_string());
@@ -206,6 +245,44 @@ pub fn resolve_client_secret(cli_flag: Option<&str>) -> Option<String> {
         return Some(v);
     }
     None
+}
+
+pub fn resolve_output_format<'a>(
+    cli_flag: Option<&'a str>,
+    config: &'a ConfigFile,
+) -> Option<&'a str> {
+    cli_flag
+        .or(config.default.output.as_deref())
+        .or(Some(config.output.format.as_str()))
+}
+
+pub fn effective_network_config(
+    config: &ConfigFile,
+    cli_timeout: Option<u64>,
+    cli_retry: Option<u32>,
+) -> NetworkConfig {
+    let mut network = config.network.clone();
+
+    if let Some(timeout) = config.default.timeout {
+        network.timeout = timeout;
+    }
+    if let Some(retry) = config.default.retry {
+        network.max_retries = retry;
+    }
+    if let Some(timeout) = cli_timeout {
+        network.timeout = timeout;
+    }
+    if let Some(retry) = cli_retry {
+        network.max_retries = retry;
+    }
+
+    network
+}
+
+pub fn effective_page_size(config: &ConfigFile, cli_page_size: Option<u64>) -> u64 {
+    cli_page_size
+        .or(config.default.page_size)
+        .unwrap_or(config.output.page_size)
 }
 
 #[cfg(test)]
@@ -290,6 +367,7 @@ auth_flow = "device-code"
         config.profiles.insert(
             "test".into(),
             ProfileConfig {
+                auth_app: None,
                 client_id: Some("from-config".into()),
                 tenant_id: None,
                 auth_flow: None,
@@ -310,5 +388,74 @@ auth_flow = "device-code"
 
         // Returns None if not in config
         assert_eq!(resolve_client_id(None, "nonexistent", &config), None);
+    }
+
+    #[test]
+    fn delegated_auth_defaults_to_oso_app_and_organizations_tenant() {
+        let config = ConfigFile::default();
+
+        assert_eq!(
+            resolve_delegated_client_id(None, "default", &config).unwrap(),
+            OSO_PUBLIC_CLIENT_ID
+        );
+        assert_eq!(
+            resolve_delegated_tenant_id(None, "default", &config),
+            DEFAULT_DELEGATED_TENANT_ID
+        );
+    }
+
+    #[test]
+    fn delegated_auth_byo_requires_client_id() {
+        let mut config = ConfigFile::default();
+        config.profiles.insert(
+            "locked".into(),
+            ProfileConfig {
+                auth_app: Some("byo".into()),
+                client_id: None,
+                tenant_id: Some("tenant".into()),
+                auth_flow: Some("device-code".into()),
+            },
+        );
+
+        assert!(resolve_delegated_client_id(None, "locked", &config).is_err());
+    }
+
+    #[test]
+    fn resolve_output_format_priority() {
+        let mut config = ConfigFile::default();
+        config.output.format = "plain".into();
+        assert_eq!(resolve_output_format(None, &config), Some("plain"));
+
+        config.default.output = Some("json".into());
+        assert_eq!(resolve_output_format(None, &config), Some("json"));
+        assert_eq!(resolve_output_format(Some("human"), &config), Some("human"));
+    }
+
+    #[test]
+    fn effective_network_config_applies_default_and_cli_overrides() {
+        let mut config = ConfigFile::default();
+        config.network.timeout = 30;
+        config.network.max_retries = 3;
+        config.default.timeout = Some(45);
+        config.default.retry = Some(4);
+
+        let from_default = effective_network_config(&config, None, None);
+        assert_eq!(from_default.timeout, 45);
+        assert_eq!(from_default.max_retries, 4);
+
+        let from_cli = effective_network_config(&config, Some(10), Some(1));
+        assert_eq!(from_cli.timeout, 10);
+        assert_eq!(from_cli.max_retries, 1);
+    }
+
+    #[test]
+    fn effective_page_size_priority() {
+        let mut config = ConfigFile::default();
+        config.output.page_size = 50;
+        assert_eq!(effective_page_size(&config, None), 50);
+
+        config.default.page_size = Some(75);
+        assert_eq!(effective_page_size(&config, None), 75);
+        assert_eq!(effective_page_size(&config, Some(100)), 100);
     }
 }

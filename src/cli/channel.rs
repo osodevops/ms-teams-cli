@@ -34,7 +34,7 @@ pub enum ChannelCommand {
         #[arg(long)]
         description: Option<String>,
         /// Membership type (standard, private, shared)
-        #[arg(long, default_value = "standard")]
+        #[arg(long, alias = "type", default_value = "standard")]
         membership_type: String,
     },
     /// Update a channel

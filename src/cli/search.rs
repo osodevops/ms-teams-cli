@@ -12,7 +12,16 @@ pub enum SearchCommand {
     /// Search messages
     Messages {
         /// Search query string
-        query: String,
+        #[arg(required_unless_present = "query_flag", conflicts_with = "query_flag")]
+        query: Option<String>,
+        /// Search query string
+        #[arg(
+            long = "query",
+            value_name = "QUERY",
+            required_unless_present = "query",
+            conflicts_with = "query"
+        )]
+        query_flag: Option<String>,
         /// Maximum number of results
         #[arg(long)]
         top: Option<u64>,
@@ -20,7 +29,16 @@ pub enum SearchCommand {
     /// Search users (people)
     Users {
         /// Search query string
-        query: String,
+        #[arg(required_unless_present = "query_flag", conflicts_with = "query_flag")]
+        query: Option<String>,
+        /// Search query string
+        #[arg(
+            long = "query",
+            value_name = "QUERY",
+            required_unless_present = "query",
+            conflicts_with = "query"
+        )]
+        query_flag: Option<String>,
         /// Maximum number of results
         #[arg(long)]
         top: Option<u64>,
@@ -28,7 +46,16 @@ pub enum SearchCommand {
     /// Search your joined teams by display name
     Teams {
         /// Search query string
-        query: String,
+        #[arg(required_unless_present = "query_flag", conflicts_with = "query_flag")]
+        query: Option<String>,
+        /// Search query string
+        #[arg(
+            long = "query",
+            value_name = "QUERY",
+            required_unless_present = "query",
+            conflicts_with = "query"
+        )]
+        query_flag: Option<String>,
     },
 }
 
@@ -42,8 +69,13 @@ pub async fn run(
     let client = GraphClient::new(token, &config.network)?;
 
     match cmd {
-        SearchCommand::Messages { query, top } => {
+        SearchCommand::Messages {
+            query,
+            query_flag,
+            top,
+        } => {
             let start = Instant::now();
+            let query = resolve_query(query, query_flag)?;
             let result = api::search::search_messages(&client, &query, top).await?;
 
             if format == OutputFormat::Human {
@@ -66,8 +98,13 @@ pub async fn run(
             Ok(())
         }
 
-        SearchCommand::Users { query, top } => {
+        SearchCommand::Users {
+            query,
+            query_flag,
+            top,
+        } => {
             let start = Instant::now();
+            let query = resolve_query(query, query_flag)?;
             let result = api::search::search_users(&client, &query, top).await?;
 
             if format == OutputFormat::Human {
@@ -89,8 +126,9 @@ pub async fn run(
             Ok(())
         }
 
-        SearchCommand::Teams { query } => {
+        SearchCommand::Teams { query, query_flag } => {
             let start = Instant::now();
+            let query = resolve_query(query, query_flag)?;
             let teams = api::search::search_teams(&client, &query).await?;
 
             if format == OutputFormat::Human {
@@ -111,6 +149,18 @@ pub async fn run(
             }
             Ok(())
         }
+    }
+}
+
+fn resolve_query(positional: Option<String>, flag: Option<String>) -> Result<String> {
+    match (positional, flag) {
+        (Some(_), Some(_)) => Err(crate::error::TeamsError::InvalidInput(
+            "Provide only one of --query or <QUERY>".into(),
+        )),
+        (Some(query), None) | (None, Some(query)) => Ok(query),
+        (None, None) => Err(crate::error::TeamsError::InvalidInput(
+            "Missing required search query: --query or <QUERY>".into(),
+        )),
     }
 }
 

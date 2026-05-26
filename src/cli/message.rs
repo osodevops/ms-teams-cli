@@ -56,7 +56,16 @@ pub enum MessageCommand {
         #[arg(long)]
         channel: String,
         /// Message ID
-        message_id: String,
+        #[arg(required_unless_present = "message", conflicts_with = "message")]
+        message_id: Option<String>,
+        /// Message ID
+        #[arg(
+            long = "message",
+            alias = "message-id",
+            required_unless_present = "message_id",
+            conflicts_with = "message_id"
+        )]
+        message: Option<String>,
     },
     /// Reply to a channel message
     Reply {
@@ -67,7 +76,7 @@ pub enum MessageCommand {
         #[arg(long)]
         channel: String,
         /// Message ID to reply to
-        #[arg(long)]
+        #[arg(long, visible_alias = "message")]
         message_id: String,
         /// Reply body text
         #[arg(long)]
@@ -88,10 +97,22 @@ pub enum MessageCommand {
         #[arg(long)]
         channel: String,
         /// Message ID
-        #[arg(long)]
+        #[arg(long, visible_alias = "message")]
         message_id: String,
         /// Reaction type (e.g., like, heart, laugh, surprised, sad, angry)
-        reaction: String,
+        #[arg(
+            required_unless_present = "reaction_flag",
+            conflicts_with = "reaction_flag"
+        )]
+        reaction: Option<String>,
+        /// Reaction type (e.g., like, heart, laugh, surprised, sad, angry)
+        #[arg(
+            long = "reaction",
+            value_name = "REACTION",
+            required_unless_present = "reaction",
+            conflicts_with = "reaction"
+        )]
+        reaction_flag: Option<String>,
     },
     /// Remove a reaction from a message (beta)
     Unreact {
@@ -102,10 +123,22 @@ pub enum MessageCommand {
         #[arg(long)]
         channel: String,
         /// Message ID
-        #[arg(long)]
+        #[arg(long, visible_alias = "message")]
         message_id: String,
         /// Reaction type to remove
-        reaction: String,
+        #[arg(
+            required_unless_present = "reaction_flag",
+            conflicts_with = "reaction_flag"
+        )]
+        reaction: Option<String>,
+        /// Reaction type to remove
+        #[arg(
+            long = "reaction",
+            value_name = "REACTION",
+            required_unless_present = "reaction",
+            conflicts_with = "reaction"
+        )]
+        reaction_flag: Option<String>,
     },
     /// Pin a message in a channel
     Pin {
@@ -116,7 +149,16 @@ pub enum MessageCommand {
         #[arg(long)]
         channel: String,
         /// Message ID to pin
-        message_id: String,
+        #[arg(required_unless_present = "message", conflicts_with = "message")]
+        message_id: Option<String>,
+        /// Message ID to pin
+        #[arg(
+            long = "message",
+            alias = "message-id",
+            required_unless_present = "message_id",
+            conflicts_with = "message_id"
+        )]
+        message: Option<String>,
     },
     /// Unpin a message from a channel
     Unpin {
@@ -127,7 +169,19 @@ pub enum MessageCommand {
         #[arg(long)]
         channel: String,
         /// Pinned message ID to remove
-        pinned_message_id: String,
+        #[arg(
+            required_unless_present = "pinned_message",
+            conflicts_with = "pinned_message"
+        )]
+        pinned_message_id: Option<String>,
+        /// Pinned message ID to remove
+        #[arg(
+            long = "pinned-message-id",
+            value_name = "PINNED_MESSAGE_ID",
+            required_unless_present = "pinned_message_id",
+            conflicts_with = "pinned_message_id"
+        )]
+        pinned_message: Option<String>,
     },
     /// Delete a message
     Delete {
@@ -138,7 +192,16 @@ pub enum MessageCommand {
         #[arg(long)]
         channel: String,
         /// Message ID
-        message_id: String,
+        #[arg(required_unless_present = "message", conflicts_with = "message")]
+        message_id: Option<String>,
+        /// Message ID
+        #[arg(
+            long = "message",
+            alias = "message-id",
+            required_unless_present = "message_id",
+            conflicts_with = "message_id"
+        )]
+        message: Option<String>,
     },
     /// Update a message
     Update {
@@ -149,7 +212,16 @@ pub enum MessageCommand {
         #[arg(long)]
         channel: String,
         /// Message ID
-        message_id: String,
+        #[arg(required_unless_present = "message", conflicts_with = "message")]
+        message_id: Option<String>,
+        /// Message ID
+        #[arg(
+            long = "message",
+            alias = "message-id",
+            required_unless_present = "message_id",
+            conflicts_with = "message_id"
+        )]
+        message: Option<String>,
         /// New message body
         #[arg(long)]
         body: String,
@@ -180,6 +252,7 @@ pub async fn run(
             adaptive_card,
         } => {
             let start = Instant::now();
+            auth::require_delegated_token(&client.token, "Sending Teams messages")?;
 
             let content = resolve_body(body, stdin)?;
             let req = build_send_request(content, &content_type, adaptive_card.as_deref())?;
@@ -260,8 +333,10 @@ pub async fn run(
             team,
             channel,
             message_id,
+            message,
         } => {
             let start = Instant::now();
+            let message_id = resolve_id(message_id, message, "--message or <MESSAGE_ID>")?;
             let msg =
                 api::messages::get_channel_message(&client, &team, &channel, &message_id).await?;
             output::print_success(format, &msg, start);
@@ -277,6 +352,7 @@ pub async fn run(
             content_type,
         } => {
             let start = Instant::now();
+            auth::require_delegated_token(&client.token, "Replying to Teams messages")?;
             let content = resolve_body(body, stdin)?;
             let req = build_send_request(content, &content_type, None)?;
             let msg = api::messages::reply_to_message(&client, &team, &channel, &message_id, &req)
@@ -290,8 +366,11 @@ pub async fn run(
             channel,
             message_id,
             reaction,
+            reaction_flag,
         } => {
             let start = Instant::now();
+            auth::require_delegated_token(&client.token, "Reacting to Teams messages")?;
+            let reaction = resolve_id(reaction, reaction_flag, "--reaction or <REACTION>")?;
             api::messages::set_reaction(&client, &team, &channel, &message_id, &reaction).await?;
             let result = serde_json::json!({"status": "reaction_set", "reaction": reaction});
             output::print_success(format, &result, start);
@@ -303,8 +382,11 @@ pub async fn run(
             channel,
             message_id,
             reaction,
+            reaction_flag,
         } => {
             let start = Instant::now();
+            auth::require_delegated_token(&client.token, "Removing Teams message reactions")?;
+            let reaction = resolve_id(reaction, reaction_flag, "--reaction or <REACTION>")?;
             api::messages::unset_reaction(&client, &team, &channel, &message_id, &reaction).await?;
             let result = serde_json::json!({"status": "reaction_removed", "reaction": reaction});
             output::print_success(format, &result, start);
@@ -315,8 +397,11 @@ pub async fn run(
             team,
             channel,
             message_id,
+            message,
         } => {
             let start = Instant::now();
+            auth::require_delegated_token(&client.token, "Pinning Teams messages")?;
+            let message_id = resolve_id(message_id, message, "--message or <MESSAGE_ID>")?;
             let pinned = api::messages::pin_message(&client, &team, &channel, &message_id).await?;
             output::print_success(format, &pinned, start);
             Ok(())
@@ -326,8 +411,15 @@ pub async fn run(
             team,
             channel,
             pinned_message_id,
+            pinned_message,
         } => {
             let start = Instant::now();
+            auth::require_delegated_token(&client.token, "Unpinning Teams messages")?;
+            let pinned_message_id = resolve_id(
+                pinned_message_id,
+                pinned_message,
+                "--pinned-message-id or <PINNED_MESSAGE_ID>",
+            )?;
             api::messages::unpin_message(&client, &team, &channel, &pinned_message_id).await?;
             let result = serde_json::json!({"status": "unpinned"});
             output::print_success(format, &result, start);
@@ -338,8 +430,11 @@ pub async fn run(
             team,
             channel,
             message_id,
+            message,
         } => {
             let start = Instant::now();
+            auth::require_delegated_token(&client.token, "Deleting Teams messages")?;
+            let message_id = resolve_id(message_id, message, "--message or <MESSAGE_ID>")?;
             api::messages::delete_message(&client, &team, &channel, &message_id).await?;
             let result = serde_json::json!({"status": "deleted"});
             output::print_success(format, &result, start);
@@ -350,16 +445,31 @@ pub async fn run(
             team,
             channel,
             message_id,
+            message,
             body,
             content_type,
         } => {
             let start = Instant::now();
+            auth::require_delegated_token(&client.token, "Updating Teams messages")?;
+            let message_id = resolve_id(message_id, message, "--message or <MESSAGE_ID>")?;
             let req = build_send_request(body, &content_type, None)?;
             let msg =
                 api::messages::update_message(&client, &team, &channel, &message_id, &req).await?;
             output::print_success(format, &msg, start);
             Ok(())
         }
+    }
+}
+
+fn resolve_id(positional: Option<String>, named: Option<String>, expected: &str) -> Result<String> {
+    match (positional, named) {
+        (Some(_), Some(_)) => Err(TeamsError::InvalidInput(format!(
+            "Provide only one of {expected}"
+        ))),
+        (Some(id), None) | (None, Some(id)) => Ok(id),
+        (None, None) => Err(TeamsError::InvalidInput(format!(
+            "Missing required message identifier: {expected}"
+        ))),
     }
 }
 

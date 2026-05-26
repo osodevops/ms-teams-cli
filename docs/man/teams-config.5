@@ -1,0 +1,167 @@
+.TH TEAMS-CONFIG 5 "May 26, 2026" "teams-cli 0.2.0" "File Formats"
+.SH NAME
+teams-config \- configuration file for the teams CLI
+.SH DESCRIPTION
+The
+.B teams
+CLI reads a TOML configuration file unless overridden with
+.B --config PATH.
+The default path is platform-specific:
+.PP
+.nf
+Linux:   ~/.config/teams-cli/config.toml
+macOS:   ~/Library/Application Support/teams-cli/config.toml
+Windows: %APPDATA%\\teams-cli\\config.toml
+.fi
+.PP
+Access tokens are not stored in this file. Login stores tokens in the operating
+system keyring. Client secrets should normally be provided through environment
+variables or a secret manager, not committed to config.
+.SH FORMAT
+.nf
+[default]
+profile = "prod"
+output = "json"
+page_size = 50
+timeout = 30
+retry = 3
+color = true
+
+[output]
+format = "auto"
+color = true
+page_size = 50
+
+[network]
+timeout = 30
+max_retries = 3
+retry_backoff_base = 2
+
+[profiles.prod]
+tenant_id = "00000000-0000-0000-0000-000000000000"
+auth_flow = "device-code"
+
+[profiles.locked-down]
+auth_app = "byo"
+client_id = "11111111-1111-1111-1111-111111111111"
+tenant_id = "22222222-2222-2222-2222-222222222222"
+auth_flow = "device-code"
+.fi
+.SH DEFAULT SECTION
+.TP
+.B profile
+Default profile used when
+.B --profile
+is not supplied or is
+.B default.
+.TP
+.B output
+Default output format override. Valid values are
+.B auto,
+.B json,
+.B human,
+and
+.B plain.
+.TP
+.B page_size
+Default page size for paginated list operations. Overridden by global
+.B --page-size.
+.TP
+.B timeout
+Default request timeout in seconds. Overridden by global
+.B --timeout.
+.TP
+.B retry
+Default retry attempts for transient network, 429, and 5xx errors. Overridden
+by global
+.B --retry.
+.TP
+.B color
+Boolean color preference for human output.
+.SH OUTPUT SECTION
+.TP
+.B format
+Output format used when no CLI output flag and no default output override are
+set. The default is
+.B auto.
+.TP
+.B color
+Enable or disable color in human output.
+.TP
+.B page_size
+Fallback page size for paginated operations.
+.SH NETWORK SECTION
+.TP
+.B timeout
+HTTP request timeout in seconds.
+.TP
+.B max_retries
+Maximum retry count for transient failures.
+.TP
+.B retry_backoff_base
+Base for exponential backoff delays. Retry delay is calculated as
+.B base^attempt
+for retryable network failures and 5xx errors. HTTP 429 honors the
+.B Retry-After
+header when present.
+.SH PROFILES
+Each profile is defined under
+.B [profiles.NAME].
+.TP
+.B client_id
+Azure AD application client ID.
+.TP
+.B auth_app
+Delegated auth app selector. Use
+.B oso
+or omit this field for the built-in OSO public client app. Use
+.B byo
+when a customer-owned Entra app registration must be supplied with
+.B client_id.
+.TP
+.B tenant_id
+Azure AD tenant ID.
+.TP
+.B auth_flow
+Preferred authentication flow for humans reading the config. Current values
+used by docs and examples include
+.B client-credentials,
+.B device-code,
+and
+.B auth-code-pkce.
+.SH RESOLUTION ORDER
+Client ID and tenant ID resolution:
+.nf
+1. CLI flag
+2. TEAMS_CLI_CLIENT_ID or TEAMS_CLI_TENANT_ID
+3. Selected config profile
+.fi
+.PP
+Client secret resolution:
+.nf
+1. CLI flag
+2. TEAMS_CLI_CLIENT_SECRET
+.fi
+.PP
+Access token resolution for normal commands:
+.nf
+1. TEAMS_CLI_ACCESS_TOKEN
+2. OS keyring token for selected profile
+.fi
+.SH COMMANDS
+.nf
+teams config init
+teams config show
+teams config get KEY
+teams config set KEY VALUE
+teams config path
+teams config profiles
+.fi
+.PP
+.B config set
+preserves TOML scalar types for booleans, integers, floats, null, and strings.
+.SH SEE ALSO
+.BR teams (1),
+.BR teams-auth (7),
+.BR teams-agent-contract (7),
+.BR teams-examples (7)

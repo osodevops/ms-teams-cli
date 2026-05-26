@@ -36,6 +36,26 @@ pub enum AuthCommand {
     },
     /// Check current auth status
     Status,
+    /// Print the admin consent URL for the active auth app
+    ConsentUrl {
+        /// Azure AD application (client) ID
+        #[arg(long, env = "TEAMS_CLI_CLIENT_ID")]
+        client_id: Option<String>,
+
+        /// Azure AD tenant ID or domain
+        #[arg(long, env = "TEAMS_CLI_TENANT_ID")]
+        tenant_id: Option<String>,
+    },
+    /// Diagnose auth configuration and current token state
+    Doctor {
+        /// Azure AD application (client) ID
+        #[arg(long, env = "TEAMS_CLI_CLIENT_ID")]
+        client_id: Option<String>,
+
+        /// Azure AD tenant ID or domain
+        #[arg(long, env = "TEAMS_CLI_TENANT_ID")]
+        tenant_id: Option<String>,
+    },
     /// List all authenticated profiles
     List,
     /// Switch active profile
@@ -77,21 +97,19 @@ pub async fn run(
         } => {
             let start = Instant::now();
 
-            let client_id = config::resolve_client_id(client_id.as_deref(), profile, config)
-                .ok_or_else(|| {
-                    TeamsError::InvalidInput(
-                        "Client ID is required. Use --client-id or set TEAMS_CLI_CLIENT_ID".into(),
-                    )
-                })?;
-
-            let tenant_id = config::resolve_tenant_id(tenant_id.as_deref(), profile, config)
-                .ok_or_else(|| {
-                    TeamsError::InvalidInput(
-                        "Tenant ID is required. Use --tenant-id or set TEAMS_CLI_TENANT_ID".into(),
-                    )
-                })?;
-
             let token_response = if client_credentials {
+                let client_id = config::resolve_client_id(client_id.as_deref(), profile, config)
+                    .ok_or_else(|| {
+                        TeamsError::InvalidInput(
+                            "Client ID is required for client credentials flow. Use --client-id or set TEAMS_CLI_CLIENT_ID".into(),
+                        )
+                    })?;
+                let tenant_id = config::resolve_tenant_id(tenant_id.as_deref(), profile, config)
+                    .ok_or_else(|| {
+                        TeamsError::InvalidInput(
+                            "Tenant ID is required for client credentials flow. Use --tenant-id or set TEAMS_CLI_TENANT_ID".into(),
+                        )
+                    })?;
                 let client_secret = config::resolve_client_secret(client_secret.as_deref())
                     .ok_or_else(|| {
                         TeamsError::InvalidInput(
@@ -102,9 +120,17 @@ pub async fn run(
                 auth::client_credentials::authenticate(&client_id, &client_secret, &tenant_id)
                     .await?
             } else if device_code {
+                let client_id =
+                    config::resolve_delegated_client_id(client_id.as_deref(), profile, config)?;
+                let tenant_id =
+                    config::resolve_delegated_tenant_id(tenant_id.as_deref(), profile, config);
                 auth::device_code::authenticate(&client_id, &tenant_id, scopes.as_deref()).await?
             } else {
                 // Default: auth code + PKCE
+                let client_id =
+                    config::resolve_delegated_client_id(client_id.as_deref(), profile, config)?;
+                let tenant_id =
+                    config::resolve_delegated_tenant_id(tenant_id.as_deref(), profile, config);
                 auth::auth_code_pkce::authenticate(&client_id, &tenant_id, scopes.as_deref())
                     .await?
             };
@@ -120,6 +146,64 @@ pub async fn run(
                 "profile": profile,
                 "expires_at": token_info.expires_at.map(|e| e.to_rfc3339()),
                 "scope": token_info.scope,
+            });
+            output::print_success(format, &msg, start);
+            Ok(())
+        }
+
+        AuthCommand::ConsentUrl {
+            client_id,
+            tenant_id,
+        } => {
+            let start = Instant::now();
+            let client_id =
+                config::resolve_delegated_client_id(client_id.as_deref(), profile, config)?;
+            let tenant_id =
+                config::resolve_delegated_tenant_id(tenant_id.as_deref(), profile, config);
+            let url = format!(
+                "https://login.microsoftonline.com/{tenant_id}/adminconsent?client_id={client_id}"
+            );
+            let msg = serde_json::json!({
+                "admin_consent_url": url,
+                "client_id": client_id,
+                "tenant_id": tenant_id,
+            });
+            output::print_success(format, &msg, start);
+            Ok(())
+        }
+
+        AuthCommand::Doctor {
+            client_id,
+            tenant_id,
+        } => {
+            let start = Instant::now();
+            let client_id =
+                config::resolve_delegated_client_id(client_id.as_deref(), profile, config)?;
+            let tenant_id =
+                config::resolve_delegated_tenant_id(tenant_id.as_deref(), profile, config);
+            let auth_app = if client_id == config::OSO_PUBLIC_CLIENT_ID {
+                "oso"
+            } else {
+                "byo"
+            };
+
+            let token = auth::resolve_token(profile).ok();
+            let claims = token.as_ref().and_then(|t| t.unverified_claims());
+            let msg = serde_json::json!({
+                "profile": profile,
+                "auth_app": auth_app,
+                "client_id": client_id,
+                "tenant_id": tenant_id,
+                "admin_consent_url": format!("https://login.microsoftonline.com/{tenant_id}/adminconsent?client_id={client_id}"),
+                "authenticated": token.is_some(),
+                "token": token.as_ref().map(|t| serde_json::json!({
+                    "expires_at": t.expires_at.map(|e| e.to_rfc3339()),
+                    "scope": t.scope,
+                    "auth_type": claims.as_ref().map(|c| c.auth_type()).unwrap_or("unknown"),
+                    "tenant_id": claims.as_ref().and_then(|c| c.tid.clone()),
+                    "app_id": claims.as_ref().and_then(|c| c.appid.clone()).or_else(|| claims.as_ref().and_then(|c| c.azp.clone())),
+                    "user": claims.as_ref().and_then(|c| c.preferred_username.clone()).or_else(|| claims.as_ref().and_then(|c| c.upn.clone())),
+                })),
             });
             output::print_success(format, &msg, start);
             Ok(())

@@ -1,4 +1,5 @@
 use clap::Subcommand;
+use std::path::PathBuf;
 use std::time::Instant;
 
 use crate::config::{self, ConfigFile};
@@ -38,7 +39,10 @@ pub async fn run(
     match cmd {
         ConfigCommand::Init => {
             let start = Instant::now();
-            let path = config::default_config_path()?;
+            let path = match config_path {
+                Some(path) => PathBuf::from(path),
+                None => config::default_config_path()?,
+            };
             if path.exists() {
                 return Err(TeamsError::InvalidInput(format!(
                     "Config already exists at {}",
@@ -86,7 +90,7 @@ pub async fn run(
             let mut current = &mut config_json;
             for (i, part) in parts.iter().enumerate() {
                 if i == parts.len() - 1 {
-                    current[part] = serde_json::Value::String(value.clone());
+                    current[part] = parse_config_value(&value);
                 } else {
                     if !current.get(part).is_some_and(|v| v.is_object()) {
                         current[part] = serde_json::Value::Object(serde_json::Map::new());
@@ -127,5 +131,42 @@ pub async fn run(
             output::print_success(format, &msg, start);
             Ok(())
         }
+    }
+}
+
+fn parse_config_value(value: &str) -> serde_json::Value {
+    if value.eq_ignore_ascii_case("true") {
+        return serde_json::Value::Bool(true);
+    }
+    if value.eq_ignore_ascii_case("false") {
+        return serde_json::Value::Bool(false);
+    }
+    if value.eq_ignore_ascii_case("null") {
+        return serde_json::Value::Null;
+    }
+    if let Ok(v) = value.parse::<i64>() {
+        return serde_json::Value::Number(v.into());
+    }
+    if let Ok(v) = value.parse::<f64>() {
+        if let Some(n) = serde_json::Number::from_f64(v) {
+            return serde_json::Value::Number(n);
+        }
+    }
+    serde_json::Value::String(value.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_config_value_preserves_scalar_types() {
+        assert_eq!(parse_config_value("true"), serde_json::json!(true));
+        assert_eq!(parse_config_value("false"), serde_json::json!(false));
+        assert_eq!(parse_config_value("60"), serde_json::json!(60));
+        assert_eq!(
+            parse_config_value("client-id"),
+            serde_json::json!("client-id")
+        );
     }
 }

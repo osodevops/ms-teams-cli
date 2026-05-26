@@ -1,0 +1,162 @@
+.TH TEAMS-AGENT-CONTRACT 7 "May 26, 2026" "teams-cli 0.2.0" "Miscellaneous Information"
+.SH NAME
+teams-agent-contract \- automation contract for the teams CLI
+.SH DESCRIPTION
+The
+.B teams
+CLI is intended to be called by agents and scripts as a subprocess. This page
+documents the behavior those callers can depend on before live Microsoft Graph
+validation.
+.SH OUTPUT FORMAT
+When stdout is a terminal,
+.B teams
+defaults to human-readable output. When stdout is not a terminal,
+.B teams
+defaults to JSON. The global
+.B --output json|human|plain
+flag overrides detection.
+.PP
+Logs, progress spinners, and tracing are written to stderr. JSON intended for
+agent parsing is written to stdout.
+.SH SUCCESS ENVELOPE
+.nf
+{
+  "success": true,
+  "data": {},
+  "metadata": {
+    "request_id": "uuid",
+    "timestamp": "2026-05-26T00:00:00Z",
+    "api_version": "v1.0",
+    "duration_ms": 123
+  }
+}
+.fi
+.SH ERROR ENVELOPE
+.nf
+{
+  "success": false,
+  "error": {
+    "code": "AUTH_FAILED",
+    "message": "Authentication failed: ..."
+  },
+  "metadata": {
+    "request_id": "uuid",
+    "timestamp": "2026-05-26T00:00:00Z",
+    "api_version": "v1.0"
+  }
+}
+.fi
+.SH EXIT CODES
+.TP
+.B 0
+Success.
+.TP
+.B 1
+General error. Also used by
+.B teams auth status
+when unauthenticated after printing an
+.B authenticated: false
+payload.
+.TP
+.B 2
+Invalid CLI arguments or invalid input.
+.TP
+.B 3
+Authentication failed or token expired.
+.TP
+.B 4
+Permission denied by Microsoft Graph.
+.TP
+.B 5
+Requested resource was not found.
+.TP
+.B 6
+Rate limited after configured retries.
+.TP
+.B 7
+Network error or timeout.
+.TP
+.B 8
+Server error after configured retries.
+.TP
+.B 10
+Configuration or keyring error.
+.SH RETRY AND PAGINATION
+Microsoft Graph calls go through a shared client that applies request timeout,
+bearer authentication, retries, and pagination. HTTP 429 honors
+.B Retry-After.
+HTTP 5xx and network send failures use exponential backoff. List commands use
+.B --page-size
+and can follow all pages with
+.B --all-pages.
+.SH AUTHENTICATION FOR AGENTS
+For automation that posts normal Teams chat or channel messages, use a
+delegated profile or a future Teams bot mode. Microsoft Graph app-only tokens
+are not a general live message posting model.
+.PP
+Delegated auth defaults to the OSO public client app:
+.PP
+.nf
+teams auth login --device-code
+teams auth doctor --output json
+.fi
+.PP
+For Microsoft Graph operations that explicitly support application permissions,
+use client credentials or a pre-obtained access token:
+.PP
+.nf
+export TEAMS_CLI_CLIENT_ID=...
+export TEAMS_CLI_CLIENT_SECRET=...
+export TEAMS_CLI_TENANT_ID=...
+teams auth login --client-credentials
+
+export TEAMS_CLI_ACCESS_TOKEN=...
+teams team list --output json
+.fi
+.PP
+Do not put secrets in command transcripts, tests, man pages, examples, or logs.
+.SH LIVE VALIDATION CHECKLIST
+Before using the tool against production Teams data, validate with a dedicated
+test tenant, test team, and test channel.
+.PP
+Read-only checks:
+.nf
+teams auth status --output json
+teams user me --output json
+teams team list --output json
+teams channel list TEAM_ID --output json
+teams message list --team TEAM_ID --channel CHANNEL_ID --output json
+.fi
+.PP
+Controlled write checks:
+.nf
+teams message send --team TEAM_ID --channel CHANNEL_ID --body "teams-cli smoke test" --output json
+teams message reply --team TEAM_ID --channel CHANNEL_ID --message-id MESSAGE_ID --body "reply smoke test" --output json
+teams file upload --team TEAM_ID --channel CHANNEL_ID --stdin --name teams-cli-smoke.txt < smoke.txt
+teams file download --team TEAM_ID --channel CHANNEL_ID --file-id FILE_ID --path /tmp/teams-cli-smoke.txt
+.fi
+.PP
+Cleanup checks:
+.nf
+teams message delete --team TEAM_ID --channel CHANNEL_ID MESSAGE_ID --output json
+teams file delete --team TEAM_ID --channel CHANNEL_ID --file-id FILE_ID --output json
+.fi
+.PP
+Do not run destructive commands such as team delete, archive, unarchive, app
+uninstall, or subscription delete outside explicit test targets.
+.SH WINDOWS NOTES
+The release workflow builds
+.B x86_64-pc-windows-msvc
+on
+.B windows-latest.
+CI also runs tests on Windows. The config path uses the platform config
+directory, which is normally
+.B %APPDATA%\\teams-cli\\config.toml
+on Windows. Token storage uses Windows Credential Manager through the
+.B keyring
+crate.
+.SH SEE ALSO
+.BR teams (1),
+.BR teams-auth (7),
+.BR teams-config (5),
+.BR teams-examples (7)

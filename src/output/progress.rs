@@ -1,9 +1,10 @@
 use indicatif::{ProgressBar, ProgressStyle};
+use std::io::IsTerminal;
 
 /// Create a spinner for async operations (e.g., team create/clone).
 /// Only visible when stderr is a TTY.
 pub fn spinner(message: &str) -> ProgressBar {
-    if !atty::is(atty::Stream::Stderr) {
+    if !std::io::stderr().is_terminal() {
         return ProgressBar::hidden();
     }
     let pb = ProgressBar::new_spinner();
@@ -20,7 +21,7 @@ pub fn spinner(message: &str) -> ProgressBar {
 /// Create a progress bar for --all-pages pagination.
 /// Only visible when stderr is a TTY.
 pub fn paging_bar() -> ProgressBar {
-    if !atty::is(atty::Stream::Stderr) {
+    if !std::io::stderr().is_terminal() {
         return ProgressBar::hidden();
     }
     let pb = ProgressBar::new_spinner();

@@ -6,6 +6,7 @@ pub mod table;
 use crate::error::TeamsError;
 use crate::models::common::{Envelope, Metadata};
 use serde::Serialize;
+use std::io::IsTerminal;
 use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,7 +23,7 @@ impl OutputFormat {
             Some("human") | Some("table") => Self::Human,
             Some("plain") | Some("text") => Self::Plain,
             _ => {
-                if atty::is(atty::Stream::Stdout) {
+                if std::io::stdout().is_terminal() {
                     Self::Human
                 } else {
                     Self::Json

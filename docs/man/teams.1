@@ -1,0 +1,308 @@
+.TH TEAMS 1 "May 26, 2026" "teams-cli 0.2.0" "User Commands"
+.SH NAME
+teams \- Microsoft Teams CLI for Microsoft Graph automation
+.SH SYNOPSIS
+.B teams
+[\fIGLOBAL OPTIONS\fR] \fICOMMAND\fR [\fIARGS\fR]
+.SH DESCRIPTION
+.B teams
+is a single-binary Rust CLI for Microsoft Teams automation through Microsoft
+Graph. It is designed for AI agents, scripts, and CI jobs that need structured
+JSON output, deterministic exit codes, headless authentication, and predictable
+stderr logging.
+.PP
+When stdout is a terminal, output defaults to human-readable output. When
+stdout is piped, output defaults to JSON. Use
+.B --output
+to force a format.
+.SH GLOBAL OPTIONS
+.TP
+.B -o, --output json|human|plain
+Select output format. This is the global output-format selector.
+.TP
+.B -q, --quiet
+Suppress non-essential output.
+.TP
+.B -v, --verbose
+Increase log verbosity. Repeat for debug and trace logging. Logs go to stderr.
+.TP
+.B --no-color
+Disable ANSI color codes.
+.TP
+.B --config PATH
+Read and write configuration at PATH instead of the platform default.
+.TP
+.B --profile NAME
+Use a named credential profile. Defaults to
+.B default
+or the configured default profile.
+.TP
+.B --timeout SECONDS
+Override Graph request timeout.
+.TP
+.B --retry COUNT
+Override retry attempts for transient Graph failures.
+.TP
+.B --page-size COUNT
+Set page size for paginated list commands.
+.TP
+.B --all-pages
+Follow Graph pagination and return all pages.
+.SH AUTHENTICATION
+.nf
+teams auth login [--client-credentials] [--device-code] [--client-id ID] [--client-secret SECRET] [--tenant-id ID] [--scopes SCOPES]
+teams auth status
+teams auth consent-url [--client-id ID] [--tenant-id ID]
+teams auth doctor [--client-id ID] [--tenant-id ID]
+teams auth list
+teams auth switch NAME
+teams auth logout [--profile NAME] [--all]
+teams auth token [--format bearer|json]
+.fi
+.PP
+Delegated login defaults to the OSO multi-tenant public client app and the
+.B organizations
+authority when no client ID or tenant ID is configured. Customer-owned app
+registrations can still be selected with
+.B --client-id
+and
+.B --tenant-id.
+Client credentials always require explicit customer app credentials.
+Credential resolution for explicit client ID and tenant ID is CLI flag,
+environment variable, then config profile. Client secret resolution is CLI
+flag, then
+.B TEAMS_CLI_CLIENT_SECRET.
+Normal command token resolution is
+.B TEAMS_CLI_ACCESS_TOKEN
+then the OS keyring token for the selected profile.
+.SH USER COMMANDS
+.nf
+teams user me
+teams user get USER_ID_OR_UPN
+teams user list [--filter ODATA_FILTER]
+.fi
+.SH CONFIG COMMANDS
+.nf
+teams config init
+teams config show
+teams config get KEY
+teams config set KEY VALUE
+teams config path
+teams config profiles
+.fi
+.PP
+See
+.BR teams-config (5)
+for file layout and examples.
+.SH TEAM COMMANDS
+.nf
+teams team list
+teams team get TEAM_ID
+teams team create --name NAME [--description TEXT]
+teams team update TEAM_ID [--name NAME] [--description TEXT]
+teams team delete TEAM_ID
+teams team clone TEAM_ID --name NAME [--parts LIST] [--visibility public|private] [--description TEXT]
+teams team archive TEAM_ID
+teams team unarchive TEAM_ID
+teams team members list TEAM_ID
+teams team members add TEAM_ID --user-id USER_ID [--role member|owner]
+teams team members remove TEAM_ID MEMBER_ID
+.fi
+.SH CHANNEL COMMANDS
+.nf
+teams channel list TEAM_ID
+teams channel get TEAM_ID CHANNEL_ID
+teams channel create TEAM_ID --name NAME [--description TEXT] [--membership-type standard|private|shared]
+teams channel create TEAM_ID --name NAME --type private
+teams channel update TEAM_ID CHANNEL_ID [--name NAME] [--description TEXT]
+teams channel delete TEAM_ID CHANNEL_ID
+teams channel members list TEAM_ID CHANNEL_ID
+teams channel members add TEAM_ID CHANNEL_ID --user-id USER_ID [--role member|owner]
+teams channel members remove TEAM_ID CHANNEL_ID MEMBER_ID
+.fi
+.SH MESSAGE COMMANDS
+.nf
+teams message send (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) (--body TEXT | --stdin) [--content-type text|html] [--adaptive-card PATH]
+teams message list (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID)
+teams message get --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID)
+teams message reply --team TEAM_ID --channel CHANNEL_ID --message-id MESSAGE_ID (--body TEXT | --stdin) [--content-type text|html]
+teams message reply --team TEAM_ID --channel CHANNEL_ID --message MESSAGE_ID --body TEXT
+teams message update --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID) --body TEXT [--content-type text|html]
+teams message delete --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID)
+teams message react --team TEAM_ID --channel CHANNEL_ID --message-id MESSAGE_ID (REACTION | --reaction REACTION)
+teams message unreact --team TEAM_ID --channel CHANNEL_ID --message-id MESSAGE_ID (REACTION | --reaction REACTION)
+teams message pin --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID)
+teams message unpin --team TEAM_ID --channel CHANNEL_ID (PINNED_MESSAGE_ID | --pinned-message-id PINNED_MESSAGE_ID)
+.fi
+.PP
+Supported reaction names depend on Microsoft Graph. Common values include
+.B like,
+.B heart,
+.B laugh,
+.B surprised,
+.B sad,
+and
+.B angry.
+.SH CHAT COMMANDS
+.nf
+teams chat list
+teams chat get CHAT_ID
+teams chat create [--chat-type group|oneOnOne] [--type group|oneOnOne] [--topic TOPIC] [--members USER_ID,USER_ID]
+teams chat update CHAT_ID --topic TOPIC
+teams chat hide CHAT_ID --user-id USER_ID
+teams chat unhide CHAT_ID --user-id USER_ID
+teams chat members list CHAT_ID
+teams chat members add CHAT_ID --user-id USER_ID [--role member|owner]
+teams chat members remove CHAT_ID MEMBER_ID
+.fi
+.SH PRESENCE COMMANDS
+.nf
+teams presence get
+teams presence get --user USER_ID
+teams presence get --user-id USER_ID
+teams presence get --users USER_ID,USER_ID
+teams presence get --user-ids USER_ID,USER_ID
+teams presence get-batch --user-ids USER_ID,USER_ID
+teams presence set --availability AVAILABILITY --activity ACTIVITY [--expiration ISO8601_DURATION]
+teams presence status --message TEXT [--expiry ISO8601_DATETIME]
+teams presence clear
+.fi
+.SH SEARCH COMMANDS
+.nf
+teams search messages QUERY [--top COUNT]
+teams search messages --query QUERY [--top COUNT]
+teams search users QUERY [--top COUNT]
+teams search users --query QUERY [--top COUNT]
+teams search teams QUERY
+teams search teams --query QUERY
+.fi
+.SH TAG COMMANDS
+.nf
+teams tag list TEAM_ID
+teams tag get TEAM_ID TAG_ID
+teams tag create TEAM_ID --name NAME [--members USER_ID,USER_ID]
+teams tag update TEAM_ID TAG_ID --name NAME
+teams tag delete TEAM_ID TAG_ID
+teams tag add-member TEAM_ID TAG_ID --user USER_ID
+teams tag remove-member TEAM_ID TAG_ID --user USER_ID
+.fi
+.SH MEETING COMMANDS
+.nf
+teams meeting list
+teams meeting get MEETING_ID
+teams meeting create --subject SUBJECT [--start ISO8601] [--end ISO8601] [--allowed-presenters VALUE]
+teams meeting update MEETING_ID [--subject SUBJECT] [--start ISO8601] [--end ISO8601] [--allowed-presenters VALUE]
+teams meeting delete MEETING_ID
+teams meeting join-url MEETING_ID
+teams meeting attendance MEETING_ID [--report-id REPORT_ID]
+.fi
+.SH NOTIFICATION COMMANDS
+.nf
+teams notify send (--user USER_ID | --users USER_ID,USER_ID) --topic TEXT --activity-type TYPE --preview TEXT
+teams notify send-to-team TEAM_ID --topic TEXT --activity-type TYPE --preview TEXT [--recipient-user USER_ID]
+teams notify send-to-chat CHAT_ID --topic TEXT --activity-type TYPE --preview TEXT [--recipient-user USER_ID]
+.fi
+.SH APP AND TAB COMMANDS
+.nf
+teams app list TEAM_ID
+teams app install TEAM_ID --app-id CATALOG_APP_ID
+teams app uninstall TEAM_ID --app-id INSTALLATION_ID
+teams tab list TEAM_ID CHANNEL_ID
+teams tab create TEAM_ID CHANNEL_ID --app-id APP_ID --name NAME --content-url URL
+teams tab delete TEAM_ID CHANNEL_ID --tab-id TAB_ID
+.fi
+.SH FILE COMMANDS
+.nf
+teams file list --team TEAM_ID --channel CHANNEL_ID
+teams file get --team TEAM_ID --channel CHANNEL_ID --file-id FILE_ID
+teams file upload --team TEAM_ID --channel CHANNEL_ID --file PATH [--name NAME]
+teams file upload --team TEAM_ID --channel CHANNEL_ID --stdin --name NAME
+teams file download --team TEAM_ID --channel CHANNEL_ID --file-id FILE_ID [--path PATH]
+teams file delete --team TEAM_ID --channel CHANNEL_ID --file-id FILE_ID
+teams file share --team TEAM_ID --channel CHANNEL_ID --file-id FILE_ID [--link-type view|edit|embed] [--scope anonymous|organization]
+.fi
+.PP
+If
+.B teams file download
+is run without
+.B --path,
+file bytes are written to stdout. Use
+.B --path
+for a destination file because global
+.B --output
+is reserved for json, human, and plain output formats.
+.SH SUBSCRIPTIONS AND LISTENER
+.nf
+teams subscribe create --resource RESOURCE --change-type TYPES --webhook-url URL [--expiration ISO8601] [--client-state STATE]
+teams subscribe list
+teams subscribe renew SUBSCRIPTION_ID [--expiration ISO8601]
+teams subscribe delete SUBSCRIPTION_ID
+teams listen [--port PORT]
+.fi
+.PP
+Microsoft Graph requires HTTPS notification URLs. The local listener is plain
+HTTP and is intended to sit behind a reverse proxy such as ngrok for testing.
+It emits change notifications as newline-delimited JSON.
+.SH COMPLETIONS
+.nf
+teams completions bash
+teams completions zsh
+teams completions fish
+teams completions powershell
+.fi
+.SH ENVIRONMENT
+.TP
+.B TEAMS_CLI_ACCESS_TOKEN
+Pre-obtained access token. Skips keyring lookup.
+.TP
+.B TEAMS_CLI_CLIENT_ID
+Azure AD application client ID.
+.TP
+.B TEAMS_CLI_CLIENT_SECRET
+Azure AD client secret for client credentials auth.
+.TP
+.B TEAMS_CLI_TENANT_ID
+Azure AD tenant ID.
+.TP
+.B RUST_LOG
+Tracing filter, for example
+.B debug
+or
+.B teams=trace.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+General error or unauthenticated
+.B auth status.
+.TP
+.B 2
+Invalid arguments or invalid input.
+.TP
+.B 3
+Authentication error or expired token.
+.TP
+.B 4
+Permission denied.
+.TP
+.B 5
+Resource not found.
+.TP
+.B 6
+Rate limited after retries.
+.TP
+.B 7
+Network error or timeout.
+.TP
+.B 8
+Server error after retries.
+.TP
+.B 10
+Configuration or keyring error.
+.SH SEE ALSO
+.BR teams-config (5),
+.BR teams-auth (7),
+.BR teams-agent-contract (7),
+.BR teams-examples (7)

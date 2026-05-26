@@ -63,15 +63,33 @@ jobs:
       - name: Package (unix)
         if: matrix.archive == 'tar.gz'
         run: |
-          cd target/${{ matrix.target }}/release
-          tar czf ../../../teams-${{ github.ref_name }}-${{ matrix.target }}.tar.gz teams
-          cd ../../..
+          package="teams-${{ github.ref_name }}-${{ matrix.target }}"
+          mkdir -p "dist/${package}/bin" "dist/${package}/share/doc" "dist/${package}/share/man/man1" "dist/${package}/share/man/man5" "dist/${package}/share/man/man7"
+          cp "target/${{ matrix.target }}/release/teams" "dist/${package}/bin/teams"
+          cp docs/man/teams.1 "dist/${package}/share/man/man1/teams.1"
+          cp docs/man/teams-config.5 "dist/${package}/share/man/man5/teams-config.5"
+          cp docs/man/teams-auth.7 "dist/${package}/share/man/man7/teams-auth.7"
+          cp docs/man/teams-agent-contract.7 "dist/${package}/share/man/man7/teams-agent-contract.7"
+          cp docs/man/teams-examples.7 "dist/${package}/share/man/man7/teams-examples.7"
+          cp -R docs "dist/${package}/share/doc/teams"
+          cp README.md CHANGELOG.md LICENSE SECURITY.md "dist/${package}/share/doc/teams/"
+          tar czf "${package}.tar.gz" -C dist "${package}"
 
       - name: Package (windows)
         if: matrix.archive == 'zip'
         shell: pwsh
         run: |
-          Compress-Archive -Path target/${{ matrix.target }}/release/teams.exe -DestinationPath teams-${{ github.ref_name }}-${{ matrix.target }}.zip
+          $package = "teams-${{ github.ref_name }}-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path "dist/$package/bin", "dist/$package/share/doc", "dist/$package/share/man/man1", "dist/$package/share/man/man5", "dist/$package/share/man/man7"
+          Copy-Item "target/${{ matrix.target }}/release/teams.exe" "dist/$package/bin/teams.exe"
+          Copy-Item "docs/man/teams.1" "dist/$package/share/man/man1/teams.1"
+          Copy-Item "docs/man/teams-config.5" "dist/$package/share/man/man5/teams-config.5"
+          Copy-Item "docs/man/teams-auth.7" "dist/$package/share/man/man7/teams-auth.7"
+          Copy-Item "docs/man/teams-agent-contract.7" "dist/$package/share/man/man7/teams-agent-contract.7"
+          Copy-Item "docs/man/teams-examples.7" "dist/$package/share/man/man7/teams-examples.7"
+          Copy-Item -Recurse "docs" "dist/$package/share/doc/teams"
+          Copy-Item -Path @("README.md", "CHANGELOG.md", "LICENSE", "SECURITY.md") -Destination "dist/$package/share/doc/teams/"
+          Compress-Archive -Path "dist/$package" -DestinationPath "$package.zip"
 
       - name: Upload artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

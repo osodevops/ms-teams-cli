@@ -38,3 +38,15 @@ pub fn resolve_token(profile: &str) -> Result<TokenInfo> {
         )),
     }
 }
+
+pub fn require_delegated_token(token: &TokenInfo, operation: &str) -> Result<()> {
+    if let Some(claims) = token.unverified_claims() {
+        if claims.auth_type() == "app-only" {
+            return Err(TeamsError::PermissionDenied(format!(
+                "{operation} requires delegated Microsoft Graph auth. App-only/client-credentials tokens cannot send normal live Teams chat or channel messages; use `teams auth login --device-code` or future bot mode."
+            )));
+        }
+    }
+
+    Ok(())
+}

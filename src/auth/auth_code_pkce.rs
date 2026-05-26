@@ -13,17 +13,21 @@ use crate::error::{Result, TeamsError};
 const DEFAULT_SCOPES: &str = "User.Read Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Send ChannelMessage.Read.All Chat.ReadWrite ChatMessage.Send ChatMessage.Read User.ReadBasic.All Presence.Read.All offline_access";
 const REDIRECT_URI: &str = "http://localhost:8400/callback";
 
-fn generate_pkce() -> (String, String) {
-    use rand::Rng;
-    let mut rng = rand::thread_rng();
-    let verifier_bytes: Vec<u8> = (0..32).map(|_| rng.gen::<u8>()).collect();
-    let verifier = URL_SAFE_NO_PAD.encode(&verifier_bytes);
+fn random_urlsafe_bytes(len: usize) -> Result<String> {
+    let mut bytes = vec![0u8; len];
+    getrandom::fill(&mut bytes)
+        .map_err(|e| TeamsError::AuthError(format!("Failed to generate random bytes: {e}")))?;
+    Ok(URL_SAFE_NO_PAD.encode(&bytes))
+}
+
+fn generate_pkce() -> Result<(String, String)> {
+    let verifier = random_urlsafe_bytes(32)?;
 
     let mut hasher = Sha256::new();
     hasher.update(verifier.as_bytes());
     let challenge = URL_SAFE_NO_PAD.encode(hasher.finalize());
 
-    (verifier, challenge)
+    Ok((verifier, challenge))
 }
 
 /// Authenticate using authorization code flow with PKCE.
@@ -34,14 +38,9 @@ pub async fn authenticate(
     scopes: Option<&str>,
 ) -> Result<MsTokenResponse> {
     let scopes = scopes.unwrap_or(DEFAULT_SCOPES);
-    let (verifier, challenge) = generate_pkce();
+    let (verifier, challenge) = generate_pkce()?;
 
-    let state: String = {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-        let bytes: Vec<u8> = (0..16).map(|_| rng.gen::<u8>()).collect();
-        URL_SAFE_NO_PAD.encode(&bytes)
-    };
+    let state = random_urlsafe_bytes(16)?;
 
     let auth_url = format!(
         "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize?\

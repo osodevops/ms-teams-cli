@@ -1,0 +1,135 @@
+.TH TEAMS-AUTH 7 "May 26, 2026" "teams-cli 0.2.0" "Miscellaneous Information"
+.SH NAME
+teams-auth \- authentication model for the teams CLI
+.SH DESCRIPTION
+The
+.B teams
+CLI authenticates to Microsoft Graph. For normal Teams chat and channel
+message workflows, the commercial model is delegated authentication: a user
+signs in, Microsoft Graph calls run on behalf of that user, and Teams messages
+appear as that user.
+.PP
+Client credentials produce app-only tokens. App-only Graph access is valid for
+some APIs, but it is not the default model for normal live Teams message
+posting.
+.SH DEFAULT OSO APP
+Delegated login defaults to the OSO multi-tenant public client app:
+.PP
+.nf
+Client ID: fba1b5d0-fdd0-4fe2-9729-9ccdc38f9595
+Authority: organizations
+Redirect URI: http://localhost:8400/callback
+.fi
+.PP
+Common login commands:
+.PP
+.nf
+teams auth login
+teams auth login --device-code
+teams auth doctor --output json
+.fi
+.PP
+The OSO app is built into the CLI as the default delegated public client. It
+must be publisher verified before broad external commercial release.
+.SH ADMIN CONSENT
+Print an admin consent URL:
+.PP
+.nf
+teams auth consent-url --tenant-id TENANT_ID_OR_DOMAIN --output json
+.fi
+.PP
+For customer onboarding, prefer a concrete tenant ID or verified tenant domain
+instead of
+.B organizations.
+.SH BYO APP
+Some tenants require customer-owned app registrations. Configure a profile with
+.B auth_app = "byo"
+and provide a client ID:
+.PP
+.nf
+[profiles.customer]
+auth_app = "byo"
+client_id = "11111111-1111-1111-1111-111111111111"
+tenant_id = "22222222-2222-2222-2222-222222222222"
+auth_flow = "device-code"
+.fi
+.PP
+Then run:
+.PP
+.nf
+teams --profile customer auth login --device-code
+teams --profile customer auth doctor --output json
+.fi
+.SH CLIENT CREDENTIALS
+Client credentials are explicit and require a customer-owned confidential app:
+.PP
+.nf
+export TEAMS_CLI_CLIENT_ID=...
+export TEAMS_CLI_CLIENT_SECRET=...
+export TEAMS_CLI_TENANT_ID=...
+teams auth login --client-credentials
+.fi
+.PP
+Use app-only tokens only for Microsoft Graph operations that support
+application permissions for the intended scenario. Do not use client
+credentials as the normal live chat/channel send model.
+.SH MESSAGE POSTING
+Normal message mutation commands require delegated auth:
+.PP
+.nf
+teams message send
+teams message reply
+teams message update
+teams message delete
+teams message react
+teams message unreact
+teams message pin
+teams message unpin
+.fi
+.PP
+If the token looks app-only, these commands return a permission error before
+calling Microsoft Graph.
+.SH FUTURE UNATTENDED POSTING
+For unattended service-identity posting, the intended future direction is a
+Teams app/bot proactive messaging mode. In that model a customer installs a
+Teams app or bot, and messages are sent as that app identity instead of a
+delegated human user.
+.SH TOKEN STORAGE
+Tokens are stored in the operating system credential store:
+.PP
+.nf
+macOS:   Keychain
+Windows: Credential Manager
+Linux:   Secret Service-compatible keyring
+.fi
+.PP
+The config file stores profile and app settings, not access tokens.
+.SH ENVIRONMENT
+.TP
+.B TEAMS_CLI_ACCESS_TOKEN
+Use a pre-obtained bearer token and skip keyring lookup.
+.TP
+.B TEAMS_CLI_CLIENT_ID
+Entra app client ID.
+.TP
+.B TEAMS_CLI_CLIENT_SECRET
+Client secret for client credentials flow.
+.TP
+.B TEAMS_CLI_TENANT_ID
+Tenant ID or tenant domain.
+.TP
+.B TEAMS_CLI_DISABLE_KEYRING
+Test-only switch used to avoid OS keyring access in automated tests. Do not use
+for real login sessions.
+.SH KNOWN GAPS
+Automatic refresh-token handling must be completed and validated before public
+commercial release. If a stored access token expires today, run:
+.PP
+.nf
+teams auth login --device-code
+.fi
+.SH SEE ALSO
+.BR teams (1),
+.BR teams-config (5),
+.BR teams-agent-contract (7),
+.BR teams-examples (7)

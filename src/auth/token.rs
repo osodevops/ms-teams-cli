@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -14,6 +15,42 @@ pub struct TokenInfo {
     pub profile: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TokenClaims {
+    #[serde(default)]
+    pub aud: Option<serde_json::Value>,
+    #[serde(default)]
+    pub tid: Option<String>,
+    #[serde(default)]
+    pub oid: Option<String>,
+    #[serde(default)]
+    pub appid: Option<String>,
+    #[serde(default)]
+    pub azp: Option<String>,
+    #[serde(default)]
+    pub preferred_username: Option<String>,
+    #[serde(default)]
+    pub upn: Option<String>,
+    #[serde(default)]
+    pub scp: Option<String>,
+    #[serde(default)]
+    pub roles: Option<Vec<String>>,
+    #[serde(default)]
+    pub exp: Option<i64>,
+}
+
+impl TokenClaims {
+    pub fn auth_type(&self) -> &'static str {
+        if self.scp.as_deref().is_some_and(|s| !s.trim().is_empty()) {
+            "delegated"
+        } else if self.roles.as_ref().is_some_and(|r| !r.is_empty()) {
+            "app-only"
+        } else {
+            "unknown"
+        }
+    }
+}
+
 impl TokenInfo {
     pub fn is_expired(&self) -> bool {
         match self.expires_at {
@@ -25,6 +62,21 @@ impl TokenInfo {
     pub fn bearer_header(&self) -> String {
         format!("Bearer {}", self.access_token)
     }
+
+    pub fn unverified_claims(&self) -> Option<TokenClaims> {
+        decode_unverified_claims(&self.access_token).ok()
+    }
+}
+
+pub fn decode_unverified_claims(token: &str) -> Result<TokenClaims, String> {
+    let payload = token
+        .split('.')
+        .nth(1)
+        .ok_or_else(|| "token is not a JWT".to_string())?;
+    let bytes = URL_SAFE_NO_PAD
+        .decode(payload)
+        .map_err(|e| format!("invalid JWT payload encoding: {e}"))?;
+    serde_json::from_slice(&bytes).map_err(|e| format!("invalid JWT payload JSON: {e}"))
 }
 
 /// Raw token response from Microsoft Identity Platform
@@ -56,6 +108,7 @@ impl MsTokenResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 
     fn make_token(expires_at: Option<DateTime<Utc>>) -> TokenInfo {
         TokenInfo {
@@ -106,5 +159,48 @@ mod tests {
         assert_eq!(info.profile, "work");
         assert!(info.expires_at.is_some());
         assert!(!info.is_expired());
+    }
+
+    #[test]
+    fn decodes_delegated_jwt_claims() {
+        let payload = serde_json::json!({
+            "tid": "tenant-id",
+            "oid": "user-id",
+            "scp": "User.Read ChatMessage.Send"
+        });
+        let token = format!(
+            "header.{}.signature",
+            URL_SAFE_NO_PAD.encode(payload.to_string())
+        );
+
+        let claims = decode_unverified_claims(&token).unwrap();
+
+        assert_eq!(claims.tid.as_deref(), Some("tenant-id"));
+        assert_eq!(claims.auth_type(), "delegated");
+    }
+
+    #[test]
+    fn decodes_app_only_jwt_claims() {
+        let payload = serde_json::json!({
+            "tid": "tenant-id",
+            "appid": "client-id",
+            "roles": ["Team.ReadBasic.All"]
+        });
+        let token = format!(
+            "header.{}.signature",
+            URL_SAFE_NO_PAD.encode(payload.to_string())
+        );
+
+        let claims = decode_unverified_claims(&token).unwrap();
+
+        assert_eq!(claims.appid.as_deref(), Some("client-id"));
+        assert_eq!(claims.auth_type(), "app-only");
+    }
+
+    #[test]
+    fn rejects_non_jwt_token_claims() {
+        let err = decode_unverified_claims("not-a-jwt").unwrap_err();
+
+        assert_eq!(err, "token is not a JWT");
     }
 }

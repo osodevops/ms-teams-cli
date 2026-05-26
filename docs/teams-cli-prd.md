@@ -150,11 +150,19 @@ The tool enables everything a human can do in the Teams desktop/web client — s
 
 ## 6. Authentication & Authorization
 
+**Commercial auth direction update:** see
+[`docs/auth-implementation-plan.md`](auth-implementation-plan.md). The product should
+default to a publisher-verified OSO multi-tenant public client app for delegated
+Graph auth. Client credentials are not a general solution for normal Teams
+message posting because Microsoft Graph only supports app-only channel/chat
+message POSTs for migration/import scenarios. Unattended posting should be
+implemented with a Teams bot app and Bot Framework proactive messaging.
+
 ### 6.1 Supported Auth Flows
 
 | Flow | Use Case | Interactive | Permissions Type |
 |------|----------|-------------|-----------------|
-| **Client Credentials** | Headless agents, CI/CD pipelines, server-to-server | No | Application |
+| **Client Credentials** | Supported app-only Graph admin/read operations; not normal live Teams message posting | No | Application |
 | **Device Code** | CLI sessions where browser is available but not on same machine | Semi (one-time browser step) | Delegated |
 | **Auth Code + PKCE** | Interactive human use, initial setup | Yes (opens browser) | Delegated |
 | **Certificate-Based** | Enterprise/production deployments | No | Application |
@@ -171,8 +179,14 @@ The tool enables everything a human can do in the Teams desktop/web client — s
 The tool should request the minimum scopes needed per command. Document required permissions for each command.
 
 **Application Permissions (Client Credentials / Cert):**
+
+Application permissions vary by Graph endpoint and are not interchangeable with
+delegated permissions. In particular, normal Teams channel/chat message sending
+is delegated-only; app-only message POST is limited to migration/import flows.
+The exact app-only permission set must be validated per command before release.
+
 - `Team.ReadBasic.All`, `TeamSettings.ReadWrite.All`
-- `Channel.ReadBasic.All`, `ChannelMessage.Read.All`, `ChannelMessage.Send`
+- `Channel.ReadBasic.All`, `ChannelMessage.Read.All`
 - `Chat.Read.All`, `Chat.ReadWrite.All`, `ChatMessage.Read.All`
 - `ChatMember.Read.All`, `ChatMember.ReadWrite.All`
 - `User.Read.All`, `Presence.Read.All`
