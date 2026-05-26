@@ -1971,7 +1971,7 @@ dependencies = [
  "clap_complete",
  "comfy-table",
  "dirs",
- "getrandom 0.3.4",
+ "getrandom 0.4.2",
  "http-body-util",
  "hyper",
  "hyper-util",
