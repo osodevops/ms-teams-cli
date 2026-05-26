@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.1 - 2026-05-26
+
+### Fixed
+
+- Fixed pinned GitHub Actions Rust toolchain setup by passing `toolchain: stable` explicitly.
+
 ## v0.2.0 - 2026-05-26
 
 ### Added
