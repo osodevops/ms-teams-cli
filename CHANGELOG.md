@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.3 - 2026-05-26
+
+### Fixed
+
+- Corrected the Homebrew install command in the README to use the published `teams-cli` formula.
+
 ## v0.2.2 - 2026-05-26
 
 ### Fixed

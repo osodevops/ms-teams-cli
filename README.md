@@ -63,7 +63,7 @@ On failure:
 
 ```bash
 # Homebrew (macOS/Linux)
-brew install osodevops/tap/teams
+brew install osodevops/tap/teams-cli
 
 # Pre-built binaries — download from GitHub Releases
 # https://github.com/osodevops/ms-teams-cli/releases
