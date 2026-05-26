@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: http://msteamscli.com/
+    about: Check the project website and documentation before opening an issue.
+  - name: Security vulnerability
+    url: https://github.com/osodevops/ms-teams-cli/security/policy
+    about: Report security issues privately through the security policy.

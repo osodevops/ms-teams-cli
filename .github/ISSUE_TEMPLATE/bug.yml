@@ -1,0 +1,63 @@
+name: Bug report
+description: Report a bug or unexpected behavior
+labels: ["bug"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting an issue. Do not include access tokens, refresh tokens, auth codes, tenant secrets, private chat contents, or customer data.
+
+  - type: textarea
+    attributes:
+      label: Describe the bug
+      description: A clear description of what went wrong.
+      placeholder: Describe the issue step by step.
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Steps to reproduce
+      description: Include the exact command shape where possible, with sensitive values replaced by placeholders.
+      placeholder: |
+        1. Run `teams ...`
+        2. Use output mode `json`
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: false
+
+  - type: textarea
+    attributes:
+      label: Error output
+      description: Paste sanitized stderr/stdout. Remove tokens, tenant secrets, auth codes, and private Teams content.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    attributes:
+      label: Environment
+      value: |
+        - teams-cli version:
+        - Install method: [Homebrew / GitHub release / cargo install / source]
+        - OS:
+        - Shell:
+        - Auth flow: [browser / device-code / client-credentials / access-token env var]
+        - Output mode: [json / human / plain]
+    validations:
+      required: false
+
+  - type: textarea
+    attributes:
+      label: Additional context
+      description: Add any other sanitized context that may help.
+    validations:
+      required: false

@@ -1,0 +1,46 @@
+name: Feature request
+description: Suggest a new feature or improvement
+labels: ["enhancement"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. Please describe the workflow and the Teams or Microsoft Graph behavior you need.
+
+  - type: textarea
+    attributes:
+      label: Problem
+      description: What problem are you trying to solve?
+      placeholder: Agents or automation need to...
+    validations:
+      required: false
+
+  - type: textarea
+    attributes:
+      label: Proposed solution
+      description: What should teams-cli do?
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Use case
+      description: Who would use this and in what workflow?
+      placeholder: Agency client comms, enterprise agent posting, CI/CD status updates, incident response...
+    validations:
+      required: false
+
+  - type: textarea
+    attributes:
+      label: Microsoft Graph or Teams API reference
+      description: Link to relevant Microsoft documentation if known.
+    validations:
+      required: false
+
+  - type: textarea
+    attributes:
+      label: Alternatives considered
+      description: Any workaround, SDK, Graph call, bot flow, or CLI alternative you have considered.
+    validations:
+      required: false

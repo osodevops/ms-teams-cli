@@ -1,5 +1,7 @@
 # teams-cli documentation
 
+Project website: [msteamscli.com](http://msteamscli.com/)
+
 `teams` is a Microsoft Teams command line tool built for AI agents, scripts, and operators that need deterministic access to Microsoft Graph. It is not a Teams bot framework. It is a subprocess-friendly CLI that can read Teams data, send messages as a delegated user, manage Teams resources, and emit JSON envelopes that agents can parse reliably.
 
 ## Start here

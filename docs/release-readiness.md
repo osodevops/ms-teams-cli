@@ -56,6 +56,7 @@ These must be resolved before marketing this as production-ready for external cu
 6. Clear policy for unsupported Graph operations, tenant restrictions, and destructive commands.
 7. Security review of token storage, logs, and exported token behavior.
 8. Versioned release notes and upgrade guidance.
+9. Public website DNS and hosting live for `http://msteamscli.com/`; prefer HTTPS before broad commercial launch.
 
 ## Microsoft official trust checklist
 
@@ -64,11 +65,38 @@ For the current CLI-only Graph app, Microsoft Teams Store submission is not requ
 - Entra publisher domain set to OSO's verified domain.
 - Microsoft AI Cloud Partner Program account linked for publisher verification.
 - Publisher verification completed so consent prompts show a verified publisher.
-- App display name, logo, homepage, privacy policy, and terms URLs set in Entra branding.
+- App display name, logo, homepage (`http://msteamscli.com/`), privacy policy, and terms URLs set in Entra branding.
 - Admin consent URL documented for customer tenants.
 - Permission list documented with a short purpose for each delegated scope.
 
 Microsoft 365/Teams app publisher attestation or certification becomes relevant if OSO later ships a Teams app or bot through Teams Store/AppSource.
+
+## Kafka Backup parity review
+
+Reviewed against `osodevops/kafka-backup` on 2026-05-26.
+
+Already covered here:
+
+- GitHub Actions CI on Linux, macOS, and Windows.
+- GitHub release assets with SHA256 checksums.
+- Homebrew formula in `osodevops/homebrew-tap`.
+- README, docs, man pages, changelog, license, contribution guide, and security policy.
+- Agent-focused repo guidance in `AGENTS.md`.
+
+Added from that comparison:
+
+- GitHub issue templates for bug reports and feature requests.
+- Dependabot configuration for Cargo and GitHub Actions.
+- Public homepage metadata in Cargo and GitHub repository settings.
+
+Still intentionally not added:
+
+- cargo-dist shell and PowerShell installers.
+- Scoop bucket publishing for Windows.
+- Docker image publishing.
+- Demo repository with runnable customer scenarios.
+
+Those are useful distribution improvements, but they should be implemented deliberately rather than mixed into the current proven release workflow.
 
 ## Controlled live smoke test
 

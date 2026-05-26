@@ -6,7 +6,10 @@ Every command returns structured JSON with deterministic exit codes — designed
 
 [![CI](https://github.com/osodevops/ms-teams-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/osodevops/ms-teams-cli/actions/workflows/ci.yml)
 [![Release](https://github.com/osodevops/ms-teams-cli/actions/workflows/release.yml/badge.svg)](https://github.com/osodevops/ms-teams-cli/releases)
+[![Latest Release](https://img.shields.io/github/v/release/osodevops/ms-teams-cli)](https://github.com/osodevops/ms-teams-cli/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+Website: [msteamscli.com](http://msteamscli.com/)
 
 ## Why This Exists
 
@@ -74,6 +77,7 @@ cargo install --git https://github.com/osodevops/ms-teams-cli
 
 ## Documentation
 
+- [Project website](http://msteamscli.com/)
 - [Docs index](docs/README.md)
 - [Quickstarts](docs/quickstarts/README.md)
 - [Authentication guide](docs/auth.md)
