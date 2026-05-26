@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.2 - 2026-05-26
+
+### Fixed
+
+- Made the custom config path CLI test portable on Windows by validating parsed JSON output instead of matching escaped path text.
+
 ## v0.2.1 - 2026-05-26
 
 ### Fixed

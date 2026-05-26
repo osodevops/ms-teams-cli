@@ -38,7 +38,7 @@ fn version_flag_works() {
         .arg("--version")
         .assert()
         .success()
-        .stdout(predicate::str::contains("0.2.1"));
+        .stdout(predicate::str::contains("0.2.2"));
 }
 
 #[test]
@@ -109,11 +109,12 @@ fn config_init_respects_custom_config_path() {
     let path = dir.path().join("custom-config.toml");
     let path_str = path.to_str().unwrap();
 
-    teams()
+    let assert = teams()
         .args(["--config", path_str, "--output", "json", "config", "init"])
         .assert()
-        .success()
-        .stdout(predicate::str::contains(path_str));
+        .success();
+    let stdout: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout).unwrap();
+    assert_eq!(stdout["data"]["path"].as_str(), Some(path_str));
 
     assert!(path.exists());
 }
