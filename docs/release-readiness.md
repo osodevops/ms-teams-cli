@@ -31,6 +31,18 @@ Known live behavior:
 - Some meeting chats can appear in `chat list` but reject message reads with `403` if the user is no longer in the roster.
 - Stored token expiry currently requires manual re-login.
 
+Entra app registration status as of 2026-05-27:
+
+- OSO public client app is multi-tenant (`AzureADMultipleOrgs`).
+- Public client redirect URI is configured as `http://localhost:8400/callback`.
+- Public client/device-code fallback is enabled.
+- Implicit grant access-token and ID-token issuance are disabled.
+- Home tenant admin consent has been granted for the current delegated scope bundle.
+- Homepage and marketing URL are set to `http://msteamscli.com/`.
+- Privacy URL is set to `https://oso.sh/privacy-policy/`.
+- Support URL is set to `https://oso.sh/contact/`.
+- App logo is uploaded from the OSO website asset.
+
 ## Internal release candidate gate
 
 Required:
@@ -56,7 +68,8 @@ These must be resolved before marketing this as production-ready for external cu
 6. Clear policy for unsupported Graph operations, tenant restrictions, and destructive commands.
 7. Security review of token storage, logs, and exported token behavior.
 8. Versioned release notes and upgrade guidance.
-9. Public website DNS and hosting live for `http://msteamscli.com/`; prefer HTTPS before broad commercial launch.
+9. Public website HTTPS fixed for `https://msteamscli.com/`; HTTP is live, but the current TLS certificate does not cover the hostname.
+10. Terms of service URL published and added to the Entra app branding.
 
 ## Microsoft official trust checklist
 
@@ -65,7 +78,8 @@ For the current CLI-only Graph app, Microsoft Teams Store submission is not requ
 - Entra publisher domain set to OSO's verified domain.
 - Microsoft AI Cloud Partner Program account linked for publisher verification.
 - Publisher verification completed so consent prompts show a verified publisher.
-- App display name, logo, homepage (`http://msteamscli.com/`), privacy policy, and terms URLs set in Entra branding.
+- App display name, logo, homepage (`http://msteamscli.com/`), privacy policy, and support URLs set in Entra branding.
+- Terms URL still needs to be published and added.
 - Admin consent URL documented for customer tenants.
 - Permission list documented with a short purpose for each delegated scope.
 
