@@ -56,6 +56,65 @@ Required:
 - GitHub Actions passes on Linux, macOS, and Windows.
 - Release workflow builds artifacts for supported platforms.
 
+## Release automation checklist
+
+The full release path is version-bump driven, not PR-merge driven:
+
+1. Open a release PR that updates `Cargo.toml` to the next version.
+2. Keep `Cargo.lock` aligned for the root `teams-cli` package version.
+3. Add a matching `CHANGELOG.md` entry.
+4. After the PR is merged to `main`, confirm `.github/workflows/auto-tag.yml` runs successfully.
+5. Confirm `auto-tag.yml` creates the `vX.Y.Z` tag.
+6. Confirm the tag starts `.github/workflows/release.yml`.
+7. Confirm the release workflow completes all build targets, creates checksums, publishes the GitHub Release, and runs the Homebrew tap update job.
+
+Important details:
+
+- Merging a feature PR that does not change `Cargo.toml` only runs CI on `main`; it does not create a release.
+- `auto-tag.yml` is path-filtered to `Cargo.toml` and only tags when the package version changes.
+- The tag push is what triggers `release.yml`.
+- The release workflow currently builds:
+  - `x86_64-apple-darwin`
+  - `aarch64-apple-darwin`
+  - `x86_64-unknown-linux-musl`
+  - `aarch64-unknown-linux-musl`
+  - `x86_64-pc-windows-msvc`
+
+Homebrew tap follow-up as of 2026-06-04:
+
+- `release.yml` sends a `repository_dispatch` event to `osodevops/homebrew-tap`.
+- The tap repository currently has no workflow listening for that dispatch event.
+- Until that automation exists, update `osodevops/homebrew-tap` manually after each CLI release.
+- Use the published `checksums-sha256.txt` from the GitHub Release to update `Formula/teams-cli.rb`.
+- Verify the remote formula points at the new release URLs and checksums.
+
+Known CI maintenance item as of 2026-06-04:
+
+- GitHub Actions is warning that Node.js 20 actions are deprecated.
+- Update pinned actions used by CI/release before GitHub's June 16, 2026 Node 24 default switch.
+- Watch especially `actions/checkout`, `actions/upload-artifact`, `actions/download-artifact`, and `softprops/action-gh-release`.
+
+## GitHub Actions supply-chain checklist
+
+For every GitHub Actions dependency update:
+
+1. Verify the owner and repository are unchanged.
+2. Verify the target tag exists in the official action repository.
+3. Resolve the tag to the underlying commit.
+4. Pin the workflow to the full 40-character commit SHA, not the tag.
+5. Keep the trailing version comment accurate, for example `# v7.0.1`.
+6. Check `action.yml` for the runtime. Prefer Node 24 compatible action versions.
+7. Read the release notes for behavior changes, new inputs, permission changes, or token handling changes.
+8. Keep workflow `permissions` at least privilege. Do not give write permissions to build/test jobs.
+9. Set `persist-credentials: false` on `actions/checkout` unless a later step explicitly needs checkout's persisted git credentials.
+10. Do not merge a Dependabot Actions PR if it changes the action owner/repository, points to a fork, removes SHA pinning, or leaves comments inconsistent with the reviewed version.
+
+Preferred repository setting:
+
+- Require actions and reusable workflows to be pinned to a full-length commit SHA at the repository or organization level.
+
+Dependabot is configured to group GitHub Actions updates into one PR so the complete workflow supply-chain diff can be reviewed together.
+
 ## Commercial release blockers
 
 These must be resolved before marketing this as production-ready for external customers:
