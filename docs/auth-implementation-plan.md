@@ -135,14 +135,13 @@ Recommended initial delegated scopes:
 - `Team.ReadBasic.All`
 - `Channel.ReadBasic.All`
 - `ChannelMessage.Send`
-- `ChannelMessage.Read.All`
 - `Chat.ReadWrite`
 - `ChatMessage.Send`
 - `ChatMessage.Read`
 - `User.ReadBasic.All`
 - `Presence.Read.All`
 
-Implementation note: split these into documented scope presets before release. The current default scope string is broad and convenient for testing, but commercial onboarding should explain exactly why each scope exists and allow lower-scope profiles where possible.
+Implementation note: keep the default scope string below known admin-consent-required delegated scopes where possible. `ChannelMessage.Read.All` is needed for channel message reads, but it should be requested explicitly with `--scopes` or through a customer-owned app because Microsoft marks it as admin-consent required.
 
 ### 2. Customer BYO Public Client App
 

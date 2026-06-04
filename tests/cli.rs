@@ -64,8 +64,12 @@ fn auth_consent_url_uses_oso_default_client_id() {
         .success()
         .stdout(
             predicate::str::contains("fba1b5d0-fdd0-4fe2-9729-9ccdc38f9595")
-                .and(predicate::str::contains("adminconsent"))
-                .and(predicate::str::contains("organizations")),
+                .and(predicate::str::contains("v2.0/adminconsent"))
+                .and(predicate::str::contains("scope="))
+                .and(predicate::str::contains("redirect_uri="))
+                .and(predicate::str::contains("ChatMessage.Send"))
+                .and(predicate::str::contains("organizations"))
+                .and(predicate::str::contains("ChannelMessage.Read.All").not()),
         );
 }
 

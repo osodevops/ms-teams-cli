@@ -8,10 +8,8 @@ use std::sync::Mutex;
 use tokio::sync::oneshot;
 
 use super::token::MsTokenResponse;
+use crate::config::{DEFAULT_DELEGATED_SCOPES, DEFAULT_REDIRECT_URI};
 use crate::error::{Result, TeamsError};
-
-const DEFAULT_SCOPES: &str = "User.Read Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Send ChannelMessage.Read.All Chat.ReadWrite ChatMessage.Send ChatMessage.Read User.ReadBasic.All Presence.Read.All offline_access";
-const REDIRECT_URI: &str = "http://localhost:8400/callback";
 
 fn random_urlsafe_bytes(len: usize) -> Result<String> {
     let mut bytes = vec![0u8; len];
@@ -37,7 +35,7 @@ pub async fn authenticate(
     tenant_id: &str,
     scopes: Option<&str>,
 ) -> Result<MsTokenResponse> {
-    let scopes = scopes.unwrap_or(DEFAULT_SCOPES);
+    let scopes = scopes.unwrap_or(DEFAULT_DELEGATED_SCOPES);
     let (verifier, challenge) = generate_pkce()?;
 
     let state = random_urlsafe_bytes(16)?;
@@ -51,7 +49,7 @@ pub async fn authenticate(
          &state={state}\
          &code_challenge={challenge}\
          &code_challenge_method=S256",
-        urlencoding::encode(REDIRECT_URI),
+        urlencoding::encode(DEFAULT_REDIRECT_URI),
         urlencoding::encode(scopes),
     );
 
@@ -150,7 +148,7 @@ pub async fn authenticate(
             ("grant_type", "authorization_code"),
             ("client_id", client_id),
             ("code", &code),
-            ("redirect_uri", REDIRECT_URI),
+            ("redirect_uri", DEFAULT_REDIRECT_URI),
             ("code_verifier", &verifier),
             ("scope", scopes),
         ])

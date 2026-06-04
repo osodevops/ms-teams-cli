@@ -110,6 +110,31 @@ fn token_warnings(claims: Option<&auth::token::TokenClaims>) -> Vec<String> {
     warnings
 }
 
+fn graph_admin_consent_scopes(scopes: &str) -> String {
+    scopes
+        .split_whitespace()
+        .map(|scope| {
+            if scope.starts_with("https://")
+                || matches!(scope, "openid" | "profile" | "email" | "offline_access")
+            {
+                scope.to_string()
+            } else {
+                format!("https://graph.microsoft.com/{scope}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn delegated_admin_consent_url(client_id: &str, tenant_id: &str) -> String {
+    let scopes = graph_admin_consent_scopes(config::DEFAULT_DELEGATED_SCOPES);
+    format!(
+        "https://login.microsoftonline.com/{tenant_id}/v2.0/adminconsent?client_id={client_id}&scope={}&redirect_uri={}",
+        urlencoding::encode(&scopes),
+        urlencoding::encode(config::DEFAULT_REDIRECT_URI)
+    )
+}
+
 pub async fn run(
     cmd: AuthCommand,
     config: &ConfigFile,
@@ -190,13 +215,13 @@ pub async fn run(
                 config::resolve_delegated_client_id(client_id.as_deref(), profile, config)?;
             let tenant_id =
                 config::resolve_delegated_tenant_id(tenant_id.as_deref(), profile, config);
-            let url = format!(
-                "https://login.microsoftonline.com/{tenant_id}/adminconsent?client_id={client_id}"
-            );
+            let url = delegated_admin_consent_url(&client_id, &tenant_id);
             let msg = serde_json::json!({
                 "admin_consent_url": url,
                 "client_id": client_id,
                 "tenant_id": tenant_id,
+                "scope": config::DEFAULT_DELEGATED_SCOPES,
+                "redirect_uri": config::DEFAULT_REDIRECT_URI,
             });
             output::print_success(format, &msg, start);
             Ok(())
@@ -220,12 +245,15 @@ pub async fn run(
             let token = auth::resolve_token(profile).ok();
             let claims = token.as_ref().and_then(|t| t.unverified_claims());
             let warnings = token_warnings(claims.as_ref());
+            let admin_consent_url = delegated_admin_consent_url(&client_id, &tenant_id);
             let msg = serde_json::json!({
                 "profile": profile,
                 "auth_app": auth_app,
                 "client_id": client_id,
                 "tenant_id": tenant_id,
-                "admin_consent_url": format!("https://login.microsoftonline.com/{tenant_id}/adminconsent?client_id={client_id}"),
+                "admin_consent_url": admin_consent_url,
+                "default_delegated_scopes": config::DEFAULT_DELEGATED_SCOPES,
+                "redirect_uri": config::DEFAULT_REDIRECT_URI,
                 "authenticated": token.is_some(),
                 "warnings": warnings,
                 "token": token.as_ref().map(|t| serde_json::json!({

@@ -61,8 +61,12 @@ teams auth consent-url --tenant-id <tenant-id-or-domain> --output json
 For the default app, this prints a URL like:
 
 ```text
-https://login.microsoftonline.com/<tenant>/adminconsent?client_id=fba1b5d0-fdd0-4fe2-9729-9ccdc38f9595
+https://login.microsoftonline.com/<tenant>/v2.0/adminconsent?client_id=fba1b5d0-fdd0-4fe2-9729-9ccdc38f9595&scope=...&redirect_uri=...
 ```
+
+The `scope` parameter is explicit so admin consent matches the CLI's default
+delegated Graph scopes instead of every static permission configured on the app
+registration.
 
 Use a concrete tenant ID or verified tenant domain for customer onboarding. `organizations` is useful for sign-in discovery, but a customer admin consent link should normally target the customer's tenant explicitly.
 
@@ -76,7 +80,6 @@ offline_access
 Team.ReadBasic.All
 Channel.ReadBasic.All
 ChannelMessage.Send
-ChannelMessage.Read.All
 Chat.ReadWrite
 ChatMessage.Send
 ChatMessage.Read
@@ -84,7 +87,13 @@ User.ReadBasic.All
 Presence.Read.All
 ```
 
-These permissions cover the current read/write message, team/channel discovery, chat, user lookup, and presence smoke tests. Future features may need additional consent.
+These permissions cover the current chat read/write, channel-send, team/channel discovery, user lookup, and presence smoke tests. The default does not include `ChannelMessage.Read.All` because Microsoft marks that delegated Graph scope as admin-consent required. Add it explicitly when a workflow needs channel message reads:
+
+```bash
+teams auth login --device-code --scopes "User.Read ChannelMessage.Read.All offline_access"
+```
+
+Future features may need additional consent.
 
 ## Login options
 
