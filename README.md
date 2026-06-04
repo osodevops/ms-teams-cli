@@ -125,6 +125,9 @@ Customer admin consent:
 teams auth consent-url --tenant-id <customer-tenant-id-or-domain> --output json
 ```
 
+This prints a Microsoft identity platform v2 admin-consent URL with an explicit
+`scope` parameter for the CLI's default delegated Graph scopes.
+
 For enterprises that require their own app registration, configure BYO mode:
 
 ```toml
@@ -175,6 +178,9 @@ teams auth login
 # Device code flow with OSO's public client app
 teams auth login --device-code
 
+# Channel message reads require a broader Graph scope that often needs admin approval
+teams auth login --device-code --scopes "User.Read ChannelMessage.Read.All offline_access"
+
 # Browser-based login with a customer-owned app
 teams auth login --client-id <client-id> --tenant-id <tenant-id>
 
@@ -203,6 +209,12 @@ teams auth login --client-credentials \
 ```
 
 Tokens are cached in the OS keyring — subsequent commands reuse the session without re-authentication.
+
+Default delegated login asks for chat, channel-send, discovery, user lookup,
+and presence scopes. It intentionally does not request
+`ChannelMessage.Read.All`, because Microsoft marks that delegated scope as
+admin-consent required. Use `--scopes` or a customer-owned app when a workflow
+needs channel message reads.
 
 **Credential resolution order**: CLI flags > environment variables > config file profiles.
 

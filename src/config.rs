@@ -8,6 +8,8 @@ use crate::error::{Result, TeamsError};
 
 pub const OSO_PUBLIC_CLIENT_ID: &str = "fba1b5d0-fdd0-4fe2-9729-9ccdc38f9595";
 pub const DEFAULT_DELEGATED_TENANT_ID: &str = "organizations";
+pub const DEFAULT_DELEGATED_SCOPES: &str = "User.Read Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Send Chat.ReadWrite ChatMessage.Send ChatMessage.Read User.ReadBasic.All Presence.Read.All offline_access";
+pub const DEFAULT_REDIRECT_URI: &str = "http://localhost:8400/callback";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ConfigFile {
@@ -402,6 +404,13 @@ auth_flow = "device-code"
             resolve_delegated_tenant_id(None, "default", &config),
             DEFAULT_DELEGATED_TENANT_ID
         );
+    }
+
+    #[test]
+    fn default_delegated_scopes_avoid_admin_required_channel_read() {
+        assert!(DEFAULT_DELEGATED_SCOPES.contains("ChatMessage.Send"));
+        assert!(DEFAULT_DELEGATED_SCOPES.contains("ChannelMessage.Send"));
+        assert!(!DEFAULT_DELEGATED_SCOPES.contains("ChannelMessage.Read.All"));
     }
 
     #[test]
