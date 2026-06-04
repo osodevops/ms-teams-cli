@@ -162,12 +162,21 @@ can still bring their own Entra app by passing `--client-id` and `--tenant-id`
 or configuring a profile; see
 [`docs/auth-implementation-plan.md`](docs/auth-implementation-plan.md).
 
+This CLI calls Microsoft Graph. Every token used by Graph commands must be a
+Microsoft Graph access token. Tokens captured from the Microsoft Teams web or
+desktop client, including `fossteams/teams-token` files such as
+`~/.config/fossteams/token-teams.jwt`, are issued for Teams-specific audiences
+and will fail against Graph with `InvalidAuthenticationToken: Invalid audience`.
+
 ```bash
 # Browser-based login with OSO's public client app
 teams auth login
 
 # Device code flow with OSO's public client app
 teams auth login --device-code
+
+# Channel message reads require a broader Graph scope that often needs admin approval
+teams auth login --device-code --scopes "User.Read ChannelMessage.Read.All offline_access"
 
 # Browser-based login with a customer-owned app
 teams auth login --client-id <client-id> --tenant-id <tenant-id>
@@ -187,7 +196,7 @@ export TEAMS_CLI_CLIENT_SECRET=<client-secret>
 export TEAMS_CLI_TENANT_ID=<tenant-id>
 teams auth login --client-credentials
 
-# Pass a pre-obtained token directly
+# Pass a pre-obtained Microsoft Graph token directly
 export TEAMS_CLI_ACCESS_TOKEN=<access-token>
 teams team list  # no login step needed
 
@@ -198,7 +207,27 @@ teams auth login --client-credentials \
 
 Tokens are cached in the OS keyring — subsequent commands reuse the session without re-authentication.
 
+Default delegated login asks for chat, channel-send, discovery, user lookup,
+and presence scopes. It intentionally does not request
+`ChannelMessage.Read.All`, because Microsoft marks that delegated scope as
+admin-consent required. Use `--scopes` or a customer-owned app when a workflow
+needs channel message reads.
+
 **Credential resolution order**: CLI flags > environment variables > config file profiles.
+
+### Why not import Teams client tokens?
+
+Tools such as `fossteams/teams-token` are attractive because they avoid Entra
+app registration and consent setup, especially in tenants where users cannot
+approve third-party apps themselves. That is a real usability signal: `teams
+auth login` should be easy to diagnose, should support browser and device-code
+flows clearly, and should not make users reverse-engineer token audiences.
+
+The supported fix is better Graph-native auth, not reusing Teams client tokens.
+A Teams, Skype, ChatSvcAgg, or ID token cannot be converted into a Graph token
+by this CLI. Use delegated login, device-code login, client credentials for
+supported app-only Graph operations, or `TEAMS_CLI_ACCESS_TOKEN` only when the
+token was explicitly acquired for Microsoft Graph.
 
 ## Agent Workflow Patterns
 
@@ -509,7 +538,7 @@ auth_flow = "device-code"
 | `TEAMS_CLI_CLIENT_ID` | Azure AD application (client) ID |
 | `TEAMS_CLI_CLIENT_SECRET` | Azure AD client secret |
 | `TEAMS_CLI_TENANT_ID` | Azure AD tenant ID |
-| `TEAMS_CLI_ACCESS_TOKEN` | Pre-obtained access token (skips login entirely) |
+| `TEAMS_CLI_ACCESS_TOKEN` | Pre-obtained Microsoft Graph access token (skips login entirely) |
 | `RUST_LOG` | Tracing filter (e.g., `debug`, `teams=trace`) |
 
 ## Verbosity

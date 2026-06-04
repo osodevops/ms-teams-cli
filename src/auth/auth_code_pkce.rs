@@ -8,9 +8,9 @@ use std::sync::Mutex;
 use tokio::sync::oneshot;
 
 use super::token::MsTokenResponse;
+use crate::config::DEFAULT_DELEGATED_SCOPES;
 use crate::error::{Result, TeamsError};
 
-const DEFAULT_SCOPES: &str = "User.Read Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Send ChannelMessage.Read.All Chat.ReadWrite ChatMessage.Send ChatMessage.Read User.ReadBasic.All Presence.Read.All offline_access";
 const REDIRECT_URI: &str = "http://localhost:8400/callback";
 
 fn random_urlsafe_bytes(len: usize) -> Result<String> {
@@ -37,7 +37,7 @@ pub async fn authenticate(
     tenant_id: &str,
     scopes: Option<&str>,
 ) -> Result<MsTokenResponse> {
-    let scopes = scopes.unwrap_or(DEFAULT_SCOPES);
+    let scopes = scopes.unwrap_or(DEFAULT_DELEGATED_SCOPES);
     let (verifier, challenge) = generate_pkce()?;
 
     let state = random_urlsafe_bytes(16)?;

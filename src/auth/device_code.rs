@@ -3,9 +3,8 @@ use serde::Deserialize;
 use std::time::Duration;
 
 use super::token::MsTokenResponse;
+use crate::config::DEFAULT_DELEGATED_SCOPES;
 use crate::error::{Result, TeamsError};
-
-const DEFAULT_SCOPES: &str = "User.Read Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Send ChannelMessage.Read.All Chat.ReadWrite ChatMessage.Send ChatMessage.Read User.ReadBasic.All Presence.Read.All offline_access";
 
 #[derive(Debug, Deserialize)]
 struct DeviceCodeResponse {
@@ -40,7 +39,7 @@ pub async fn authenticate(
     tenant_id: &str,
     scopes: Option<&str>,
 ) -> Result<MsTokenResponse> {
-    let scopes = scopes.unwrap_or(DEFAULT_SCOPES);
+    let scopes = scopes.unwrap_or(DEFAULT_DELEGATED_SCOPES);
     let http = Client::new();
 
     // Step 1: Request device code
