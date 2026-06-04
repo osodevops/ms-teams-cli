@@ -94,6 +94,27 @@ Known CI maintenance item as of 2026-06-04:
 - Update pinned actions used by CI/release before GitHub's June 16, 2026 Node 24 default switch.
 - Watch especially `actions/checkout`, `actions/upload-artifact`, `actions/download-artifact`, and `softprops/action-gh-release`.
 
+## GitHub Actions supply-chain checklist
+
+For every GitHub Actions dependency update:
+
+1. Verify the owner and repository are unchanged.
+2. Verify the target tag exists in the official action repository.
+3. Resolve the tag to the underlying commit.
+4. Pin the workflow to the full 40-character commit SHA, not the tag.
+5. Keep the trailing version comment accurate, for example `# v7.0.1`.
+6. Check `action.yml` for the runtime. Prefer Node 24 compatible action versions.
+7. Read the release notes for behavior changes, new inputs, permission changes, or token handling changes.
+8. Keep workflow `permissions` at least privilege. Do not give write permissions to build/test jobs.
+9. Set `persist-credentials: false` on `actions/checkout` unless a later step explicitly needs checkout's persisted git credentials.
+10. Do not merge a Dependabot Actions PR if it changes the action owner/repository, points to a fork, removes SHA pinning, or leaves comments inconsistent with the reviewed version.
+
+Preferred repository setting:
+
+- Require actions and reusable workflows to be pinned to a full-length commit SHA at the repository or organization level.
+
+Dependabot is configured to group GitHub Actions updates into one PR so the complete workflow supply-chain diff can be reviewed together.
+
 ## Commercial release blockers
 
 These must be resolved before marketing this as production-ready for external customers:
