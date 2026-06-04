@@ -37,6 +37,40 @@ impl GraphClient {
         })
     }
 
+    fn auth_error_message(&self, body: &str) -> String {
+        let mut message = if body.trim().is_empty() {
+            "Authentication failed (401)".to_string()
+        } else {
+            format!("Authentication failed (401): {body}")
+        };
+
+        if body.contains("Invalid audience") || body.contains("InvalidAuthenticationToken") {
+            let audience = self
+                .token
+                .unverified_claims()
+                .and_then(|claims| claims.audience())
+                .unwrap_or_else(|| "unknown or opaque token".to_string());
+
+            message.push_str(&format!(
+                "\nHint: Microsoft Graph rejected this token audience. This CLI requires a Microsoft Graph access token; observed audience: {audience}. Run `teams auth login`, `teams auth login --device-code`, or provide a Graph token via `TEAMS_CLI_ACCESS_TOKEN`. Teams client tokens such as `~/.config/fossteams/token-teams.jwt` are not supported."
+            ));
+        }
+
+        message
+    }
+
+    fn error_for_status(&self, status: StatusCode, body: String) -> TeamsError {
+        match status {
+            StatusCode::UNAUTHORIZED => TeamsError::AuthError(self.auth_error_message(&body)),
+            StatusCode::FORBIDDEN => TeamsError::PermissionDenied(body),
+            StatusCode::NOT_FOUND => TeamsError::NotFound(body),
+            _ => TeamsError::ApiError {
+                status: status.as_u16(),
+                message: body,
+            },
+        }
+    }
+
     /// GET request with retry logic.
     pub async fn get<T: DeserializeOwned>(&self, url: &str, query: &[(&str, &str)]) -> Result<T> {
         self.request_with_retry(|this| {
@@ -170,10 +204,7 @@ impl GraphClient {
 
             if !status.is_success() && status != StatusCode::ACCEPTED {
                 let body = resp.text().await.unwrap_or_default();
-                return Err(TeamsError::ApiError {
-                    status: status.as_u16(),
-                    message: body,
-                });
+                return Err(self.error_for_status(status, body));
             }
 
             let location = resp
@@ -250,10 +281,7 @@ impl GraphClient {
 
             if !status.is_success() {
                 let body = resp.text().await.unwrap_or_default();
-                return Err(TeamsError::ApiError {
-                    status: status.as_u16(),
-                    message: body,
-                });
+                return Err(self.error_for_status(status, body));
             }
 
             let bytes = resp.bytes().await.map_err(TeamsError::NetworkError)?;
@@ -318,18 +346,6 @@ impl GraphClient {
                 return Ok(Some(true));
             }
             return Err(TeamsError::RateLimited { retry_after });
-        }
-
-        if status == StatusCode::UNAUTHORIZED {
-            return Err(TeamsError::AuthError(
-                "Authentication failed (401)".to_string(),
-            ));
-        }
-        if status == StatusCode::FORBIDDEN {
-            return Err(TeamsError::PermissionDenied("Forbidden (403)".to_string()));
-        }
-        if status == StatusCode::NOT_FOUND {
-            return Err(TeamsError::NotFound("Not found (404)".to_string()));
         }
 
         if status.is_server_error() {
@@ -403,9 +419,7 @@ impl GraphClient {
             // Auth errors
             if status == StatusCode::UNAUTHORIZED {
                 let body = resp.text().await.unwrap_or_default();
-                return Err(TeamsError::AuthError(format!(
-                    "Authentication failed (401): {body}"
-                )));
+                return Err(TeamsError::AuthError(self.auth_error_message(&body)));
             }
             if status == StatusCode::FORBIDDEN {
                 let body = resp.text().await.unwrap_or_default();
@@ -515,9 +529,7 @@ impl GraphClient {
 
             if status == StatusCode::UNAUTHORIZED {
                 let body = resp.text().await.unwrap_or_default();
-                return Err(TeamsError::AuthError(format!(
-                    "Authentication failed (401): {body}"
-                )));
+                return Err(TeamsError::AuthError(self.auth_error_message(&body)));
             }
             if status == StatusCode::FORBIDDEN {
                 let body = resp.text().await.unwrap_or_default();
