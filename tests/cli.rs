@@ -1,4 +1,5 @@
 use assert_cmd::Command;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use predicates::prelude::*;
 use std::fs;
 
@@ -77,6 +78,29 @@ fn auth_doctor_reports_oso_default_without_login() {
         .stdout(
             predicate::str::contains("\"auth_app\": \"oso\"")
                 .and(predicate::str::contains("\"authenticated\": false")),
+        );
+}
+
+#[test]
+fn auth_doctor_reports_token_audience() {
+    let payload = serde_json::json!({
+        "aud": "https://graph.microsoft.com",
+        "tid": "tenant-1",
+        "scp": "User.Read"
+    });
+    let token = format!(
+        "header.{}.signature",
+        URL_SAFE_NO_PAD.encode(payload.to_string())
+    );
+
+    teams()
+        .args(["auth", "doctor", "--output", "json"])
+        .env("TEAMS_CLI_ACCESS_TOKEN", token)
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("https://graph.microsoft.com")
+                .and(predicate::str::contains("\"is_graph_audience\": true")),
         );
 }
 

@@ -2,6 +2,12 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+const GRAPH_AUDIENCES: &[&str] = &[
+    "https://graph.microsoft.com",
+    "https://graph.microsoft.com/",
+    "00000003-0000-0000-c000-000000000000",
+];
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenInfo {
     pub access_token: String,
@@ -48,6 +54,18 @@ impl TokenClaims {
         } else {
             "unknown"
         }
+    }
+
+    pub fn audience(&self) -> Option<String> {
+        match self.aud.as_ref()? {
+            serde_json::Value::String(audience) => Some(audience.clone()),
+            other => Some(other.to_string()),
+        }
+    }
+
+    pub fn is_graph_audience(&self) -> Option<bool> {
+        let audience = self.audience()?;
+        Some(GRAPH_AUDIENCES.iter().any(|expected| *expected == audience))
     }
 }
 
@@ -164,6 +182,7 @@ mod tests {
     #[test]
     fn decodes_delegated_jwt_claims() {
         let payload = serde_json::json!({
+            "aud": "https://graph.microsoft.com",
             "tid": "tenant-id",
             "oid": "user-id",
             "scp": "User.Read ChatMessage.Send"
@@ -177,6 +196,26 @@ mod tests {
 
         assert_eq!(claims.tid.as_deref(), Some("tenant-id"));
         assert_eq!(claims.auth_type(), "delegated");
+        assert_eq!(
+            claims.audience().as_deref(),
+            Some("https://graph.microsoft.com")
+        );
+        assert_eq!(claims.is_graph_audience(), Some(true));
+    }
+
+    #[test]
+    fn identifies_non_graph_audience() {
+        let payload = serde_json::json!({
+            "aud": "5e3ce6c0-2b1f-4285-8d4b-75ee78787346"
+        });
+        let token = format!(
+            "header.{}.signature",
+            URL_SAFE_NO_PAD.encode(payload.to_string())
+        );
+
+        let claims = decode_unverified_claims(&token).unwrap();
+
+        assert_eq!(claims.is_graph_audience(), Some(false));
     }
 
     #[test]

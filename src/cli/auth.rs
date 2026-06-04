@@ -80,6 +80,36 @@ pub enum AuthCommand {
     },
 }
 
+fn token_diagnostics(claims: Option<&auth::token::TokenClaims>) -> Option<serde_json::Value> {
+    claims.map(|claims| {
+        serde_json::json!({
+            "audience": claims.audience(),
+            "is_graph_audience": claims.is_graph_audience(),
+            "auth_type": claims.auth_type(),
+            "tenant_id": claims.tid,
+            "app_id": claims.appid.clone().or_else(|| claims.azp.clone()),
+            "user": claims.preferred_username.clone().or_else(|| claims.upn.clone()),
+        })
+    })
+}
+
+fn token_warnings(claims: Option<&auth::token::TokenClaims>) -> Vec<String> {
+    let mut warnings = Vec::new();
+
+    if let Some(claims) = claims {
+        if claims.is_graph_audience() == Some(false) {
+            let audience = claims
+                .audience()
+                .unwrap_or_else(|| "unknown audience".into());
+            warnings.push(format!(
+                "Token audience is '{audience}', not Microsoft Graph. Graph commands require a Microsoft Graph access token."
+            ));
+        }
+    }
+
+    warnings
+}
+
 pub async fn run(
     cmd: AuthCommand,
     config: &ConfigFile,
@@ -189,6 +219,7 @@ pub async fn run(
 
             let token = auth::resolve_token(profile).ok();
             let claims = token.as_ref().and_then(|t| t.unverified_claims());
+            let warnings = token_warnings(claims.as_ref());
             let msg = serde_json::json!({
                 "profile": profile,
                 "auth_app": auth_app,
@@ -196,10 +227,13 @@ pub async fn run(
                 "tenant_id": tenant_id,
                 "admin_consent_url": format!("https://login.microsoftonline.com/{tenant_id}/adminconsent?client_id={client_id}"),
                 "authenticated": token.is_some(),
+                "warnings": warnings,
                 "token": token.as_ref().map(|t| serde_json::json!({
                     "expires_at": t.expires_at.map(|e| e.to_rfc3339()),
                     "scope": t.scope,
                     "auth_type": claims.as_ref().map(|c| c.auth_type()).unwrap_or("unknown"),
+                    "audience": claims.as_ref().and_then(|c| c.audience()),
+                    "is_graph_audience": claims.as_ref().and_then(|c| c.is_graph_audience()),
                     "tenant_id": claims.as_ref().and_then(|c| c.tid.clone()),
                     "app_id": claims.as_ref().and_then(|c| c.appid.clone()).or_else(|| claims.as_ref().and_then(|c| c.azp.clone())),
                     "user": claims.as_ref().and_then(|c| c.preferred_username.clone()).or_else(|| claims.as_ref().and_then(|c| c.upn.clone())),
@@ -213,11 +247,14 @@ pub async fn run(
             let start = Instant::now();
             match auth::resolve_token(profile) {
                 Ok(token) => {
+                    let claims = token.unverified_claims();
                     let msg = serde_json::json!({
                         "authenticated": true,
                         "profile": profile,
                         "expires_at": token.expires_at.map(|e| e.to_rfc3339()),
                         "scope": token.scope,
+                        "token_diagnostics": token_diagnostics(claims.as_ref()),
+                        "warnings": token_warnings(claims.as_ref()),
                     });
                     output::print_success(format, &msg, start);
                     Ok(())
@@ -297,10 +334,12 @@ pub async fn run(
             let token = auth::resolve_token(profile)?;
             match token_format.as_str() {
                 "json" => {
+                    let claims = token.unverified_claims();
                     let msg = serde_json::json!({
                         "access_token": token.access_token,
                         "token_type": token.token_type,
                         "expires_at": token.expires_at.map(|e| e.to_rfc3339()),
+                        "token_diagnostics": token_diagnostics(claims.as_ref()),
                     });
                     let start = Instant::now();
                     output::print_success(format, &msg, start);
