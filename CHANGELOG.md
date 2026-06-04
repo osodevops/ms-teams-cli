@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.2.4 - 2026-06-04
+
+### Changed
+
+- Reduced the default delegated Graph login scopes by removing `ChannelMessage.Read.All`.
+- Updated `auth consent-url` and `auth doctor` to emit Microsoft identity platform v2 admin consent URLs with explicit scopes and redirect URI diagnostics.
+- Documented the channel-message read consent path separately from the default chat/message send workflow.
+
 ## v0.2.3 - 2026-05-26
 
 ### Fixed
