@@ -111,7 +111,7 @@ pub async fn run(
     format: OutputFormat,
     pagination: &PaginationOpts,
 ) -> Result<()> {
-    let token = auth::resolve_token(profile)?;
+    let token = auth::resolve_token(profile).await?;
     let client = GraphClient::new(token, &config.network)?;
 
     match cmd {

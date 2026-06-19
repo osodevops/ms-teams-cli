@@ -18,15 +18,15 @@ RUST_LOG=teams=debug teams chat list --output json
 
 ## `AUTH_TOKEN_EXPIRED`
 
-Meaning: the keyring token is expired.
+Meaning: the keyring access token is expired and could not be refreshed automatically.
 
-Current workaround:
+The CLI now silently redeems the stored refresh token when the access token is expired or about to expire, so this error normally only appears when no refresh token is stored or the refresh request is rejected (for example the refresh token expired or was revoked).
+
+Resolution:
 
 ```bash
 teams auth login --device-code
 ```
-
-Release-readiness note: automatic refresh-token handling still needs to be completed and validated.
 
 ## `AUTH_FAILED` or login fails
 

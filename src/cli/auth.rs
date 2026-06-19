@@ -242,7 +242,7 @@ pub async fn run(
                 "byo"
             };
 
-            let token = auth::resolve_token(profile).ok();
+            let token = auth::resolve_token(profile).await.ok();
             let claims = token.as_ref().and_then(|t| t.unverified_claims());
             let warnings = token_warnings(claims.as_ref());
             let admin_consent_url = delegated_admin_consent_url(&client_id, &tenant_id);
@@ -273,7 +273,7 @@ pub async fn run(
 
         AuthCommand::Status => {
             let start = Instant::now();
-            match auth::resolve_token(profile) {
+            match auth::resolve_token(profile).await {
                 Ok(token) => {
                     let claims = token.unverified_claims();
                     let msg = serde_json::json!({
@@ -312,7 +312,7 @@ pub async fn run(
         AuthCommand::Switch { name } => {
             let start = Instant::now();
             // Verify the profile has a token
-            auth::resolve_token(&name)?;
+            auth::resolve_token(&name).await?;
 
             // Update config to set default profile
             let mut updated_config = config.clone();
@@ -359,7 +359,7 @@ pub async fn run(
         AuthCommand::Token {
             format: token_format,
         } => {
-            let token = auth::resolve_token(profile)?;
+            let token = auth::resolve_token(profile).await?;
             match token_format.as_str() {
                 "json" => {
                     let claims = token.unverified_claims();
