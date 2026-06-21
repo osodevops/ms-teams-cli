@@ -122,8 +122,9 @@ Tenant ID or tenant domain.
 Test-only switch used to avoid OS keyring access in automated tests. Do not use
 for real login sessions.
 .SH KNOWN GAPS
-Automatic refresh-token handling must be completed and validated before public
-commercial release. If a stored access token expires today, run:
+Stored access tokens are refreshed automatically when a refresh token is
+available. If the refresh token is missing, expired, revoked, or rejected by
+the identity platform, run:
 .PP
 .nf
 teams auth login --device-code

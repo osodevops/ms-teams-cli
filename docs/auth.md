@@ -194,7 +194,7 @@ Tokens are stored in the operating system keyring:
 
 The config file stores profile settings, not access tokens.
 
-Current known gap: automatic refresh-token handling is not yet release-grade. If a token expires and refresh does not happen, commands return `AUTH_TOKEN_EXPIRED` and the user must run `teams auth login` again.
+The CLI automatically redeems the stored refresh token when an access token is expired or near expiry, then updates the keyring with the refreshed token. If no refresh token is stored, or the identity platform rejects the refresh request, commands return `AUTH_TOKEN_EXPIRED` and the user must run `teams auth login` again.
 
 ## Diagnostics
 

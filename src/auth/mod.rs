@@ -40,14 +40,12 @@ pub async fn resolve_token(profile: &str) -> Result<TokenInfo> {
                 return Ok(info);
             }
             // Token is at/near expiry: attempt a silent refresh-token
-            // redemption. Any failure falls back to the original behaviour
-            // (TokenExpired) so the observable exit code is unchanged.
+            // redemption. If the token is still inside the skew window, keep
+            // using it on refresh failure; only hard-expired tokens become
+            // TokenExpired.
             match attempt_refresh(profile, &info).await {
                 Ok(refreshed) => Ok(refreshed),
-                Err(e) => {
-                    tracing::debug!("Silent token refresh failed, treating as expired: {e}");
-                    Err(TeamsError::TokenExpired)
-                }
+                Err(e) => handle_refresh_failure(&info, e),
             }
         }
         Err(_) => Err(TeamsError::AuthError(
@@ -64,6 +62,16 @@ fn needs_refresh(info: &TokenInfo) -> bool {
             info.expires_at,
             Some(expires) if Utc::now() + Duration::seconds(EXPIRY_SKEW_SECS) >= expires
         )
+}
+
+fn handle_refresh_failure(info: &TokenInfo, error: TeamsError) -> Result<TokenInfo> {
+    if info.is_expired() {
+        tracing::debug!("Silent token refresh failed for expired token: {error}");
+        Err(TeamsError::TokenExpired)
+    } else {
+        tracing::debug!("Silent token refresh failed before expiry, using current token: {error}");
+        Ok(info.clone())
+    }
 }
 
 /// Silently redeem the stored refresh token for a fresh access token and persist
@@ -89,12 +97,30 @@ async fn attempt_refresh(profile: &str, info: &TokenInfo) -> Result<TokenInfo> {
 
     let response =
         refresh::refresh_access_token(&client_id, &tenant_id, refresh_token, &scope).await?;
-    let refreshed = response.into_token_info(profile);
+    let refreshed = refreshed_token_info(profile, info, response);
 
     // Best-effort persistence so the next invocation reuses the new token.
     let _ = keyring::store_token(profile, &refreshed);
 
     Ok(refreshed)
+}
+
+fn refreshed_token_info(
+    profile: &str,
+    previous: &TokenInfo,
+    response: token::MsTokenResponse,
+) -> TokenInfo {
+    let mut refreshed = response.into_token_info(profile);
+
+    if refreshed.refresh_token.is_none() {
+        refreshed.refresh_token.clone_from(&previous.refresh_token);
+    }
+
+    if refreshed.scope.is_none() {
+        refreshed.scope.clone_from(&previous.scope);
+    }
+
+    refreshed
 }
 
 /// Build the scope string for the refresh request: reuse the originally granted
@@ -189,6 +215,83 @@ mod tests {
             refresh_scope(Some("User.Read offline_access")),
             "User.Read offline_access"
         );
+    }
+
+    #[test]
+    fn refresh_failure_returns_current_token_inside_skew_window() {
+        let info = token_with(
+            Some(Utc::now() + Duration::seconds(30)),
+            Some("a-refresh-token"),
+            Some("User.Read offline_access"),
+        );
+
+        let resolved =
+            handle_refresh_failure(&info, TeamsError::AuthError("temporary failure".into()))
+                .unwrap();
+
+        assert_eq!(resolved.access_token, info.access_token);
+        assert_eq!(resolved.refresh_token, info.refresh_token);
+    }
+
+    #[test]
+    fn refresh_failure_expires_hard_expired_token() {
+        let info = token_with(
+            Some(Utc::now() - Duration::seconds(1)),
+            Some("a-refresh-token"),
+            Some("User.Read offline_access"),
+        );
+
+        let err =
+            handle_refresh_failure(&info, TeamsError::AuthError("rejected".into())).unwrap_err();
+
+        assert!(matches!(err, TeamsError::TokenExpired));
+    }
+
+    #[test]
+    fn refreshed_token_info_preserves_previous_refresh_token_and_scope_when_missing() {
+        let previous = token_with(
+            Some(Utc::now() - Duration::hours(1)),
+            Some("old-refresh"),
+            Some("User.Read offline_access"),
+        );
+        let response = token::MsTokenResponse {
+            access_token: "new-access".into(),
+            token_type: "Bearer".into(),
+            expires_in: 3600,
+            scope: None,
+            refresh_token: None,
+        };
+
+        let refreshed = refreshed_token_info("work", &previous, response);
+
+        assert_eq!(refreshed.access_token, "new-access");
+        assert_eq!(refreshed.profile, "work");
+        assert_eq!(refreshed.scope.as_deref(), Some("User.Read offline_access"));
+        assert_eq!(refreshed.refresh_token.as_deref(), Some("old-refresh"));
+    }
+
+    #[test]
+    fn refreshed_token_info_uses_rotated_refresh_token_and_scope_when_present() {
+        let previous = token_with(
+            Some(Utc::now() - Duration::hours(1)),
+            Some("old-refresh"),
+            Some("User.Read offline_access"),
+        );
+        let response = token::MsTokenResponse {
+            access_token: "new-access".into(),
+            token_type: "Bearer".into(),
+            expires_in: 3600,
+            scope: Some("User.Read Chat.ReadWrite offline_access".into()),
+            refresh_token: Some("new-refresh".into()),
+        };
+
+        let refreshed = refreshed_token_info("work", &previous, response);
+
+        assert_eq!(
+            refreshed.scope.as_deref(),
+            Some("User.Read Chat.ReadWrite offline_access")
+        );
+        assert_eq!(refreshed.refresh_token.as_deref(), Some("new-refresh"));
     }
 
     #[tokio::test]
