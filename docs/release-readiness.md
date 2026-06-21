@@ -88,6 +88,7 @@ Distribution follow-up as of 2026-06-21:
 - Until that automation exists, update `osodevops/homebrew-tap` manually after each CLI release.
 - Use the published `checksums-sha256.txt` from the GitHub Release to update `Formula/teams-cli.rb`.
 - Verify the remote formula points at the new release URLs and checksums.
+- The Scoop release job uses `SCOOP_BUCKET_TOKEN`, matching the dedicated bucket-token pattern used by `osodevops/kafka-backup`.
 - The Scoop bucket has an `update-teams-manifest` workflow listener. Verify `bucket/teams.json` points at the new Windows release URL and checksum after each release.
 
 Known CI maintenance item as of 2026-06-04:
