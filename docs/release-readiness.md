@@ -66,7 +66,7 @@ The full release path is version-bump driven, not PR-merge driven:
 4. After the PR is merged to `main`, confirm `.github/workflows/auto-tag.yml` runs successfully.
 5. Confirm `auto-tag.yml` creates the `vX.Y.Z` tag.
 6. Confirm the tag starts `.github/workflows/release.yml`.
-7. Confirm the release workflow completes all build targets, creates checksums, publishes the GitHub Release, and runs the Homebrew tap update job.
+7. Confirm the release workflow completes all build targets, creates checksums, publishes the GitHub Release, and runs the Homebrew tap and Scoop bucket update jobs.
 
 Important details:
 
@@ -80,13 +80,15 @@ Important details:
   - `aarch64-unknown-linux-musl`
   - `x86_64-pc-windows-msvc`
 
-Homebrew tap follow-up as of 2026-06-04:
+Distribution follow-up as of 2026-06-21:
 
 - `release.yml` sends a `repository_dispatch` event to `osodevops/homebrew-tap`.
+- `release.yml` sends a `repository_dispatch` event to `osodevops/scoop-bucket`.
 - The tap repository currently has no workflow listening for that dispatch event.
 - Until that automation exists, update `osodevops/homebrew-tap` manually after each CLI release.
 - Use the published `checksums-sha256.txt` from the GitHub Release to update `Formula/teams-cli.rb`.
 - Verify the remote formula points at the new release URLs and checksums.
+- The Scoop bucket has an `update-teams-manifest` workflow listener. Verify `bucket/teams.json` points at the new Windows release URL and checksum after each release.
 
 Known CI maintenance item as of 2026-06-04:
 
@@ -152,6 +154,7 @@ Already covered here:
 - GitHub Actions CI on Linux, macOS, and Windows.
 - GitHub release assets with SHA256 checksums.
 - Homebrew formula in `osodevops/homebrew-tap`.
+- Scoop manifest in `osodevops/scoop-bucket`.
 - README, docs, man pages, changelog, license, contribution guide, and security policy.
 - Agent-focused repo guidance in `AGENTS.md`.
 
@@ -164,7 +167,6 @@ Added from that comparison:
 Still intentionally not added:
 
 - cargo-dist shell and PowerShell installers.
-- Scoop bucket publishing for Windows.
 - Docker image publishing.
 - Demo repository with runnable customer scenarios.
 

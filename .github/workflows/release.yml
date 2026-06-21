@@ -149,3 +149,22 @@ jobs:
               "tag": "${{ github.ref_name }}",
               "repo": "${{ github.repository }}"
             }
+
+  scoop:
+    name: Update Scoop Bucket
+    needs: release
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Update Scoop manifest
+        uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          repository: osodevops/scoop-bucket
+          event-type: update-teams-manifest
+          client-payload: |
+            {
+              "formula": "teams",
+              "tag": "${{ github.ref_name }}",
+              "repo": "${{ github.repository }}"
+            }
