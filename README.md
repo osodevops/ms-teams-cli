@@ -68,6 +68,10 @@ On failure:
 # Homebrew (macOS/Linux)
 brew install osodevops/tap/teams-cli
 
+# Scoop (Windows)
+scoop bucket add osodevops https://github.com/osodevops/scoop-bucket
+scoop install teams
+
 # Pre-built binaries — download from GitHub Releases
 # https://github.com/osodevops/ms-teams-cli/releases
 
