@@ -65,7 +65,7 @@ pub async fn run(
     profile: &str,
     format: OutputFormat,
 ) -> Result<()> {
-    let token = auth::resolve_token(profile)?;
+    let token = auth::resolve_token(profile).await?;
     let client = GraphClient::new(token, &config.network)?;
 
     match cmd {

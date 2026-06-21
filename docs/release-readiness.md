@@ -29,7 +29,7 @@ Live read-only validation passed against the OSO profile:
 Known live behavior:
 
 - Some meeting chats can appear in `chat list` but reject message reads with `403` if the user is no longer in the roster.
-- Stored token expiry currently requires manual re-login.
+- Stored token expiry is handled through refresh-token redemption when a refresh token is available. `AUTH_TOKEN_EXPIRED` still means the refresh token is missing, expired, revoked, or rejected by the identity platform.
 
 Entra app registration status as of 2026-05-27:
 
@@ -120,15 +120,14 @@ Dependabot is configured to group GitHub Actions updates into one PR so the comp
 These must be resolved before marketing this as production-ready for external customers:
 
 1. Publisher verification for the OSO Entra app.
-2. Automatic refresh-token handling and tests.
-3. Windows live validation using Windows Credential Manager.
-4. Controlled write/read smoke test in a dedicated Teams test channel.
-5. Documented admin-consent onboarding flow for customer tenants.
-6. Clear policy for unsupported Graph operations, tenant restrictions, and destructive commands.
-7. Security review of token storage, logs, and exported token behavior.
-8. Versioned release notes and upgrade guidance.
-9. Public website HTTPS fixed for `https://msteamscli.com/`; HTTP is live, but the current TLS certificate does not cover the hostname.
-10. Terms of service URL published and added to the Entra app branding.
+2. Windows live validation using Windows Credential Manager.
+3. Controlled write/read smoke test in a dedicated Teams test channel.
+4. Documented admin-consent onboarding flow for customer tenants.
+5. Clear policy for unsupported Graph operations, tenant restrictions, and destructive commands.
+6. Security review of token storage, logs, and exported token behavior.
+7. Versioned release notes and upgrade guidance.
+8. Public website HTTPS fixed for `https://msteamscli.com/`; HTTP is live, but the current TLS certificate does not cover the hostname.
+9. Terms of service URL published and added to the Entra app branding.
 
 ## Microsoft official trust checklist
 

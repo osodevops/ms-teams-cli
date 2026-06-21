@@ -63,7 +63,7 @@ Teams/Graph can list chats that later fail message reads because the user is no 
 
 ## Why did I get `AUTH_TOKEN_EXPIRED`?
 
-The stored access token expired. The CLI requests `offline_access`, but automatic refresh-token handling is still a release-readiness gap. Run:
+The CLI automatically refreshes an expired access token using the stored refresh token (login requests `offline_access`), so this should be rare. You will still see `AUTH_TOKEN_EXPIRED` when no refresh token is stored or the refresh is rejected — for example the refresh token itself expired or was revoked. In that case, re-authenticate:
 
 ```bash
 teams auth login --device-code
