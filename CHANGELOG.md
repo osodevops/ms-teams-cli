@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.2.6 - 2026-06-26
+
+### Fixed
+
+- Fixed `teams channel list` pagination so it no longer sends the unsupported `$top` query parameter to Microsoft Graph's list-channels endpoint. The command still follows `@odata.nextLink` when `--all-pages` is used. This resolves #23.
+- Updated the transitive `quinn-proto` lockfile pin to `0.11.15` to resolve `RUSTSEC-2026-0185`.
+
 ## v0.2.5 - 2026-06-21
 
 ### Added
