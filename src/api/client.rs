@@ -107,6 +107,21 @@ impl GraphClient {
         }
     }
 
+    /// GET with pagination support for endpoints that reject `$top`.
+    pub async fn get_paged_without_top<T: DeserializeOwned>(
+        &self,
+        url: &str,
+        query: &[(&str, &str)],
+        pagination: &PaginationOpts,
+    ) -> Result<Vec<T>> {
+        if pagination.all_pages {
+            self.get_all_pages(url, query).await
+        } else {
+            let resp: PageResponse<T> = self.get(url, query).await?;
+            Ok(resp.value)
+        }
+    }
+
     /// POST request with JSON body.
     pub async fn post<T: DeserializeOwned, B: serde::Serialize>(
         &self,
@@ -573,5 +588,139 @@ impl GraphClient {
             status: 0,
             message: "Max retries exceeded".to_string(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::auth::token::TokenInfo;
+    use crate::config::NetworkConfig;
+    use wiremock::matchers::{method, path, query_param, query_param_is_missing};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn test_client() -> GraphClient {
+        GraphClient {
+            http: Client::new(),
+            token: TokenInfo {
+                access_token: "test-token".into(),
+                expires_at: None,
+                token_type: "Bearer".into(),
+                scope: None,
+                refresh_token: None,
+                profile: "default".into(),
+            },
+            network: NetworkConfig {
+                timeout: 30,
+                max_retries: 0,
+                retry_backoff_base: 2,
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn get_paged_reproduces_graph_channel_top_rejection() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/teams/team-id/channels"))
+            .and(query_param("$top", "50"))
+            .respond_with(ResponseTemplate::new(400).set_body_string(
+                r#"{"error":{"code":"BadRequest","message":"Unsupported query parameter 'top'."}}"#,
+            ))
+            .mount(&server)
+            .await;
+
+        let err = test_client()
+            .get_paged::<serde_json::Value>(
+                &format!("{}/teams/team-id/channels", server.uri()),
+                &[],
+                &PaginationOpts {
+                    page_size: 50,
+                    all_pages: false,
+                },
+            )
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(err, TeamsError::ApiError { status: 400, message } if message.contains("Unsupported query parameter 'top'"))
+        );
+    }
+
+    #[tokio::test]
+    async fn get_paged_without_top_omits_top_from_first_page_request() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/teams/team-id/channels"))
+            .and(query_param_is_missing("$top"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "value": [
+                    {
+                        "id": "channel-id",
+                        "displayName": "General",
+                        "membershipType": "standard"
+                    }
+                ]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let channels = test_client()
+            .get_paged_without_top::<serde_json::Value>(
+                &format!("{}/teams/team-id/channels", server.uri()),
+                &[],
+                &PaginationOpts {
+                    page_size: 50,
+                    all_pages: false,
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(channels.len(), 1);
+        assert_eq!(channels[0]["displayName"], "General");
+    }
+
+    #[tokio::test]
+    async fn get_paged_without_top_follows_next_link_when_all_pages_enabled() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/teams/team-id/channels"))
+            .and(query_param_is_missing("$top"))
+            .and(query_param_is_missing("page"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "value": [{ "id": "channel-1" }],
+                "@odata.nextLink": format!("{}/teams/team-id/channels?page=2", server.uri())
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/teams/team-id/channels"))
+            .and(query_param("page", "2"))
+            .and(query_param_is_missing("$top"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "value": [{ "id": "channel-2" }]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let channels = test_client()
+            .get_paged_without_top::<serde_json::Value>(
+                &format!("{}/teams/team-id/channels", server.uri()),
+                &[],
+                &PaginationOpts {
+                    page_size: 50,
+                    all_pages: true,
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(channels.len(), 2);
+        assert_eq!(channels[0]["id"], "channel-1");
+        assert_eq!(channels[1]["id"], "channel-2");
     }
 }
