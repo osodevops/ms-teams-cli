@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.7 - 2026-06-29
+
+### Fixed
+
+- Fixed `teams chat members list` so it no longer sends the unsupported `$top` query parameter to Microsoft Graph's list-chat-members endpoint. The command still follows `@odata.nextLink` when `--all-pages` is used. This resolves #27.
+
 ## v0.2.6 - 2026-06-26
 
 ### Fixed
