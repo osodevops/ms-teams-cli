@@ -27,7 +27,7 @@ toml = "0.8"
 keyring = { version = "3", features = ["apple-native", "linux-native", "windows-native"] }
 sha2 = "0.10"
 base64 = "0.22"
-getrandom = "0.3"
+getrandom = "0.4"
 hyper = { version = "1", features = ["server", "http1"] }
 http-body-util = "0.1"
 hyper-util = { version = "0.1", features = ["server", "tokio"] }
