@@ -111,6 +111,12 @@ pub fn my_chats() -> String {
     format!("{GRAPH_V1}/me/chats")
 }
 
+/// Chat creation lives at `/chats`; `/me/chats` is list-only and returns
+/// HTTP 405 for POST.
+pub fn chats() -> String {
+    format!("{GRAPH_V1}/chats")
+}
+
 pub fn chat(id: &str) -> String {
     format!("{GRAPH_V1}/chats/{id}")
 }

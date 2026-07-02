@@ -4,7 +4,7 @@ use std::time::Instant;
 use crate::api::{self, GraphClient, PaginationOpts};
 use crate::auth;
 use crate::config::ConfigFile;
-use crate::error::Result;
+use crate::error::{Result, TeamsError};
 use crate::models::chat::{ChatCreateRequest, ChatUpdateRequest};
 use crate::models::member::AddMemberRequest;
 use crate::output::{self, OutputFormat};
@@ -26,7 +26,8 @@ pub enum ChatCommand {
         /// Topic for the chat (group chats only)
         #[arg(long)]
         topic: Option<String>,
-        /// User IDs to add as members (comma-separated)
+        /// Members as comma-separated user IDs; append `:guest` for guest
+        /// users (e.g. `<id>,<id>:guest`). Default role is owner.
         #[arg(long, value_delimiter = ',')]
         members: Vec<String>,
     },
@@ -137,8 +138,11 @@ pub async fn run(
             let start = Instant::now();
             let member_reqs: Vec<AddMemberRequest> = members
                 .iter()
-                .map(|uid| AddMemberRequest::new(uid, vec![]))
-                .collect();
+                .map(|spec| {
+                    let (user_id, role) = parse_member_spec(spec)?;
+                    Ok(AddMemberRequest::new(&user_id, vec![role]))
+                })
+                .collect::<Result<_>>()?;
             let req = ChatCreateRequest {
                 chat_type,
                 topic,
@@ -174,6 +178,30 @@ pub async fn run(
         }
 
         ChatCommand::Members { command } => run_members(command, &client, format, pagination).await,
+    }
+}
+
+/// Splits a `--members` entry of the form `<user-id>[:role]`.
+///
+/// Graph requires every member in a chat-creation request to carry an explicit
+/// role: `owner` for regular tenant users (all participants of a personal chat
+/// are owners) and `guest` for Azure AD guest users. Entries without a suffix
+/// default to `owner`.
+fn parse_member_spec(spec: &str) -> Result<(String, String)> {
+    let (user_id, role) = match spec.split_once(':') {
+        Some((user_id, role)) => (user_id, role),
+        None => (spec, "owner"),
+    };
+    if user_id.is_empty() {
+        return Err(TeamsError::InvalidInput(format!(
+            "empty user ID in --members entry '{spec}'"
+        )));
+    }
+    match role {
+        "owner" | "guest" => Ok((user_id.to_string(), role.to_string())),
+        other => Err(TeamsError::InvalidInput(format!(
+            "invalid role '{other}' in --members entry '{spec}' (expected 'owner' or 'guest')"
+        ))),
     }
 }
 
@@ -227,5 +255,36 @@ async fn run_members(
             output::print_success(format, &result, start);
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn member_spec_defaults_to_owner() {
+        let (user_id, role) = parse_member_spec("user-1").unwrap();
+        assert_eq!(user_id, "user-1");
+        assert_eq!(role, "owner");
+    }
+
+    #[test]
+    fn member_spec_accepts_guest_suffix() {
+        let (user_id, role) = parse_member_spec("user-2:guest").unwrap();
+        assert_eq!(user_id, "user-2");
+        assert_eq!(role, "guest");
+    }
+
+    #[test]
+    fn member_spec_rejects_unknown_role() {
+        let err = parse_member_spec("user-3:admin").unwrap_err();
+        assert!(matches!(err, TeamsError::InvalidInput(_)));
+    }
+
+    #[test]
+    fn member_spec_rejects_empty_user_id() {
+        let err = parse_member_spec(":guest").unwrap_err();
+        assert!(matches!(err, TeamsError::InvalidInput(_)));
     }
 }
