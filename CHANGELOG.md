@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.2.7 - 2026-06-29
+## Unreleased
 
 ### Added
 
@@ -9,6 +9,10 @@
 ### Fixed
 
 - Fixed `teams chat create`, which always failed against Microsoft Graph: it POSTed to the list-only `/me/chats` endpoint (HTTP 405) and sent members without the required role (HTTP 400). Chat creation now POSTs to `/chats` with an explicit role per member. This resolves #30.
+
+## v0.2.7 - 2026-06-29
+
+### Fixed
 
 - Fixed `teams chat members list` so it no longer sends the unsupported `$top` query parameter to Microsoft Graph's list-chat-members endpoint. The command still follows `@odata.nextLink` when `--all-pages` is used. This resolves #27.
 
