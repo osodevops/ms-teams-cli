@@ -16,7 +16,13 @@ pub async fn get_chat(client: &GraphClient, id: &str) -> Result<Chat> {
 }
 
 pub async fn create_chat(client: &GraphClient, req: &ChatCreateRequest) -> Result<Chat> {
-    client.post(&endpoints::my_chats(), req).await
+    create_chat_at(client, &endpoints::chats(), req).await
+}
+
+/// Chat creation must POST to `/chats`; the `/me/chats` endpoint is list-only
+/// and answers POST with HTTP 405.
+async fn create_chat_at(client: &GraphClient, url: &str, req: &ChatCreateRequest) -> Result<Chat> {
+    client.post(url, req).await
 }
 
 pub async fn update_chat(client: &GraphClient, id: &str, req: &ChatUpdateRequest) -> Result<Chat> {
@@ -83,7 +89,7 @@ mod tests {
     use crate::auth::token::TokenInfo;
     use crate::config::NetworkConfig;
     use reqwest::Client;
-    use wiremock::matchers::{method, path, query_param_is_missing};
+    use wiremock::matchers::{body_partial_json, method, path, query_param_is_missing};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn test_client() -> GraphClient {
@@ -137,5 +143,47 @@ mod tests {
 
         assert_eq!(members.len(), 1);
         assert_eq!(members[0].display_name.as_deref(), Some("Alice"));
+    }
+
+    #[test]
+    fn chat_creation_endpoint_is_not_scoped_to_me() {
+        assert_eq!(endpoints::chats(), "https://graph.microsoft.com/v1.0/chats");
+    }
+
+    #[tokio::test]
+    async fn create_chat_posts_member_roles() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/chats"))
+            .and(body_partial_json(serde_json::json!({
+                "chatType": "group",
+                "members": [
+                    { "roles": ["owner"] },
+                    { "roles": ["guest"] }
+                ]
+            })))
+            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+                "id": "chat-id",
+                "chatType": "group",
+                "topic": "Vendor sync"
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let req = ChatCreateRequest {
+            chat_type: "group".to_string(),
+            topic: Some("Vendor sync".to_string()),
+            members: vec![
+                AddMemberRequest::new("tenant-user", vec!["owner".to_string()]),
+                AddMemberRequest::new("guest-user", vec!["guest".to_string()]),
+            ],
+        };
+        let chat = create_chat_at(&test_client(), &format!("{}/chats", server.uri()), &req)
+            .await
+            .unwrap();
+
+        assert_eq!(chat.id.as_deref(), Some("chat-id"));
+        assert_eq!(chat.topic.as_deref(), Some("Vendor sync"));
     }
 }

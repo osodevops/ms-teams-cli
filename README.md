@@ -362,6 +362,7 @@ teams message unpin --team <team-id> --channel <channel-id> --pinned-message-id 
 teams chat list
 teams chat get <chat-id>
 teams chat create --type oneOnOne --members <user-id-1>,<user-id-2>
+teams chat create --type oneOnOne --members <your-user-id>,<guest-user-id>:guest   # chat with a guest user
 teams chat hide <chat-id>
 teams chat unhide <chat-id>
 teams chat members list <chat-id>

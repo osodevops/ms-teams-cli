@@ -112,7 +112,7 @@ Normal message mutation requires delegated auth. App-only/client-credentials tok
 ```bash
 teams chat list
 teams chat get CHAT_ID
-teams chat create [--chat-type group|oneOnOne] [--type group|oneOnOne] [--topic TOPIC] [--members USER_ID,USER_ID]
+teams chat create [--chat-type group|oneOnOne] [--type group|oneOnOne] [--topic TOPIC] [--members USER_ID[:owner|guest],USER_ID[:owner|guest]]
 teams chat update CHAT_ID --topic TOPIC
 teams chat hide CHAT_ID --user-id USER_ID
 teams chat unhide CHAT_ID --user-id USER_ID
@@ -120,6 +120,8 @@ teams chat members list CHAT_ID
 teams chat members add CHAT_ID --user-id USER_ID [--role member|owner]
 teams chat members remove CHAT_ID MEMBER_ID
 ```
+
+When creating a chat, members default to the `owner` role. Azure AD guest users must be marked with a `:guest` suffix (e.g. `--members <your-id>,<guest-id>:guest`) or Microsoft Graph rejects the request.
 
 Some meeting chats can appear in `chat list` but reject message reads if the signed-in user is no longer in the meeting roster. Treat that as a per-chat skip, not as proof that auth is broken.
 

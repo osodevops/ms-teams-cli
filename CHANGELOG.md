@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `teams chat create --members` now accepts an optional per-member role suffix (`<user-id>:guest`) so chats can include Azure AD guest users. Members without a suffix default to `owner`, which is what Microsoft Graph expects for regular tenant users in personal chats. This resolves part of #30.
+
+### Fixed
+
+- Fixed `teams chat create`, which always failed against Microsoft Graph: it POSTed to the list-only `/me/chats` endpoint (HTTP 405) and sent members without the required role (HTTP 400). Chat creation now POSTs to `/chats` with an explicit role per member. This resolves #30.
+
 ## v0.2.7 - 2026-06-29
 
 ### Fixed
