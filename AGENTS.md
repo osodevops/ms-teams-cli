@@ -178,6 +178,7 @@ CI runs on GitHub Actions:
 - Most tests do not hit Microsoft Graph. Add mocked tests for API behavior instead of requiring live credentials.
 - Keep global option names reserved. In particular, command-specific file paths must not reuse global `--output`, which is the JSON/human/plain output selector.
 - Keep `README.md`, `docs/man/teams.1`, and CLI help in sync. If a documented flag form exists in README, add a CLI regression test for it.
+- When verifying whether a PR is good to merge, check whether it is intended to release. Release automation is version-bump driven: a feature PR without a `Cargo.toml` package version change only runs CI on `main`; a release needs `Cargo.toml` and the root `teams-cli` entry in `Cargo.lock` bumped together, plus a matching `CHANGELOG.md` entry.
 - `cargo audit` may report advisory warnings that are not failing vulnerabilities. Treat actual vulnerabilities as release blockers and document any warning accepted for release.
 
 ## Pre-Live-Test Gaps
