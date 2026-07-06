@@ -51,8 +51,9 @@ Follow Graph pagination and return all pages.
 .SH AUTHENTICATION
 .nf
 teams auth login [--client-credentials] [--device-code] [--client-id ID] [--client-secret SECRET] [--tenant-id ID] [--scopes SCOPES]
+teams auth refresh [--scopes SCOPES]
 teams auth status
-teams auth consent-url [--client-id ID] [--tenant-id ID]
+teams auth consent-url [--client-id ID] [--tenant-id ID] [--scopes SCOPES]
 teams auth doctor [--client-id ID] [--tenant-id ID]
 teams auth list
 teams auth switch NAME
@@ -79,6 +80,10 @@ or
 then the profile
 .B scopes
 field, then the built-in default delegated scopes.
+.B teams auth refresh
+silently redeems the stored refresh token for the resolved scopes, picking up
+newly admin-consented permissions without a browser; without an explicit
+override it reuses the stored token's scope.
 Normal command token resolution is
 .B TEAMS_CLI_ACCESS_TOKEN
 then the OS keyring token for the selected profile.

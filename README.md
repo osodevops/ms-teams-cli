@@ -234,6 +234,15 @@ Delegated scope resolution follows the same order: `--scopes` (or
 `TEAMS_CLI_SCOPES`), then the profile's `scopes` field, then the built-in
 default scope set.
 
+When permissions are consented after login (for example an admin grants a new
+delegated scope), `teams auth refresh` silently redeems the stored refresh
+token for the resolved scopes — no browser or device code. Refresh tokens are
+bound to the user and client, not to the originally requested scopes, so the
+upgrade succeeds for any scope set already consented for the app. Without an
+explicit override the stored token's scope is reused, so a plain refresh never
+narrows a session. If consent is missing, the identity platform rejects the
+request and the CLI prints the matching `consent-url` command to fix it.
+
 ### Why not import Teams client tokens?
 
 Tools such as `fossteams/teams-token` are attractive because they avoid Entra
@@ -312,6 +321,7 @@ esac
 teams auth login             # Interactive login (browser)
 teams auth login --device-code  # Device code flow
 teams auth login --client-credentials  # App-only Graph operations where supported
+teams auth refresh           # Silently redeem the refresh token (picks up newly consented scopes)
 teams auth status            # Check if session is valid (exit code 0/1)
 teams auth consent-url       # Print admin consent URL for the active auth app
 teams auth doctor            # Diagnose config and token state
