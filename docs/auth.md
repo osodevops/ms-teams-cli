@@ -115,6 +115,29 @@ Custom scopes:
 teams auth login --device-code --scopes "User.Read ChatMessage.Send offline_access"
 ```
 
+Scopes can also be pinned per profile so every login for that profile requests
+them without repeating `--scopes`:
+
+```toml
+[profiles.customer]
+auth_app = "byo"
+client_id = "11111111-1111-1111-1111-111111111111"
+tenant_id = "22222222-2222-2222-2222-222222222222"
+scopes = "User.Read Chat.ReadWrite ChatMessage.Send People.Read offline_access"
+```
+
+The profile `scopes` value replaces the default delegated scope string (it is
+not additive); `offline_access` is appended when missing so refresh tokens
+keep working. Resolution order is `--scopes` or `TEAMS_CLI_SCOPES`, then the
+profile `scopes` field, then the default scope set. `teams auth consent-url`
+and `teams auth doctor` reflect the profile's resolved scopes, so admin
+consent links match what login will request. The default scope set remains
+free of admin-consent-required permissions; requesting broader scopes is an
+explicit opt-in for BYO app registrations. Do not use
+`https://graph.microsoft.com/.default` for delegated login — it would pull in
+every permission configured on the app registration instead of the explicit
+scope list.
+
 Customer-owned delegated app:
 
 ```bash
@@ -231,6 +254,7 @@ teams auth logout --all
 | `TEAMS_CLI_CLIENT_ID` | Entra app client ID. |
 | `TEAMS_CLI_CLIENT_SECRET` | Client secret for client credentials flow. |
 | `TEAMS_CLI_TENANT_ID` | Tenant ID or tenant domain. |
+| `TEAMS_CLI_SCOPES` | Delegated OAuth scopes for login. Same precedence as `--scopes`; ignored by client credentials login. |
 | `TEAMS_CLI_DISABLE_KEYRING` | Test-only escape hatch used by CLI tests to avoid real OS keyring access. |
 
 ## Microsoft references

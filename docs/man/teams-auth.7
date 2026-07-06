@@ -52,7 +52,15 @@ auth_app = "byo"
 client_id = "11111111-1111-1111-1111-111111111111"
 tenant_id = "22222222-2222-2222-2222-222222222222"
 auth_flow = "device-code"
+scopes = "User.Read Chat.ReadWrite ChatMessage.Send People.Read offline_access"
 .fi
+.PP
+The optional
+.B scopes
+field replaces the default delegated scope string for that profile;
+.B offline_access
+is appended when missing. Use it when a BYO app has admin-consented
+permissions beyond the defaults.
 .PP
 Then run:
 .PP
@@ -117,6 +125,11 @@ Client secret for client credentials flow.
 .TP
 .B TEAMS_CLI_TENANT_ID
 Tenant ID or tenant domain.
+.TP
+.B TEAMS_CLI_SCOPES
+Delegated OAuth scopes for login. Same precedence as
+.B --scopes.
+Ignored by client credentials login.
 .TP
 .B TEAMS_CLI_DISABLE_KEYRING
 Test-only switch used to avoid OS keyring access in automated tests. Do not use

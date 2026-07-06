@@ -6,6 +6,7 @@ use std::fs;
 fn teams() -> Command {
     let mut cmd = Command::cargo_bin("teams").unwrap();
     cmd.env("TEAMS_CLI_DISABLE_KEYRING", "1");
+    cmd.env_remove("TEAMS_CLI_SCOPES");
     cmd
 }
 
@@ -71,6 +72,65 @@ fn auth_consent_url_uses_oso_default_client_id() {
                 .and(predicate::str::contains("organizations"))
                 .and(predicate::str::contains("ChannelMessage.Read.All").not()),
         );
+}
+
+#[test]
+fn auth_login_help_documents_scopes_flag_and_env() {
+    teams()
+        .args(["auth", "login", "--help"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("--scopes <SCOPES>")
+                .and(predicate::str::contains("TEAMS_CLI_SCOPES")),
+        );
+}
+
+#[test]
+fn auth_consent_url_uses_profile_scopes_override() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    fs::write(
+        &path,
+        r#"
+[profiles.customer]
+auth_app = "byo"
+client_id = "11111111-1111-1111-1111-111111111111"
+tenant_id = "22222222-2222-2222-2222-222222222222"
+scopes = "User.Read People.Read TeamMember.Read.All offline_access"
+"#,
+    )
+    .unwrap();
+
+    teams()
+        .args([
+            "--config",
+            path.to_str().unwrap(),
+            "--profile",
+            "customer",
+            "auth",
+            "consent-url",
+            "--output",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("People.Read")
+                .and(predicate::str::contains("TeamMember.Read.All"))
+                .and(predicate::str::contains(
+                    "11111111-1111-1111-1111-111111111111",
+                )),
+        );
+}
+
+#[test]
+fn auth_doctor_reports_resolved_delegated_scopes() {
+    teams()
+        .args(["auth", "doctor", "--output", "json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"resolved_delegated_scopes\""));
 }
 
 #[test]

@@ -140,7 +140,15 @@ auth_app = "byo"
 client_id = "11111111-1111-1111-1111-111111111111"
 tenant_id = "22222222-2222-2222-2222-222222222222"
 auth_flow = "device-code"
+scopes = "User.Read Chat.ReadWrite ChatMessage.Send People.Read offline_access"
 ```
+
+The optional `scopes` field replaces the default delegated scope string for
+that profile, so a BYO app with admin-consented permissions (for example
+`People.Read` for people search) can request them on every login without
+passing `--scopes`. The value is used verbatim except that `offline_access` is
+appended when missing. The default scope set is unchanged for profiles that
+omit the field.
 
 Then sign in:
 
@@ -221,6 +229,10 @@ admin-consent required. Use `--scopes` or a customer-owned app when a workflow
 needs channel message reads.
 
 **Credential resolution order**: CLI flags > environment variables > config file profiles.
+
+Delegated scope resolution follows the same order: `--scopes` (or
+`TEAMS_CLI_SCOPES`), then the profile's `scopes` field, then the built-in
+default scope set.
 
 ### Why not import Teams client tokens?
 
@@ -546,6 +558,7 @@ auth_flow = "device-code"
 | `TEAMS_CLI_CLIENT_ID` | Azure AD application (client) ID |
 | `TEAMS_CLI_CLIENT_SECRET` | Azure AD client secret |
 | `TEAMS_CLI_TENANT_ID` | Azure AD tenant ID |
+| `TEAMS_CLI_SCOPES` | Delegated OAuth scopes for login (same precedence as `--scopes`; ignored by client credentials) |
 | `TEAMS_CLI_ACCESS_TOKEN` | Pre-obtained Microsoft Graph access token (skips login entirely) |
 | `RUST_LOG` | Tracing filter (e.g., `debug`, `teams=trace`) |
 
