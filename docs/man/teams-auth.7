@@ -102,6 +102,27 @@ For unattended service-identity posting, the intended future direction is a
 Teams app/bot proactive messaging mode. In that model a customer installs a
 Teams app or bot, and messages are sent as that app identity instead of a
 delegated human user.
+.SH SCOPE UPGRADES
+Refresh tokens are bound to the user and client, not to the scopes originally
+requested, so an existing session can pick up newly consented delegated
+permissions without interactive re-auth:
+.PP
+.nf
+teams auth consent-url --scopes "User.Read People.Read offline_access"
+teams auth refresh
+.fi
+.PP
+.B auth refresh
+redeems the stored refresh token for the resolved scopes (\fB--scopes\fR or
+.B TEAMS_CLI_SCOPES,
+then the profile
+.B scopes
+field). Without an explicit override it reuses the stored token's scope, so a
+plain refresh never narrows a session. If a requested scope has not been
+consented, the identity platform rejects the request (AADSTS65001) instead of
+issuing a narrower token; grant consent and retry, or run
+.B teams auth login
+for interactive consent.
 .SH TOKEN STORAGE
 Tokens are stored in the operating system credential store:
 .PP
@@ -136,8 +157,10 @@ Test-only switch used to avoid OS keyring access in automated tests. Do not use
 for real login sessions.
 .SH KNOWN GAPS
 Stored access tokens are refreshed automatically when a refresh token is
-available. If the refresh token is missing, expired, revoked, or rejected by
-the identity platform, run:
+available. Use
+.B teams auth refresh
+to force a refresh explicitly. If the refresh token is missing, expired,
+revoked, or rejected by the identity platform, run:
 .PP
 .nf
 teams auth login --device-code

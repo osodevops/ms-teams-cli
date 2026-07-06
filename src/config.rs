@@ -251,15 +251,17 @@ pub fn ensure_offline_access(scopes: &str) -> String {
     }
 }
 
-/// Resolve the delegated scope string: CLI flag or `TEAMS_CLI_SCOPES` env var
-/// (delivered via clap), then the profile's `scopes`, then the defaults.
-/// Blank values fall through so an empty env var cannot produce an empty
-/// OAuth scope request. Overrides always get `offline_access` appended.
-pub fn resolve_delegated_scopes(
+/// Resolve an explicitly configured delegated scope override: CLI flag or
+/// `TEAMS_CLI_SCOPES` env var (delivered via clap), then the profile's
+/// `scopes`. Returns `None` when neither is set so callers can pick their own
+/// fallback — login falls back to the defaults, refresh to the stored token's
+/// scope. Blank values fall through so an empty env var cannot produce an
+/// empty OAuth scope request. Overrides always get `offline_access` appended.
+pub fn resolve_delegated_scopes_override(
     scopes_arg: Option<&str>,
     profile: &str,
     config: &ConfigFile,
-) -> String {
+) -> Option<String> {
     let non_blank = |s: &str| {
         let trimmed = s.trim();
         (!trimmed.is_empty()).then(|| trimmed.to_string())
@@ -275,6 +277,16 @@ pub fn resolve_delegated_scopes(
                 .and_then(non_blank)
         })
         .map(|scopes| ensure_offline_access(&scopes))
+}
+
+/// Resolve the delegated scope string for login: the explicit override when
+/// set, otherwise the default delegated scopes.
+pub fn resolve_delegated_scopes(
+    scopes_arg: Option<&str>,
+    profile: &str,
+    config: &ConfigFile,
+) -> String {
+    resolve_delegated_scopes_override(scopes_arg, profile, config)
         .unwrap_or_else(|| DEFAULT_DELEGATED_SCOPES.to_string())
 }
 
@@ -476,6 +488,24 @@ scopes = "User.Read People.Read offline_access"
         assert_eq!(
             resolve_delegated_scopes(None, "default", &config),
             DEFAULT_DELEGATED_SCOPES
+        );
+    }
+
+    #[test]
+    fn resolve_delegated_scopes_override_none_when_unset() {
+        let config = ConfigFile::default();
+        assert_eq!(
+            resolve_delegated_scopes_override(None, "default", &config),
+            None
+        );
+    }
+
+    #[test]
+    fn resolve_delegated_scopes_override_some_for_profile_value() {
+        let config = config_with_profile_scopes(Some("User.Read People.Read"));
+        assert_eq!(
+            resolve_delegated_scopes_override(None, "work", &config).as_deref(),
+            Some("User.Read People.Read offline_access")
         );
     }
 

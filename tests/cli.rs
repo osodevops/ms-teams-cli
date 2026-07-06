@@ -6,7 +6,14 @@ use std::fs;
 fn teams() -> Command {
     let mut cmd = Command::cargo_bin("teams").unwrap();
     cmd.env("TEAMS_CLI_DISABLE_KEYRING", "1");
+    // Isolate tests from the developer's real environment: a configured
+    // profile or exported credentials would otherwise change command output.
+    cmd.env("HOME", std::env::temp_dir().join("teams-cli-test-home"));
     cmd.env_remove("TEAMS_CLI_SCOPES");
+    cmd.env_remove("TEAMS_CLI_CLIENT_ID");
+    cmd.env_remove("TEAMS_CLI_CLIENT_SECRET");
+    cmd.env_remove("TEAMS_CLI_TENANT_ID");
+    cmd.env_remove("TEAMS_CLI_ACCESS_TOKEN");
     cmd
 }
 
@@ -83,6 +90,54 @@ fn auth_login_help_documents_scopes_flag_and_env() {
         .stdout(
             predicate::str::contains("--scopes <SCOPES>")
                 .and(predicate::str::contains("TEAMS_CLI_SCOPES")),
+        );
+}
+
+#[test]
+fn auth_help_shows_refresh_subcommand() {
+    teams()
+        .args(["auth", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("refresh"));
+}
+
+#[test]
+fn auth_refresh_help_documents_scopes_flag_and_env() {
+    teams()
+        .args(["auth", "refresh", "--help"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("--scopes <SCOPES>")
+                .and(predicate::str::contains("TEAMS_CLI_SCOPES")),
+        );
+}
+
+#[test]
+fn auth_refresh_without_login_fails_with_auth_error() {
+    teams()
+        .args(["auth", "refresh", "--output", "json"])
+        .assert()
+        .code(3)
+        .stdout(predicate::str::contains("auth login"));
+}
+
+#[test]
+fn auth_consent_url_accepts_explicit_scopes() {
+    teams()
+        .args([
+            "auth",
+            "consent-url",
+            "--scopes",
+            "User.Read People.Read",
+            "--output",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("People.Read").and(predicate::str::contains("offline_access")),
         );
 }
 

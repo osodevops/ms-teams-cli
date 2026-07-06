@@ -26,8 +26,9 @@ teams [OPTIONS] <COMMAND>
 ```bash
 teams auth login [--device-code] [--client-id ID] [--tenant-id ID] [--scopes SCOPES]
 teams auth login --client-credentials --client-id ID --client-secret SECRET --tenant-id ID
+teams auth refresh [--scopes SCOPES]
 teams auth status
-teams auth consent-url [--client-id ID] [--tenant-id ID]
+teams auth consent-url [--client-id ID] [--tenant-id ID] [--scopes SCOPES]
 teams auth doctor [--client-id ID] [--tenant-id ID]
 teams auth list
 teams auth switch NAME
@@ -38,6 +39,8 @@ teams auth token [--format bearer|json]
 Delegated login defaults to the OSO public client app. Client credentials always require explicit customer credentials.
 
 Delegated scopes resolve as `--scopes` (or `TEAMS_CLI_SCOPES`), then the profile's `scopes` config field, then the built-in default scope set. `offline_access` is always ensured. `consent-url` and `doctor` reflect the resolved profile scopes.
+
+`auth refresh` silently redeems the stored refresh token for the resolved scopes — no browser — picking up newly admin-consented permissions. Without an explicit scope override it reuses the stored token's scope, never narrowing the session.
 
 ## Users
 

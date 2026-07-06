@@ -138,6 +138,25 @@ explicit opt-in for BYO app registrations. Do not use
 every permission configured on the app registration instead of the explicit
 scope list.
 
+## Upgrading scopes without re-login
+
+Refresh tokens are bound to the user and client, not to the scopes originally
+requested, so an existing session can be upgraded to newly consented
+permissions silently — the same mechanism MSAL uses for incremental consent:
+
+```bash
+teams auth consent-url --scopes "User.Read People.Read offline_access"  # admin grants once
+teams auth refresh                                                      # silent upgrade, no browser
+```
+
+`auth refresh` redeems the stored refresh token for the resolved scope string
+(`--scopes`/`TEAMS_CLI_SCOPES`, then profile `scopes`). Without an explicit
+override it reuses the stored token's scope, so a plain refresh never narrows
+an existing session. If a requested scope has not been consented, the
+identity platform rejects the whole request (AADSTS65001) rather than issuing
+a narrower token; the CLI then prints the exact `consent-url` command to
+grant it, or fall back to `teams auth login` for interactive consent.
+
 Customer-owned delegated app:
 
 ```bash
