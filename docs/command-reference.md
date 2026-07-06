@@ -37,6 +37,8 @@ teams auth token [--format bearer|json]
 
 Delegated login defaults to the OSO public client app. Client credentials always require explicit customer credentials.
 
+Delegated scopes resolve as `--scopes` (or `TEAMS_CLI_SCOPES`), then the profile's `scopes` config field, then the built-in default scope set. `offline_access` is always ensured. `consent-url` and `doctor` reflect the resolved profile scopes.
+
 ## Users
 
 ```bash

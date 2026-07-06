@@ -46,6 +46,7 @@ auth_app = "byo"
 client_id = "11111111-1111-1111-1111-111111111111"
 tenant_id = "22222222-2222-2222-2222-222222222222"
 auth_flow = "device-code"
+scopes = "User.Read Chat.ReadWrite ChatMessage.Send People.Read offline_access"
 .fi
 .SH DEFAULT SECTION
 .TP
@@ -129,6 +130,12 @@ used by docs and examples include
 .B device-code,
 and
 .B auth-code-pkce.
+.TP
+.B scopes
+Delegated OAuth scope string requested at login for this profile. Replaces the
+built-in default delegated scopes;
+.B offline_access
+is appended when missing. Ignored by client credentials login.
 .SH RESOLUTION ORDER
 Client ID and tenant ID resolution:
 .nf
@@ -141,6 +148,13 @@ Client secret resolution:
 .nf
 1. CLI flag
 2. TEAMS_CLI_CLIENT_SECRET
+.fi
+.PP
+Delegated scope resolution:
+.nf
+1. --scopes flag or TEAMS_CLI_SCOPES
+2. Selected config profile scopes
+3. Built-in default delegated scopes
 .fi
 .PP
 Access token resolution for normal commands:

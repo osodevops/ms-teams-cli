@@ -31,7 +31,7 @@ pub enum AuthCommand {
         tenant_id: Option<String>,
 
         /// OAuth scopes (space-separated, for delegated flows)
-        #[arg(long)]
+        #[arg(long, env = "TEAMS_CLI_SCOPES")]
         scopes: Option<String>,
     },
     /// Check current auth status
@@ -126,8 +126,8 @@ fn graph_admin_consent_scopes(scopes: &str) -> String {
         .join(" ")
 }
 
-fn delegated_admin_consent_url(client_id: &str, tenant_id: &str) -> String {
-    let scopes = graph_admin_consent_scopes(config::DEFAULT_DELEGATED_SCOPES);
+fn delegated_admin_consent_url(client_id: &str, tenant_id: &str, delegated_scopes: &str) -> String {
+    let scopes = graph_admin_consent_scopes(delegated_scopes);
     format!(
         "https://login.microsoftonline.com/{tenant_id}/v2.0/adminconsent?client_id={client_id}&scope={}&redirect_uri={}",
         urlencoding::encode(&scopes),
@@ -179,15 +179,16 @@ pub async fn run(
                     config::resolve_delegated_client_id(client_id.as_deref(), profile, config)?;
                 let tenant_id =
                     config::resolve_delegated_tenant_id(tenant_id.as_deref(), profile, config);
-                auth::device_code::authenticate(&client_id, &tenant_id, scopes.as_deref()).await?
+                let scopes = config::resolve_delegated_scopes(scopes.as_deref(), profile, config);
+                auth::device_code::authenticate(&client_id, &tenant_id, Some(&scopes)).await?
             } else {
                 // Default: auth code + PKCE
                 let client_id =
                     config::resolve_delegated_client_id(client_id.as_deref(), profile, config)?;
                 let tenant_id =
                     config::resolve_delegated_tenant_id(tenant_id.as_deref(), profile, config);
-                auth::auth_code_pkce::authenticate(&client_id, &tenant_id, scopes.as_deref())
-                    .await?
+                let scopes = config::resolve_delegated_scopes(scopes.as_deref(), profile, config);
+                auth::auth_code_pkce::authenticate(&client_id, &tenant_id, Some(&scopes)).await?
             };
 
             let token_info = token_response.into_token_info(profile);
@@ -215,12 +216,13 @@ pub async fn run(
                 config::resolve_delegated_client_id(client_id.as_deref(), profile, config)?;
             let tenant_id =
                 config::resolve_delegated_tenant_id(tenant_id.as_deref(), profile, config);
-            let url = delegated_admin_consent_url(&client_id, &tenant_id);
+            let scopes = config::resolve_delegated_scopes(None, profile, config);
+            let url = delegated_admin_consent_url(&client_id, &tenant_id, &scopes);
             let msg = serde_json::json!({
                 "admin_consent_url": url,
                 "client_id": client_id,
                 "tenant_id": tenant_id,
-                "scope": config::DEFAULT_DELEGATED_SCOPES,
+                "scope": scopes,
                 "redirect_uri": config::DEFAULT_REDIRECT_URI,
             });
             output::print_success(format, &msg, start);
@@ -245,7 +247,9 @@ pub async fn run(
             let token = auth::resolve_token(profile).await.ok();
             let claims = token.as_ref().and_then(|t| t.unverified_claims());
             let warnings = token_warnings(claims.as_ref());
-            let admin_consent_url = delegated_admin_consent_url(&client_id, &tenant_id);
+            let resolved_scopes = config::resolve_delegated_scopes(None, profile, config);
+            let admin_consent_url =
+                delegated_admin_consent_url(&client_id, &tenant_id, &resolved_scopes);
             let msg = serde_json::json!({
                 "profile": profile,
                 "auth_app": auth_app,
@@ -253,6 +257,7 @@ pub async fn run(
                 "tenant_id": tenant_id,
                 "admin_consent_url": admin_consent_url,
                 "default_delegated_scopes": config::DEFAULT_DELEGATED_SCOPES,
+                "resolved_delegated_scopes": resolved_scopes,
                 "redirect_uri": config::DEFAULT_REDIRECT_URI,
                 "authenticated": token.is_some(),
                 "warnings": warnings,

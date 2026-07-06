@@ -7,7 +7,7 @@ pub mod token;
 
 use chrono::{Duration, Utc};
 
-use crate::config::DEFAULT_DELEGATED_SCOPES;
+use crate::config::{ensure_offline_access, DEFAULT_DELEGATED_SCOPES};
 use crate::error::{Result, TeamsError};
 use token::TokenInfo;
 
@@ -128,13 +128,7 @@ fn refreshed_token_info(
 /// back to the default delegated scopes.
 fn refresh_scope(existing: Option<&str>) -> String {
     match existing {
-        Some(scope) if !scope.trim().is_empty() => {
-            if scope.split_whitespace().any(|s| s == "offline_access") {
-                scope.to_string()
-            } else {
-                format!("{scope} offline_access")
-            }
-        }
+        Some(scope) if !scope.trim().is_empty() => ensure_offline_access(scope),
         _ => DEFAULT_DELEGATED_SCOPES.to_string(),
     }
 }

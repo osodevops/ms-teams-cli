@@ -72,6 +72,13 @@ Credential resolution for explicit client ID and tenant ID is CLI flag,
 environment variable, then config profile. Client secret resolution is CLI
 flag, then
 .B TEAMS_CLI_CLIENT_SECRET.
+Delegated scope resolution is
+.B --scopes
+or
+.B TEAMS_CLI_SCOPES,
+then the profile
+.B scopes
+field, then the built-in default delegated scopes.
 Normal command token resolution is
 .B TEAMS_CLI_ACCESS_TOKEN
 then the OS keyring token for the selected profile.
@@ -263,6 +270,11 @@ Azure AD client secret for client credentials auth.
 .TP
 .B TEAMS_CLI_TENANT_ID
 Azure AD tenant ID.
+.TP
+.B TEAMS_CLI_SCOPES
+Delegated OAuth scopes for login. Same precedence as
+.B --scopes.
+Ignored by client credentials login.
 .TP
 .B RUST_LOG
 Tracing filter, for example
