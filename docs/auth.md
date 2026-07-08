@@ -99,6 +99,15 @@ the `Files.Read.All` delegated scope. Inline images and code snippets need no
 scopes beyond message reads. Add `Files.Read.All` to the profile's `scopes`
 and run `teams auth refresh` to pick it up without a new browser login.
 
+Sending has the same split (see the scope table in docs/attachments-spec.md):
+`message send --image` sends the picture inside the message itself and needs
+no Files scope at all, while `message send --attach` must first upload the
+file to storage — your own OneDrive for chats (`Files.ReadWrite`), the team's
+SharePoint library for channels (`Files.ReadWrite.All`, typically admin
+consent). Note that Graph masks drives the token cannot see as 404 rather
+than 403, so a "not found" from `--attach` usually means the missing scope,
+not a missing file.
+
 Future features may need additional consent.
 
 ## Login options

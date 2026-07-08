@@ -34,6 +34,12 @@ pub enum MessageCommand {
         /// Path to adaptive card JSON file
         #[arg(long)]
         adaptive_card: Option<String>,
+        /// Image file to send inline, like a pasted screenshot (repeatable)
+        #[arg(long)]
+        image: Vec<String>,
+        /// File to upload and attach (repeatable; needs a Files.ReadWrite scope)
+        #[arg(long)]
+        attach: Vec<String>,
     },
     /// List messages in a channel or chat
     List {
@@ -95,6 +101,12 @@ pub enum MessageCommand {
         /// Content type: text or html
         #[arg(long, default_value = "text")]
         content_type: String,
+        /// Image file to send inline, like a pasted screenshot (repeatable)
+        #[arg(long)]
+        image: Vec<String>,
+        /// File to upload and attach (repeatable; needs a Files.ReadWrite scope)
+        #[arg(long)]
+        attach: Vec<String>,
     },
     /// Add a reaction to a message (beta)
     React {
@@ -258,14 +270,25 @@ pub async fn run(
             stdin,
             content_type,
             adaptive_card,
+            image,
+            attach,
         } => {
             let start = Instant::now();
             auth::require_delegated_token(&client.token, "Sending Teams messages")?;
 
-            let content = resolve_body(body, stdin)?;
-            let req = build_send_request(content, &content_type, adaptive_card.as_deref())?;
+            let has_media = !image.is_empty() || !attach.is_empty();
+            let content = resolve_body_or_media(body, stdin, has_media)?;
+            let mut req = build_send_request(content, &content_type, adaptive_card.as_deref())?;
 
             let msg = if let Some(chat_id) = chat {
+                super::message_media::apply_media(
+                    &client,
+                    &mut req,
+                    &image,
+                    &attach,
+                    super::message_media::AttachDestination::Chat,
+                )
+                .await?;
                 api::messages::send_chat_message(&client, &chat_id, &req).await?
             } else {
                 let team_id = team.ok_or_else(|| {
@@ -277,6 +300,17 @@ pub async fn run(
                 let channel_id = channel.ok_or_else(|| {
                     TeamsError::InvalidInput("--channel is required for channel messages".into())
                 })?;
+                super::message_media::apply_media(
+                    &client,
+                    &mut req,
+                    &image,
+                    &attach,
+                    super::message_media::AttachDestination::Channel {
+                        team_id: &team_id,
+                        channel_id: &channel_id,
+                    },
+                )
+                .await?;
                 api::messages::send_channel_message(&client, &team_id, &channel_id, &req).await?
             };
             output::print_success(format, &msg, start);
@@ -379,11 +413,25 @@ pub async fn run(
             body,
             stdin,
             content_type,
+            image,
+            attach,
         } => {
             let start = Instant::now();
             auth::require_delegated_token(&client.token, "Replying to Teams messages")?;
-            let content = resolve_body(body, stdin)?;
-            let req = build_send_request(content, &content_type, None)?;
+            let has_media = !image.is_empty() || !attach.is_empty();
+            let content = resolve_body_or_media(body, stdin, has_media)?;
+            let mut req = build_send_request(content, &content_type, None)?;
+            super::message_media::apply_media(
+                &client,
+                &mut req,
+                &image,
+                &attach,
+                super::message_media::AttachDestination::Channel {
+                    team_id: &team,
+                    channel_id: &channel,
+                },
+            )
+            .await?;
             let msg = api::messages::reply_to_message(&client, &team, &channel, &message_id, &req)
                 .await?;
             output::print_success(format, &msg, start);
@@ -518,6 +566,15 @@ fn resolve_body(body: Option<String>, stdin: bool) -> Result<String> {
     }
 }
 
+/// A body is required unless the message carries media (`--image`/`--attach`),
+/// in which case it may be empty.
+fn resolve_body_or_media(body: Option<String>, stdin: bool, has_media: bool) -> Result<String> {
+    if body.is_none() && !stdin && has_media {
+        return Ok(String::new());
+    }
+    resolve_body(body, stdin)
+}
+
 fn build_send_request(
     content: String,
     content_type: &str,
@@ -549,5 +606,6 @@ fn build_send_request(
             content: Some(content),
         },
         attachments,
+        hosted_contents: None,
     })
 }

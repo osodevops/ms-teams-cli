@@ -14,6 +14,8 @@ pub struct DriveItem {
     pub size: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub web_url: Option<String>,
+    #[serde(rename = "eTag", skip_serializing_if = "Option::is_none")]
+    pub e_tag: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_date_time: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
