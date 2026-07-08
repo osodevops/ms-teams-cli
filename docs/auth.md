@@ -93,6 +93,12 @@ These permissions cover the current chat read/write, channel-send, team/channel 
 teams auth login --device-code --scopes "User.Read ChannelMessage.Read.All offline_access"
 ```
 
+Downloading message file attachments (`teams message attachments download` on
+`reference` attachments stored in SharePoint/OneDrive) additionally requires
+the `Files.Read.All` delegated scope. Inline images and code snippets need no
+scopes beyond message reads. Add `Files.Read.All` to the profile's `scopes`
+and run `teams auth refresh` to pick it up without a new browser login.
+
 Future features may need additional consent.
 
 ## Login options

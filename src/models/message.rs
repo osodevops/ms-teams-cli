@@ -55,7 +55,7 @@ pub struct SendMessageRequest {
     pub attachments: Option<Vec<ChatMessageAttachment>>,
 }
 
-/// Message attachment (e.g., adaptive card).
+/// Message attachment (e.g., adaptive card, file reference, code snippet).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatMessageAttachment {
@@ -66,7 +66,29 @@ pub struct ChatMessageAttachment {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thumbnail_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub teams_app_id: Option<String>,
+}
+
+/// Inline media stored with a message (pasted screenshots, code snippets).
+///
+/// The list endpoint returns `contentBytes` and `contentType` as null; actual
+/// bytes come from the per-item `/$value` endpoint and the real MIME type from
+/// that response's Content-Type header.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatMessageHostedContent {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_bytes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
 }
 
 /// Request body for setting/unsetting a reaction.
@@ -118,6 +140,35 @@ mod tests {
         let json = serde_json::to_string(&msg).unwrap();
         let parsed: ChatMessage = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.body.unwrap().content.as_deref(), Some("Hello"));
+    }
+
+    #[test]
+    fn reference_attachment_keeps_content_url() {
+        let json = r#"{
+            "id": "C0F75B79-7D00-4DC9-918F-5FAEDD1086A4",
+            "contentType": "reference",
+            "contentUrl": "https://tenant-my.sharepoint.com/personal/user/Documents/NetskopeLogs.zip",
+            "content": null,
+            "name": "NetskopeLogs.zip",
+            "thumbnailUrl": null,
+            "teamsAppId": null
+        }"#;
+        let att: ChatMessageAttachment = serde_json::from_str(json).unwrap();
+        assert_eq!(att.content_type.as_deref(), Some("reference"));
+        assert_eq!(
+            att.content_url.as_deref(),
+            Some("https://tenant-my.sharepoint.com/personal/user/Documents/NetskopeLogs.zip")
+        );
+        assert_eq!(att.name.as_deref(), Some("NetskopeLogs.zip"));
+    }
+
+    #[test]
+    fn hosted_content_list_entry_has_null_bytes() {
+        let json = r#"{"id": "aWQ9eF8wLWZyY2E=", "contentBytes": null, "contentType": null}"#;
+        let hc: ChatMessageHostedContent = serde_json::from_str(json).unwrap();
+        assert_eq!(hc.id.as_deref(), Some("aWQ9eF8wLWZyY2E="));
+        assert!(hc.content_bytes.is_none());
+        assert!(hc.content_type.is_none());
     }
 
     #[test]

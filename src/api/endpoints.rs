@@ -272,3 +272,129 @@ pub fn drive_upload_to_folder(drive_id: &str, parent_id: &str, filename: &str) -
 pub fn drive_item_create_link(drive_id: &str, item_id: &str) -> String {
     format!("{GRAPH_V1}/drives/{drive_id}/items/{item_id}/createLink")
 }
+
+// --- Hosted contents (inline images, code snippets) ---
+
+pub fn channel_message_hosted_contents(
+    team_id: &str,
+    channel_id: &str,
+    message_id: &str,
+) -> String {
+    format!("{GRAPH_V1}/teams/{team_id}/channels/{channel_id}/messages/{message_id}/hostedContents")
+}
+
+pub fn channel_message_hosted_content_value(
+    team_id: &str,
+    channel_id: &str,
+    message_id: &str,
+    hosted_content_id: &str,
+) -> String {
+    let id = urlencoding::encode(hosted_content_id);
+    format!(
+        "{GRAPH_V1}/teams/{team_id}/channels/{channel_id}/messages/{message_id}/hostedContents/{id}/$value"
+    )
+}
+
+pub fn channel_reply_hosted_contents(
+    team_id: &str,
+    channel_id: &str,
+    message_id: &str,
+    reply_id: &str,
+) -> String {
+    format!(
+        "{GRAPH_V1}/teams/{team_id}/channels/{channel_id}/messages/{message_id}/replies/{reply_id}/hostedContents"
+    )
+}
+
+pub fn channel_reply_hosted_content_value(
+    team_id: &str,
+    channel_id: &str,
+    message_id: &str,
+    reply_id: &str,
+    hosted_content_id: &str,
+) -> String {
+    let id = urlencoding::encode(hosted_content_id);
+    format!(
+        "{GRAPH_V1}/teams/{team_id}/channels/{channel_id}/messages/{message_id}/replies/{reply_id}/hostedContents/{id}/$value"
+    )
+}
+
+pub fn channel_message_reply(
+    team_id: &str,
+    channel_id: &str,
+    message_id: &str,
+    reply_id: &str,
+) -> String {
+    format!(
+        "{GRAPH_V1}/teams/{team_id}/channels/{channel_id}/messages/{message_id}/replies/{reply_id}"
+    )
+}
+
+pub fn chat_message_hosted_contents(chat_id: &str, message_id: &str) -> String {
+    format!("{GRAPH_V1}/chats/{chat_id}/messages/{message_id}/hostedContents")
+}
+
+pub fn chat_message_hosted_content_value(
+    chat_id: &str,
+    message_id: &str,
+    hosted_content_id: &str,
+) -> String {
+    let id = urlencoding::encode(hosted_content_id);
+    format!("{GRAPH_V1}/chats/{chat_id}/messages/{message_id}/hostedContents/{id}/$value")
+}
+
+// --- Shares (resolving attachment contentUrl to a drive item) ---
+
+/// Encode a SharePoint/OneDrive web URL as a Graph sharing token: `u!` plus
+/// unpadded base64url of the URL, per the Graph shares API convention.
+pub fn sharing_url_token(url: &str) -> String {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine as _;
+    format!("u!{}", URL_SAFE_NO_PAD.encode(url))
+}
+
+pub fn shares_drive_item_content(sharing_token: &str) -> String {
+    format!("{GRAPH_V1}/shares/{sharing_token}/driveItem/content")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sharing_url_token_matches_graph_convention() {
+        // Expected value computed with: printf '%s' "$URL" | base64 | tr '+/' '-_' | tr -d '='
+        let url = "https://tenant-my.sharepoint.com/personal/user/Documents/Microsoft%20Teams%20Chat%20Files/NetskopeLogs.zip";
+        let token = sharing_url_token(url);
+        assert!(token.starts_with("u!"));
+        assert!(!token.contains('='), "token must be unpadded");
+        assert!(
+            !token.contains('+') && !token.contains('/'),
+            "token must be base64url"
+        );
+        assert_eq!(
+            token,
+            "u!aHR0cHM6Ly90ZW5hbnQtbXkuc2hhcmVwb2ludC5jb20vcGVyc29uYWwvdXNlci9Eb2N1bWVudHMvTWljcm9zb2Z0JTIwVGVhbXMlMjBDaGF0JTIwRmlsZXMvTmV0c2tvcGVMb2dzLnppcA"
+        );
+    }
+
+    #[test]
+    fn hosted_content_value_encodes_id() {
+        // Base64 IDs can contain '+', '/', and '=' which must be percent-encoded in a path.
+        let url = channel_message_hosted_content_value("t1", "c1", "m1", "aWQ9+x/z==");
+        assert!(url.ends_with("/hostedContents/aWQ9%2Bx%2Fz%3D%3D/$value"));
+        assert!(
+            url.starts_with("https://graph.microsoft.com/v1.0/teams/t1/channels/c1/messages/m1/")
+        );
+    }
+
+    #[test]
+    fn chat_hosted_contents_urls() {
+        assert_eq!(
+            chat_message_hosted_contents("19:abc", "m1"),
+            "https://graph.microsoft.com/v1.0/chats/19:abc/messages/m1/hostedContents"
+        );
+        assert!(chat_message_hosted_content_value("19:abc", "m1", "hc1")
+            .ends_with("/chats/19:abc/messages/m1/hostedContents/hc1/$value"));
+    }
+}

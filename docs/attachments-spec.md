@@ -188,22 +188,24 @@ and omitted in `list` output if unknown.
 
 ```
 teams message attachments download --team <TEAM> --channel <CHANNEL> <MESSAGE_ID> \
-    [--index <N> | --all] [--dir <DIR> | --path <FILE>]
+    [--index <N>] [--dir <DIR> | --path <FILE>]
 ```
 
-- `--all` (default when neither `--index` nor `--path` given): downloads every item into
-  `--dir` (default `.`), naming files `msg-{message_id}-{index}.{ext}` for hosted
-  contents (extension from sniffed MIME type) and the attachment's `name` for file
-  references (collision-suffixed).
-- `--index N --path FILE` downloads a single item to an exact path; `--path -` streams
-  bytes to stdout (mirrors `file download`).
-- Hosted contents: `GET .../hostedContents/{id}/$value` via `GraphClient::get_bytes`.
-- File references: encode `contentUrl` → `GET /shares/u!{b64url}/driveItem` to resolve
-  metadata, then `/driveItem/content` for bytes (follows the 302 to a pre-authenticated
-  download URL).
-- JSON envelope reports one entry per item: `{index, kind, path, size, content_type}`,
-  with per-item `error` fields on partial failure (envelope `success: false` if any item
-  failed; exit code from the first error, e.g. 4 on 403).
+- Default (no `--index`): downloads every downloadable item into `--dir` (default `.`),
+  naming files `msg-{message_id}-{index}.{ext}` for hosted contents (extension from the
+  `/$value` response's Content-Type header) and the attachment's sanitized `name` for
+  file references (collision-suffixed).
+- `--index N` downloads a single item; `--path FILE` (requires `--index`) sets an exact
+  destination, and `--path -` streams bytes to stdout (mirrors `file download`).
+- Hosted contents: `GET .../hostedContents/{id}/$value` via
+  `GraphClient::get_bytes_with_content_type`.
+- File references: encode `contentUrl` → `GET /shares/u!{b64url}/driveItem/content`
+  (follows the 302 to a pre-authenticated download URL; MIME type from the response
+  header).
+- On success the JSON envelope reports one entry per item:
+  `{index, kind, path, size, content_type}`. On any failure the command keeps
+  downloading what it can, then exits with the first error's code (e.g. 4 on 403) and
+  an error message naming the failed item and listing paths already saved.
 
 #### `teams message get --with-attachments`
 
@@ -219,15 +221,14 @@ Ordered, each step compiles and passes tests independently.
 1. **Model fix** (`src/models/message.rs`): add `content_url`, `thumbnail_url`,
    `teams_app_id` to `ChatMessageAttachment`. Add `ChatMessageHostedContent` model
    (`id`, `contentBytes`, `contentType`). Unit-test round-trips.
-2. **Endpoints** (`src/api/endpoints.rs`): `channel_message_hosted_contents`,
-   `chat_message_hosted_contents`, `hosted_content_value` (channel + chat variants),
-   `shares_drive_item(token)`, `shares_drive_item_content(token)`. Add a
-   `sharing_url_token(url) -> String` helper (u! + base64url, no padding) with tests.
-3. **API layer** (`src/api/messages.rs` or new `src/api/hosted_contents.rs`):
-   `list_hosted_contents`, `get_hosted_content_bytes`, `resolve_shared_item`,
-   `download_shared_item`. Reuse `GraphClient::get_bytes` (already handles retry and
-   auth; verify it follows the SharePoint 302 redirect — reqwest does by default, but
-   confirm the Authorization header is not forwarded cross-origin, or strip it).
+2. **Endpoints** (`src/api/endpoints.rs`): hostedContents list + `$value` URL builders
+   for channel, channel-reply, and chat scopes; `shares_drive_item_content(token)`; and
+   a `sharing_url_token(url) -> String` helper (u! + base64url, no padding) with tests.
+3. **API layer** (`src/api/messages.rs`): a `MessageRef` enum (channel / channel-reply /
+   chat) with `get_message`, `list_hosted_contents`, `get_hosted_content_bytes`;
+   `download_shared_item` in `src/api/files.rs`. Reuses the `GraphClient` retry
+   machinery; reqwest follows the SharePoint 302 and strips the Authorization header
+   cross-origin (same path the existing `file download` relies on).
 4. **Inventory builder** (new `src/models/attachment_inventory.rs` or in `cli/message.rs`):
    pure function `build_inventory(&ChatMessage, hosted: &[ChatMessageHostedContent]) -> Vec<Item>`;
    parses body HTML for `<img src=".../hostedContents/{id}/$value">` to join dimensions
@@ -259,8 +260,8 @@ Ordered, each step compiles and passes tests independently.
 
 - 403 on `/shares` → exit code 4 with the actionable scope message above.
 - 404 on hostedContent (expired/deleted) → exit 5, name the index and message ID.
-- Partial `--all` failures download what they can and report per-item errors; non-zero
-  exit.
+- Partial failures download what they can, then exit non-zero with an error that names
+  the failed item and lists the paths already saved.
 - Never write partial files: download to `{path}.part`, rename on success.
 
 ### Security notes
@@ -273,10 +274,11 @@ Ordered, each step compiles and passes tests independently.
 
 ## Resolved questions
 
-- Code snippets: downloadable like images (`kind: "code_snippet"`, extension from the
-  snippet's declared language). Cards: their JSON is already inline in the message
-  envelope; `list` surfaces them as `kind: "card"` with no download action, except that
-  image URLs inside card JSON are listed so callers can fetch CDN-hosted ones themselves.
+- Code snippets: downloadable like images (`kind: "code_snippet"`, saved as `.txt`,
+  declared `language` included in the inventory entry). Cards: their JSON is already
+  inline in the message envelope; `list` surfaces them as `kind: "card"` with
+  `downloadable: false`. Extracting image URLs from inside card JSON is left to
+  callers — the heuristics are too fuzzy to bake in.
 - Chat (1:1/group) parity: same `hostedContents` endpoints exist under
   `/chats/{id}/messages/{id}`; delegated `Chat.Read`/`Chat.ReadWrite` suffices (already
   in the default profile). Covered by integration tests.

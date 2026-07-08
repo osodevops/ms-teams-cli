@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `teams message attachments list` and `teams message attachments download`: read the images users paste into messages (Graph hosted contents), file attachments stored in SharePoint/OneDrive, and code snippets. `list` returns an indexed inventory; `download` saves items to disk (or stdout with `--path -`) and reports each file's path, size, and MIME type. Works for channel messages, channel thread replies (`--reply`), and chats (`--chat`). Inline images need no scopes beyond message reads; file attachments require the `Files.Read.All` delegated scope and fail with an actionable hint without it.
+- `teams message get --with-attachments` embeds the same attachment inventory in the message output under `attachment_items`.
+
+### Fixed
+
+- `teams message get` no longer silently drops the `contentUrl`, `thumbnailUrl`, and `teamsAppId` fields of message attachments, which made file attachments unresolvable from CLI output.
+
 ## v0.2.8 - 2026-07-03
 
 ### Added
