@@ -6,6 +6,13 @@ use std::fs;
 fn teams() -> Command {
     let mut cmd = Command::cargo_bin("teams").unwrap();
     cmd.env("TEAMS_CLI_DISABLE_KEYRING", "1");
+    // Point the platform config-directory lookup at cargo's temp dir so the
+    // developer's real config file can't leak into assertions about
+    // out-of-box defaults. dirs resolves via $HOME on macOS and
+    // $XDG_CONFIG_HOME on Linux; Windows uses the Known Folder API and is
+    // unaffected by these overrides.
+    cmd.env("HOME", env!("CARGO_TARGET_TMPDIR"));
+    cmd.env("XDG_CONFIG_HOME", env!("CARGO_TARGET_TMPDIR"));
     cmd
 }
 
