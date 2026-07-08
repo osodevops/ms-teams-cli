@@ -6,6 +6,7 @@
 
 - `teams message attachments list` and `teams message attachments download`: read the images users paste into messages (Graph hosted contents), file attachments stored in SharePoint/OneDrive, and code snippets. `list` returns an indexed inventory; `download` saves items to disk (or stdout with `--path -`) and reports each file's path, size, and MIME type. Works for channel messages, channel thread replies (`--reply`), and chats (`--chat`). Inline images need no scopes beyond message reads; file attachments require the `Files.Read.All` delegated scope and fail with an actionable hint without it.
 - `teams message get --with-attachments` embeds the same attachment inventory in the message output under `attachment_items`.
+- `teams message send`/`reply` gained `--image` (send a picture inline, like pasting a screenshot — no scopes beyond message sends) and `--attach` (upload a file to OneDrive/SharePoint and attach it — needs `Files.ReadWrite` for chats or `Files.ReadWrite.All` for channels). Both repeat for multiple files; `--body` is optional when media is present. Scope failures explain which storage the upload targets, which scope it needs, and how to grant it; docs/attachments-spec.md carries the full hosted-contents-vs-files explainer.
 
 ### Fixed
 

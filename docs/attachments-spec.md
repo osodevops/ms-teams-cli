@@ -1,8 +1,15 @@
-# Specification: Reading Message Attachments and Inline Images
+# Specification: Message Attachments and Inline Images (Read and Send)
 
-Status: draft
+Status: Part I (read) implemented; Part II (send) in progress
 Date: 2026-07-08
 Branch target: follow-up to `feat/profile-scopes`
+
+Part I covers reading what other people put in messages; Part II covers sending.
+The [attachments for humans](#attachments-for-humans-hosted-contents-vs-files-and-the-scopes-they-need)
+section explains the two storage mechanisms and their OAuth scopes without assuming
+familiarity with Teams internals — start there if `hostedContents` means nothing to you.
+
+# Part I: Reading
 
 ## Problem
 
@@ -132,7 +139,7 @@ Cross-project lessons the design below absorbs:
 
 ### Non-goals
 
-- Uploading inline images (send-side hostedContents) — separate feature.
+- Uploading inline images (send-side hostedContents) — Part II below.
 - Rendering images in the terminal (sixel/kitty) — the consumer is usually an agent or a
   file; a path on disk is the right interface.
 - OCR — leave interpretation to the caller.
@@ -285,3 +292,159 @@ Ordered, each step compiles and passes tests independently.
 - Reply messages: hosted contents also hang off
   `.../messages/{id}/replies/{reply-id}/hostedContents`; the endpoints module needs the
   reply variant since screenshots very often appear in thread replies.
+
+# Attachments for humans: hosted contents vs. files, and the scopes they need
+
+Teams has two completely different storage mechanisms hiding behind what looks like one
+"add an image to my message" experience, and Microsoft's OAuth scopes track the storage,
+not the user gesture. Understanding this split explains every scope requirement in this
+feature.
+
+## The two mechanisms
+
+**Pasted screenshots ("hosted contents").** When you paste or drag an image *into the
+text of a message*, the image does not become a file anywhere you can browse. Teams
+stores the bytes as a blob glued to the message itself — Microsoft calls this a *hosted
+content*. It lives and dies with the message, has no filename, and is reachable only
+*through* the message. Because it travels inside the message, reading or sending it
+needs only message permissions — no file permissions at all.
+
+**Attached files ("reference attachments").** When you attach a file with the paperclip,
+Teams uploads the file to real, browsable storage and the message merely carries a link:
+
+- in a **channel**, the file lands in the team's SharePoint document library (the Files
+  tab you can open in a browser);
+- in a **chat**, the file lands in *the sender's own OneDrive*, in a folder called
+  `Microsoft Teams Chat Files`.
+
+The message's attachment entry is just `{name, contentUrl}` pointing at that storage.
+So touching these files means touching SharePoint/OneDrive, and Microsoft treats "send
+messages" and "read or write files in drives" as different doors with different keys.
+
+## The scope table
+
+Delegated scopes, per operation:
+
+| Operation | CLI command | Message scope | File scope needed | Why |
+|---|---|---|---|---|
+| Read a pasted screenshot | `message attachments download` | `ChatMessage.Read` / `ChannelMessage.Read.All` | none | bytes come through the message (`hostedContents/$value`) |
+| Send a pasted screenshot | `message send --image` | `ChatMessage.Send` / `ChannelMessage.Send` | none | bytes travel inside the message create call |
+| Download an attached file | `message attachments download` | (same as reading the message) | `Files.Read.All` | the file lives in someone's OneDrive / a team's SharePoint; reading it is a drive read |
+| Attach a file to a chat message | `message send --attach --chat` | `ChatMessage.Send` | `Files.ReadWrite` | the CLI must first upload the file into *your* OneDrive (`Microsoft Teams Chat Files`) |
+| Attach a file to a channel message | `message send --attach --team/--channel` | `ChannelMessage.Send` | `Files.ReadWrite.All` | the CLI must first upload into the *team's* SharePoint library, which is not your drive — hence the broader `.All` |
+
+Two consequences worth internalizing:
+
+- `--image` works with the CLI's default scopes. If you only ever send screenshots, you
+  never need a Files grant.
+- `--attach` is really two operations — a drive upload followed by a message send — and
+  the failure you hit without the Files scope happens at the *upload* step, before any
+  message exists.
+
+To add a scope: put it in the profile's `scopes` field in `config.toml`, then run
+`teams auth refresh` (silent, no browser; see docs/auth.md). Scopes marked `.All` may
+require a tenant admin's consent.
+
+# Part II: Sending
+
+## Problem
+
+The read side (Part I) lets agents see screenshots and files in messages. The mirror
+gesture — "send this screenshot / attach this file" — was still impossible: `message
+send` supports only text/HTML bodies and adaptive cards, and `file upload` puts a file
+in a channel's Files tab without attaching it to any message (and cannot touch chats).
+
+## Design
+
+### CLI surface
+
+```
+teams message send  (--team T --channel C | --chat CH) [--body TEXT | --stdin] \
+    [--image PATH]... [--attach PATH]...
+teams message reply --team T --channel C --message-id M [--body TEXT | --stdin] \
+    [--image PATH]... [--attach PATH]...
+```
+
+- `--image PATH` (repeatable): sends the file as a *hosted content* — the pasted-
+  screenshot experience. The message body gains an `<img>` per image. MIME type is
+  guessed from the file extension and must be an image type.
+- `--attach PATH` (repeatable): uploads the file to the correct drive for the target
+  (sender's OneDrive `Microsoft Teams Chat Files` for chats, the channel's folder in
+  the team's SharePoint library for channels), then references it from the message.
+  Uploads use `@microsoft.graph.conflictBehavior=rename` so an existing file with the
+  same name is never overwritten.
+- `--body` becomes optional when at least one `--image`/`--attach` is given.
+- Media forces the body content type to HTML; a plain-text `--body` is HTML-escaped
+  and wrapped in `<p>` first.
+
+### Graph mechanics
+
+**Inline images** ride the message create call itself. The request gains a
+`hostedContents` array; each item carries the base64 bytes and a temporary ID that the
+body references *relatively*:
+
+```json
+{
+  "body": {
+    "contentType": "html",
+    "content": "<p>look:</p><p><img src=\"../hostedContents/1/$value\"></p>"
+  },
+  "hostedContents": [{
+    "@microsoft.graph.temporaryId": "1",
+    "contentBytes": "iVBORw0KGgo...",
+    "contentType": "image/png"
+  }]
+}
+```
+
+Graph rewrites the relative `src` into a permanent hosted-content URL on delivery.
+Application (app-only) tokens cannot send hosted contents; the CLI already requires
+delegated auth for all message mutation, so nothing changes.
+
+**File attachments** are a two-step dance:
+
+1. `PUT` the bytes into the right drive (chat → `/me/drive/root:/Microsoft Teams Chat
+   Files/{name}:/content`, channel → the team drive folder that `filesFolder` reports,
+   same as `file upload`). The response is a `driveItem`.
+2. Send the message with an `attachments` entry whose `id` is **the GUID inside the
+   driveItem's `eTag`** (e.g. `"{5FF69C5F-...},2"` → `5FF69C5F-...`), `contentType`
+   `"reference"`, `contentUrl` = the driveItem's `webUrl`, `name` = its `name` — plus
+   an `<attachment id="{guid}"></attachment>` tag in the body HTML, which is what makes
+   the attachment card render in clients.
+
+Simple upload caps at 4&nbsp;MB (the existing `MAX_UPLOAD_SIZE`); larger files need the
+upload-session API, which is out of scope here — the CLI errors clearly instead.
+Hosted contents ride a single JSON request, so images are capped at 3&nbsp;MB each to
+stay under Graph's 4&nbsp;MB request limit after base64 expansion (+33%).
+
+### Error UX (scope failures must teach)
+
+A 403 — or a 404, since Graph masks drives the token cannot see as `itemNotFound`
+rather than `accessDenied` (verified live: `GET /me/drive` without any Files scope
+returns 404) — on the upload step returns the abbreviated version of the scope table
+above, tailored to the target:
+
+- chat: "Attaching files to chat messages uploads them to your OneDrive ('Microsoft
+  Teams Chat Files') first — that needs the `Files.ReadWrite` delegated scope, which
+  your token doesn't have. Inline images (`--image`) don't need it. Add the scope to
+  your profile's `scopes` and run `teams auth refresh`."
+- channel: same shape, naming the team's SharePoint library and `Files.ReadWrite.All`.
+
+Both point at docs/auth.md for the long version.
+
+### Implementation plan
+
+1. **Models**: `SendMessageRequest` gains `hostedContents`; new `HostedContentUpload`
+   (`@microsoft.graph.temporaryId`, `contentBytes`, `contentType`); `DriveItem` gains
+   `eTag`.
+2. **Endpoints**: chat-files upload URL under `/me/drive`, and a rename-on-conflict
+   variant of the channel folder upload.
+3. **API layer** (`src/api/files.rs`): `upload_chat_file`, `upload_channel_attachment`
+   (rename semantics), both with the teaching 403 hints.
+4. **CLI** (`src/cli/message_media.rs`): pure builders for the img/attachment HTML and
+   the eTag-GUID extraction (unit-tested), plus the async assembly that reads files,
+   guesses MIME types, enforces size caps, uploads, and extends `SendMessageRequest`.
+5. **Docs**: command-reference, examples, auth.md scope list, man page, CHANGELOG.
+6. **Verification**: live `--image` send with default scopes (must succeed); live
+   `--attach` without a Files grant (must fail with the teaching hint); unit tests for
+   builders and escaping.

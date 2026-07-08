@@ -53,6 +53,21 @@ pub struct SendMessageRequest {
     pub body: ItemBody,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attachments: Option<Vec<ChatMessageAttachment>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hosted_contents: Option<Vec<HostedContentUpload>>,
+}
+
+/// Write-side hosted content: inline image bytes riding a message create
+/// call. The body HTML references it as `../hostedContents/{temporaryId}/$value`
+/// and Graph rewrites that into a permanent URL on delivery.
+#[derive(Debug, Clone, Serialize)]
+pub struct HostedContentUpload {
+    #[serde(rename = "@microsoft.graph.temporaryId")]
+    pub temporary_id: String,
+    #[serde(rename = "contentBytes")]
+    pub content_bytes: String,
+    #[serde(rename = "contentType")]
+    pub content_type: String,
 }
 
 /// Message attachment (e.g., adaptive card, file reference, code snippet).
@@ -140,6 +155,28 @@ mod tests {
         let json = serde_json::to_string(&msg).unwrap();
         let parsed: ChatMessage = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.body.unwrap().content.as_deref(), Some("Hello"));
+    }
+
+    #[test]
+    fn send_request_serializes_hosted_contents_with_temporary_id() {
+        let req = SendMessageRequest {
+            body: ItemBody {
+                content_type: Some("html".into()),
+                content: Some(r#"<p><img src="../hostedContents/1/$value"></p>"#.into()),
+            },
+            attachments: None,
+            hosted_contents: Some(vec![HostedContentUpload {
+                temporary_id: "1".into(),
+                content_bytes: "aVZCT1J3".into(),
+                content_type: "image/png".into(),
+            }]),
+        };
+        let json = serde_json::to_value(&req).unwrap();
+        let hc = &json["hostedContents"][0];
+        assert_eq!(hc["@microsoft.graph.temporaryId"], "1");
+        assert_eq!(hc["contentBytes"], "aVZCT1J3");
+        assert_eq!(hc["contentType"], "image/png");
+        assert!(json.get("attachments").is_none());
     }
 
     #[test]

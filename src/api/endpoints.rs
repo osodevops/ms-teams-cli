@@ -266,7 +266,31 @@ pub fn drive_item_content(drive_id: &str, item_id: &str) -> String {
 }
 
 pub fn drive_upload_to_folder(drive_id: &str, parent_id: &str, filename: &str) -> String {
-    format!("{GRAPH_V1}/drives/{drive_id}/items/{parent_id}:/{filename}:/content")
+    let name = urlencoding::encode(filename);
+    format!("{GRAPH_V1}/drives/{drive_id}/items/{parent_id}:/{name}:/content")
+}
+
+/// Upload into a drive folder, renaming on filename collision instead of
+/// replacing — used for message attachments, where clobbering a previously
+/// shared file would silently rewrite history.
+pub fn drive_upload_to_folder_rename(drive_id: &str, parent_id: &str, filename: &str) -> String {
+    let name = urlencoding::encode(filename);
+    format!(
+        "{GRAPH_V1}/drives/{drive_id}/items/{parent_id}:/{name}:/content?@microsoft.graph.conflictBehavior=rename"
+    )
+}
+
+pub fn me_drive_root_children() -> String {
+    format!("{GRAPH_V1}/me/drive/root/children")
+}
+
+/// Upload into the signed-in user's OneDrive `Microsoft Teams Chat Files`
+/// folder, where the Teams client itself puts files attached to chats.
+pub fn me_chat_files_upload(filename: &str) -> String {
+    let name = urlencoding::encode(filename);
+    format!(
+        "{GRAPH_V1}/me/drive/root:/Microsoft%20Teams%20Chat%20Files/{name}:/content?@microsoft.graph.conflictBehavior=rename"
+    )
 }
 
 pub fn drive_item_create_link(drive_id: &str, item_id: &str) -> String {
@@ -385,6 +409,30 @@ mod tests {
         assert!(url.ends_with("/hostedContents/aWQ9%2Bx%2Fz%3D%3D/$value"));
         assert!(
             url.starts_with("https://graph.microsoft.com/v1.0/teams/t1/channels/c1/messages/m1/")
+        );
+    }
+
+    #[test]
+    fn chat_files_upload_encodes_filename_and_renames_on_conflict() {
+        let url = me_chat_files_upload("Net skope Logs.zip");
+        assert_eq!(
+            url,
+            "https://graph.microsoft.com/v1.0/me/drive/root:/Microsoft%20Teams%20Chat%20Files/Net%20skope%20Logs.zip:/content?@microsoft.graph.conflictBehavior=rename"
+        );
+    }
+
+    #[test]
+    fn drive_uploads_encode_filename_path_segment() {
+        // '#' and '?' would otherwise be parsed as fragment/query, silently
+        // truncating the DriveItem path.
+        let url = drive_upload_to_folder_rename("d1", "p1", "report #3?.xlsx");
+        assert_eq!(
+            url,
+            "https://graph.microsoft.com/v1.0/drives/d1/items/p1:/report%20%233%3F.xlsx:/content?@microsoft.graph.conflictBehavior=rename"
+        );
+        assert_eq!(
+            drive_upload_to_folder("d1", "p1", "a b.txt"),
+            "https://graph.microsoft.com/v1.0/drives/d1/items/p1:/a%20b.txt:/content"
         );
     }
 

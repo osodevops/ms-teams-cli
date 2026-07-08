@@ -134,12 +134,12 @@ teams channel members remove TEAM_ID CHANNEL_ID MEMBER_ID
 .fi
 .SH MESSAGE COMMANDS
 .nf
-teams message send (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) (--body TEXT | --stdin) [--content-type text|html] [--adaptive-card PATH]
+teams message send (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) [--body TEXT | --stdin] [--content-type text|html] [--adaptive-card PATH] [--image PATH]... [--attach PATH]...
 teams message list (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID)
 teams message get --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID) [--with-attachments]
 teams message attachments list (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID)
 teams message attachments download (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID) [--index N] [--dir DIR | --path FILE]
-teams message reply --team TEAM_ID --channel CHANNEL_ID --message-id MESSAGE_ID (--body TEXT | --stdin) [--content-type text|html]
+teams message reply --team TEAM_ID --channel CHANNEL_ID --message-id MESSAGE_ID [--body TEXT | --stdin] [--content-type text|html] [--image PATH]... [--attach PATH]...
 teams message reply --team TEAM_ID --channel CHANNEL_ID --message MESSAGE_ID --body TEXT
 teams message update --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID) --body TEXT [--content-type text|html]
 teams message delete --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID)
