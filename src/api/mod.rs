@@ -8,6 +8,7 @@ pub mod meetings;
 pub mod messages;
 pub mod notifications;
 pub mod presence;
+pub mod resolve;
 pub mod search;
 pub mod subscriptions;
 pub mod tags;

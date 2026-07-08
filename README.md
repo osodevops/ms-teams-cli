@@ -476,7 +476,23 @@ teams listen --port 8080
 teams user me
 teams user get <user-id-or-upn>
 teams user list
+teams user resolve <name-or-email>            # scope-aware candidate search
+teams user resolve "jane smith" --max-chats 500
 ```
+
+`user resolve` turns a colleague reference into user-ID candidates, trying
+each lookup path the token's scopes allow and skipping past the ones that
+403: exact `/users/{q}` lookup (baseline scopes), people search (People.Read),
+and finally a sweep of shared group/meeting chat rosters (baseline scopes,
+bounded by `--max-chats`). An email query matches only the full address and
+ends the sweep early; bare name or alias queries keep scanning to the bound
+so namesakes in other chats aren't silently missed. Ambiguous names return
+every match — candidates carry `jobTitle`/`department` where available to
+tell namesakes apart, plus a `via` field (`upn` | `people-search` | `roster`)
+so callers can judge match confidence, and a `stages` report shows what was
+attempted, including a `skippedChats` count when unreadable rosters made the
+sweep incomplete. A degraded Graph (rate limiting, 5xx) aborts with that
+error rather than reporting a false miss. No candidates means exit code 5.
 
 ### Configuration
 
