@@ -66,6 +66,14 @@ pub enum MessageCommand {
             conflicts_with = "message_id"
         )]
         message: Option<String>,
+        /// Include an inventory of attachments and inline images
+        #[arg(long)]
+        with_attachments: bool,
+    },
+    /// List or download message attachments and inline images
+    Attachments {
+        #[command(subcommand)]
+        command: super::message_attachments::AttachmentsCommand,
     },
     /// Reply to a channel message
     Reply {
@@ -334,13 +342,34 @@ pub async fn run(
             channel,
             message_id,
             message,
+            with_attachments,
         } => {
             let start = Instant::now();
             let message_id = resolve_id(message_id, message, "--message or <MESSAGE_ID>")?;
             let msg =
                 api::messages::get_channel_message(&client, &team, &channel, &message_id).await?;
-            output::print_success(format, &msg, start);
+            if with_attachments {
+                let message_ref = api::messages::MessageRef::Channel {
+                    team_id: team,
+                    channel_id: channel,
+                    message_id,
+                };
+                let hosted = api::messages::list_hosted_contents(&client, &message_ref).await?;
+                let items = crate::models::attachment_inventory::build_inventory(&msg, &hosted);
+                let mut value = serde_json::to_value(&msg).map_err(|e| TeamsError::ApiError {
+                    status: 0,
+                    message: format!("Failed to serialize message: {e}"),
+                })?;
+                value["attachment_items"] = serde_json::to_value(items).unwrap_or_default();
+                output::print_success(format, &value, start);
+            } else {
+                output::print_success(format, &msg, start);
+            }
             Ok(())
+        }
+
+        MessageCommand::Attachments { command } => {
+            super::message_attachments::run(command, &client, format).await
         }
 
         MessageCommand::Reply {
@@ -461,7 +490,11 @@ pub async fn run(
     }
 }
 
-fn resolve_id(positional: Option<String>, named: Option<String>, expected: &str) -> Result<String> {
+pub(crate) fn resolve_id(
+    positional: Option<String>,
+    named: Option<String>,
+    expected: &str,
+) -> Result<String> {
     match (positional, named) {
         (Some(_), Some(_)) => Err(TeamsError::InvalidInput(format!(
             "Provide only one of {expected}"
@@ -501,7 +534,10 @@ fn build_send_request(
             id: Some(uuid::Uuid::new_v4().to_string()),
             content_type: Some("application/vnd.microsoft.card.adaptive".to_string()),
             content: Some(card_json),
+            content_url: None,
             name: None,
+            thumbnail_url: None,
+            teams_app_id: None,
         }])
     } else {
         None

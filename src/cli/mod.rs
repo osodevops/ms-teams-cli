@@ -7,6 +7,7 @@ pub mod file;
 pub mod listen;
 pub mod meeting;
 pub mod message;
+pub mod message_attachments;
 pub mod notification;
 pub mod presence;
 pub mod search;

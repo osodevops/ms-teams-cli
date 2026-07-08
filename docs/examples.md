@@ -145,6 +145,32 @@ teams file download \
   --path ./teams-cli-smoke.txt
 ```
 
+## Read a screenshot pasted into a message
+
+Users paste screenshots directly into Teams messages; those are stored as
+Graph "hosted contents", not file attachments. Enumerate and download
+everything readable in a message:
+
+```bash
+teams message attachments list \
+  --team "$TEAM_ID" \
+  --channel "$CHANNEL_ID" \
+  "$MESSAGE_ID" --output json
+
+teams message attachments download \
+  --team "$TEAM_ID" \
+  --channel "$CHANNEL_ID" \
+  "$MESSAGE_ID" --dir ./attachments --output json
+```
+
+The download result lists one entry per item with its local path, size, and
+MIME type — ready for a multimodal agent to read. Use `--chat "$CHAT_ID"`
+instead of `--team`/`--channel` for chat messages, `--reply "$REPLY_ID"` for
+a reply inside a channel thread, and `--index N --path -` to stream a single
+item to stdout. File attachments (SharePoint/OneDrive references) need the
+`Files.Read.All` delegated scope; inline images work with plain message-read
+scopes.
+
 ## Agency client update
 
 ```bash

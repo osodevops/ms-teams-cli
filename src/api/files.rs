@@ -87,6 +87,29 @@ pub async fn download_file(
         .await
 }
 
+/// Download the bytes behind a shared web URL, following Graph's redirect to
+/// the pre-authenticated download URL.
+pub async fn download_shared_item(
+    client: &GraphClient,
+    content_url: &str,
+) -> Result<(Vec<u8>, Option<String>)> {
+    let token = endpoints::sharing_url_token(content_url);
+    client
+        .get_bytes_with_content_type(&endpoints::shares_drive_item_content(&token))
+        .await
+        .map_err(shares_scope_hint)
+}
+
+fn shares_scope_hint(err: TeamsError) -> TeamsError {
+    match err {
+        TeamsError::PermissionDenied(msg) => TeamsError::PermissionDenied(format!(
+            "{msg}\nHint: downloading file attachments requires the Files.Read.All delegated \
+             scope. Add it to your profile's scopes and run `teams auth refresh`."
+        )),
+        other => other,
+    }
+}
+
 pub async fn upload_file(
     client: &GraphClient,
     team_id: &str,

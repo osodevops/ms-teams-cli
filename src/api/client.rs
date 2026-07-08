@@ -257,6 +257,15 @@ impl GraphClient {
 
     /// GET raw bytes (for file download).
     pub async fn get_bytes(&self, url: &str) -> Result<Vec<u8>> {
+        self.get_bytes_with_content_type(url).await.map(|(b, _)| b)
+    }
+
+    /// GET raw bytes along with the response's Content-Type header. Hosted
+    /// contents (`/$value`) only expose their MIME type via that header.
+    pub async fn get_bytes_with_content_type(
+        &self,
+        url: &str,
+    ) -> Result<(Vec<u8>, Option<String>)> {
         let max_retries = self.network.max_retries;
         let backoff_base = self.network.retry_backoff_base;
 
@@ -299,8 +308,13 @@ impl GraphClient {
                 return Err(self.error_for_status(status, body));
             }
 
+            let content_type = resp
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .map(|v| v.split(';').next().unwrap_or(v).trim().to_string());
             let bytes = resp.bytes().await.map_err(TeamsError::NetworkError)?;
-            return Ok(bytes.to_vec());
+            return Ok((bytes.to_vec(), content_type));
         }
 
         Err(TeamsError::ApiError {
