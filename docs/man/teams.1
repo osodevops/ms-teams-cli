@@ -92,7 +92,19 @@ then the OS keyring token for the selected profile.
 teams user me
 teams user get USER_ID_OR_UPN
 teams user list [--filter ODATA_FILTER]
+teams user resolve NAME_OR_EMAIL [--max-chats N]
 .fi
+.PP
+.B user resolve
+returns user candidates for a display name, email address, UPN, or object ID.
+It tries exact user lookup, People API search when
+.B People.Read
+is available (verified back to
+.B /users/{userPrincipalName}
+before returning an object ID), then a bounded shared-chat roster sweep. JSON candidates include
+.B via
+and a per-stage report so callers can see which lookup paths were used. No
+candidates exits with code 5.
 .SH CONFIG COMMANDS
 .nf
 teams config init

@@ -303,8 +303,13 @@ async fn fetch_item_bytes(
 /// is taken, percent-decoded, and the request URL is rebuilt from the message
 /// reference we already resolved.
 fn code_snippet_hosted_content_id(url: &str) -> Option<String> {
-    let path = url.split(['?', '#']).next().unwrap_or(url);
-    let mut segments = path.split('/').skip_while(|s| *s != "hostedContents");
+    let parsed = url::Url::parse(url).ok()?;
+    if parsed.scheme() != "https" || parsed.host_str() != Some("graph.microsoft.com") {
+        return None;
+    }
+    let mut segments = parsed
+        .path_segments()?
+        .skip_while(|s| *s != "hostedContents");
     segments.next()?;
     let id = segments.next().filter(|s| !s.is_empty())?;
     if segments.next() != Some("$value") || segments.next().is_some() {
@@ -423,13 +428,10 @@ fn write_atomically(target: &Path, bytes: &[u8]) -> Result<()> {
             })?;
         }
     }
-    let part = target.with_extension(format!(
-        "{}part",
-        target
-            .extension()
-            .map(|e| format!("{}.", e.to_string_lossy()))
-            .unwrap_or_default()
-    ));
+    let filename = target
+        .file_name()
+        .ok_or_else(|| TeamsError::InvalidInput("Target path has no filename".into()))?;
+    let part = target.with_file_name(format!("{}.part", filename.to_string_lossy()));
     std::fs::write(&part, bytes).map_err(|e| {
         TeamsError::InvalidInput(format!("Failed to write '{}': {e}", part.display()))
     })?;
@@ -493,6 +495,11 @@ mod tests {
         write_atomically(&target, b"bytes").unwrap();
         assert_eq!(std::fs::read(&target).unwrap(), b"bytes");
         assert!(!dir.path().join("out.png.part").exists());
+
+        let no_extension = dir.path().join("out");
+        write_atomically(&no_extension, b"more").unwrap();
+        assert_eq!(std::fs::read(&no_extension).unwrap(), b"more");
+        assert!(!dir.path().join("out.part").exists());
     }
 
     #[test]
@@ -515,6 +522,10 @@ mod tests {
         // A URL pointing anywhere else must be rejected, not fetched.
         assert_eq!(
             code_snippet_hosted_content_id("https://evil.example.com/steal-token"),
+            None
+        );
+        assert_eq!(
+            code_snippet_hosted_content_id("https://evil.example.com/hostedContents/x/$value"),
             None
         );
         assert_eq!(

@@ -7,11 +7,19 @@ pub fn me() -> String {
 }
 
 pub fn user(id: &str) -> String {
-    format!("{GRAPH_V1}/users/{id}")
+    user_at(GRAPH_V1, id)
+}
+
+pub fn user_at(base: &str, id: &str) -> String {
+    format!("{base}/users/{id}")
 }
 
 pub fn users() -> String {
     format!("{GRAPH_V1}/users")
+}
+
+pub fn my_people_at(base: &str) -> String {
+    format!("{base}/me/people")
 }
 
 // --- Teams ---
@@ -108,7 +116,11 @@ pub fn channel_pinned_message(team_id: &str, channel_id: &str, pinned_message_id
 
 // --- Chats ---
 pub fn my_chats() -> String {
-    format!("{GRAPH_V1}/me/chats")
+    my_chats_at(GRAPH_V1)
+}
+
+pub fn my_chats_at(base: &str) -> String {
+    format!("{base}/me/chats")
 }
 
 /// Chat creation lives at `/chats`; `/me/chats` is list-only and returns
@@ -122,7 +134,11 @@ pub fn chat(id: &str) -> String {
 }
 
 pub fn chat_members(chat_id: &str) -> String {
-    format!("{GRAPH_V1}/chats/{chat_id}/members")
+    chat_members_at(GRAPH_V1, chat_id)
+}
+
+pub fn chat_members_at(base: &str, chat_id: &str) -> String {
+    format!("{base}/chats/{chat_id}/members")
 }
 
 pub fn chat_member(chat_id: &str, member_id: &str) -> String {

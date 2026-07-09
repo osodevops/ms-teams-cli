@@ -205,12 +205,16 @@ fn hosted_images_in_body(html: &str) -> Vec<BodyImage> {
 /// Pull the hosted-content ID out of a Graph `.../hostedContents/{id}/$value`
 /// URL, percent-decoding it back to the raw base64 form used by the API.
 fn hosted_content_id_from_url(url: &str) -> Option<String> {
-    if !url.contains("graph.microsoft.com/") {
+    let parsed = url::Url::parse(url).ok()?;
+    if parsed.scheme() != "https" || parsed.host_str() != Some("graph.microsoft.com") {
         return None;
     }
-    let after = url.rsplit_once("/hostedContents/")?.1;
-    let id = after.strip_suffix("/$value")?;
-    if id.is_empty() {
+    let mut segments = parsed
+        .path_segments()?
+        .skip_while(|s| *s != "hostedContents");
+    segments.next()?;
+    let id = segments.next().filter(|s| !s.is_empty())?;
+    if segments.next() != Some("$value") || segments.next().is_some() {
         return None;
     }
     Some(
@@ -370,8 +374,7 @@ mod tests {
 
     #[test]
     fn external_and_data_uri_images_are_ignored() {
-        let body =
-            r#"<img src="https://media.giphy.com/x.gif"><img src="data:image/png;base64,AAAA">"#;
+        let body = r#"<img src="https://media.giphy.com/x.gif"><img src="data:image/png;base64,AAAA"><img src="https://evil.example.com/graph.microsoft.com/v1.0/chats/c/messages/m/hostedContents/x/$value">"#;
         let msg = message_with(body, vec![]);
         assert!(build_inventory(&msg, &[]).is_empty());
     }

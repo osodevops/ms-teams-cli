@@ -4,7 +4,7 @@ use crate::models::file::{DriveItem, FilesFolder, ShareLinkRequest, ShareLinkRes
 use super::client::{GraphClient, PaginationOpts};
 use super::endpoints;
 
-const MAX_UPLOAD_SIZE: usize = 4 * 1024 * 1024; // 4MB
+const MAX_UPLOAD_SIZE: usize = 250 * 1024 * 1024; // DriveItem simple upload limit.
 
 pub async fn get_files_folder(
     client: &GraphClient,
@@ -120,7 +120,7 @@ pub async fn upload_file(
 ) -> Result<DriveItem> {
     if bytes.len() > MAX_UPLOAD_SIZE {
         return Err(TeamsError::InvalidInput(format!(
-            "File size ({} bytes) exceeds 4MB upload limit. Use upload sessions for larger files.",
+            "File size ({} bytes) exceeds the 250MB simple upload limit. Use upload sessions for larger files.",
             bytes.len()
         )));
     }
@@ -284,7 +284,7 @@ fn attach_scope_hint(err: TeamsError, target: AttachTarget) -> TeamsError {
 fn check_upload_size(bytes: &[u8]) -> Result<()> {
     if bytes.len() > MAX_UPLOAD_SIZE {
         return Err(TeamsError::InvalidInput(format!(
-            "File size ({} bytes) exceeds the 4MB simple-upload limit for message \
+            "File size ({} bytes) exceeds the 250MB simple-upload limit for message \
              attachments.",
             bytes.len()
         )));

@@ -18,13 +18,14 @@ pub enum AttachDestination<'a> {
 }
 
 /// Per-image cap: hosted contents ride a single JSON request with a 4MB Graph
-/// limit, and base64 inflates payloads by a third.
-const MAX_INLINE_IMAGE_SIZE: usize = 3 * 1024 * 1024;
+/// limit, and base64 inflates payloads by a third. Use decimal 3 MB so the
+/// encoded image plus JSON wrapper stays below 4 MiB.
+const MAX_INLINE_IMAGE_SIZE: usize = 3_000_000;
 
 /// Aggregate cap across all `--image` files: every image's base64 string is
 /// embedded in the same message-create body, so the encoded total — not just
 /// each file — must fit Graph's 4MB request limit.
-const MAX_INLINE_TOTAL_ENCODED: usize = 4 * 1024 * 1024;
+const MAX_INLINE_TOTAL_ENCODED: usize = 4_000_000;
 
 /// Extend a send request with inline images (`--image`, write-side hosted
 /// contents) and file attachments (`--attach`, drive upload + reference).

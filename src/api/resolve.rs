@@ -93,7 +93,7 @@ pub(crate) async fn resolve_user_at(
 
     if looks_like_exact_reference(query) {
         match client
-            .get::<User>(&format!("{base}/users/{query}"), &[])
+            .get::<User>(&endpoints::user_at(base, query), &[])
             .await
         {
             Ok(user) => {
@@ -116,13 +116,13 @@ pub(crate) async fn resolve_user_at(
         stages.push(stage("upn", "skipped"));
     }
 
-    match search_people(client, base, query).await {
+    match search_people_candidates(client, base, query).await {
         Ok(people) if !people.is_empty() => {
             stages.push(stage("people-search", "hit"));
             stages.push(stage("roster", "skipped"));
             return Ok(ResolveResult {
                 query: query.to_string(),
-                candidates: people.iter().map(candidate_from_person).collect(),
+                candidates: people,
                 stages,
             });
         }
@@ -151,11 +151,70 @@ async fn search_people(client: &GraphClient, base: &str, query: &str) -> Result<
     let quoted = format!("\"{}\"", query.replace('"', ""));
     let resp: PageResponse<Person> = client
         .get(
-            &format!("{base}/me/people"),
+            &endpoints::my_people_at(base),
             &[("$search", quoted.as_str()), ("$top", "10")],
         )
         .await?;
-    Ok(resp.value)
+    Ok(resp
+        .value
+        .into_iter()
+        .filter(is_directory_user_person)
+        .collect())
+}
+
+async fn search_people_candidates(
+    client: &GraphClient,
+    base: &str,
+    query: &str,
+) -> Result<Vec<ResolveCandidate>> {
+    let people = search_people(client, base, query).await?;
+    let mut candidates = Vec::new();
+    let mut seen = HashSet::new();
+
+    for person in people {
+        let Some(upn) = person
+            .user_principal_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|upn| !upn.is_empty())
+        else {
+            continue;
+        };
+
+        match client
+            .get::<User>(&endpoints::user_at(base, upn), &[])
+            .await
+        {
+            Ok(user) => {
+                let key = user
+                    .id
+                    .clone()
+                    .or_else(|| user.user_principal_name.clone())
+                    .unwrap_or_else(|| upn.to_string());
+                if seen.insert(key) {
+                    let mut candidate = candidate_from_user(&user);
+                    candidate.via = "people-search".to_string();
+                    if candidate.job_title.is_none() {
+                        candidate.job_title = person.job_title.clone();
+                    }
+                    if candidate.department.is_none() {
+                        candidate.department = person.department.clone();
+                    }
+                    candidates.push(candidate);
+                }
+            }
+            Err(TeamsError::NotFound(_)) => continue,
+            Err(e) if is_forbidden(&e) => {
+                let key = upn.to_string();
+                if seen.insert(key) {
+                    candidates.push(candidate_from_person(&person));
+                }
+            }
+            Err(e) => return Err(e),
+        }
+    }
+
+    Ok(candidates)
 }
 
 /// Walk group and meeting chat rosters looking for the query, scanning up
@@ -176,7 +235,7 @@ async fn sweep_rosters(
     let mut confident = false;
     let mut skipped = 0u64;
     let mut scanned = 0u64;
-    let mut next: Option<String> = Some(format!("{base}/me/chats"));
+    let mut next: Option<String> = Some(endpoints::my_chats_at(base));
     let mut first_page = true;
 
     'pages: while let Some(url) = next {
@@ -202,7 +261,7 @@ async fn sweep_rosters(
             // means Graph is degraded, and continuing would let the caller
             // mistake a partial sweep for a definitive miss.
             let members: Vec<ConversationMember> = match client
-                .get_all_pages(&format!("{base}/chats/{chat_id}/members"), &[])
+                .get_all_pages(&endpoints::chat_members_at(base, chat_id), &[])
                 .await
             {
                 Ok(members) => members,
@@ -302,6 +361,24 @@ fn is_forbidden(err: &TeamsError) -> bool {
     )
 }
 
+fn is_directory_user_person(person: &Person) -> bool {
+    let Some(person_type) = person.person_type.as_ref() else {
+        return person
+            .user_principal_name
+            .as_deref()
+            .is_some_and(|upn| !upn.trim().is_empty());
+    };
+
+    person_type
+        .class
+        .as_deref()
+        .is_some_and(|class| class.eq_ignore_ascii_case("Person"))
+        && person_type
+            .subclass
+            .as_deref()
+            .is_some_and(|subclass| subclass.eq_ignore_ascii_case("OrganizationUser"))
+}
+
 fn candidate_from_user(user: &User) -> ResolveCandidate {
     ResolveCandidate {
         id: user.id.clone(),
@@ -321,7 +398,11 @@ fn candidate_from_person(person: &Person) -> ResolveCandidate {
         .and_then(|addrs| addrs.first())
         .and_then(|a| a.address.clone());
     ResolveCandidate {
-        id: person.id.clone(),
+        // Microsoft documents person.id only as a people-resource identifier,
+        // not a directory user object ID. Use /users verification when we can;
+        // otherwise expose the UPN/mail without pretending the person id is a
+        // usable Teams user id.
+        id: None,
         display_name: person.display_name.clone(),
         mail,
         user_principal_name: person.user_principal_name.clone(),
@@ -348,6 +429,7 @@ mod tests {
     use super::*;
     use crate::auth::token::TokenInfo;
     use crate::config::NetworkConfig;
+    use crate::models::user::PersonType;
     use reqwest::Client;
     use wiremock::matchers::{method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -408,6 +490,65 @@ mod tests {
         assert_eq!(member_match("john smith", &member), None);
     }
 
+    #[test]
+    fn people_search_filter_keeps_directory_users_only() {
+        let org_user = Person {
+            id: Some("u1".into()),
+            display_name: Some("Jane User".into()),
+            user_principal_name: Some("jane@example.com".into()),
+            job_title: None,
+            department: None,
+            scored_email_addresses: None,
+            person_type: Some(PersonType {
+                class: Some("Person".into()),
+                subclass: Some("OrganizationUser".into()),
+            }),
+            extra: serde_json::Value::Null,
+        };
+        let group = Person {
+            id: Some("g1".into()),
+            display_name: Some("Marketing".into()),
+            user_principal_name: None,
+            job_title: None,
+            department: None,
+            scored_email_addresses: None,
+            person_type: Some(PersonType {
+                class: Some("Group".into()),
+                subclass: Some("UnifiedGroup".into()),
+            }),
+            extra: serde_json::Value::Null,
+        };
+        let contact = Person {
+            id: Some("c1".into()),
+            display_name: Some("External Contact".into()),
+            user_principal_name: None,
+            job_title: None,
+            department: None,
+            scored_email_addresses: None,
+            person_type: Some(PersonType {
+                class: Some("Person".into()),
+                subclass: Some("PersonalContact".into()),
+            }),
+            extra: serde_json::Value::Null,
+        };
+        let no_type_with_upn = Person {
+            id: Some("u2".into()),
+            display_name: Some("Legacy User".into()),
+            user_principal_name: Some("legacy@example.com".into()),
+            job_title: None,
+            department: None,
+            scored_email_addresses: None,
+            person_type: None,
+            extra: serde_json::Value::Null,
+        };
+
+        assert!(is_directory_user_person(&org_user));
+        assert!(!is_directory_user_person(&group));
+        assert!(!is_directory_user_person(&contact));
+        assert!(is_directory_user_person(&no_type_with_upn));
+        assert_eq!(candidate_from_person(&org_user).id, None);
+    }
+
     #[tokio::test]
     async fn guid_query_resolves_via_exact_lookup_and_skips_other_stages() {
         let server = MockServer::start().await;
@@ -457,15 +598,43 @@ mod tests {
             .and(path("/me/people"))
             .and(query_param("$search", "\"ghost@example.com\""))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "value": [{
-                    "id": "person-1",
-                    "displayName": "Ghost Writer",
-                    "userPrincipalName": "ghostw@example.com",
-                    "scoredEmailAddresses": [
-                        { "address": "ghost@example.com", "relevanceScore": 20.0 }
-                    ]
-                }]
+                "value": [
+                    {
+                        "id": "group-1",
+                        "displayName": "Ghost Writers",
+                        "personType": {
+                            "class": "Group",
+                            "subclass": "UnifiedGroup"
+                        },
+                        "scoredEmailAddresses": [
+                            { "address": "ghosts@example.com", "relevanceScore": 30.0 }
+                        ]
+                    },
+                    {
+                        "id": "person-1",
+                        "displayName": "Ghost Writer",
+                        "userPrincipalName": "ghostw@example.com",
+                        "personType": {
+                            "class": "Person",
+                            "subclass": "OrganizationUser"
+                        },
+                        "scoredEmailAddresses": [
+                            { "address": "ghost@example.com", "relevanceScore": 20.0 }
+                        ]
+                    }
+                ]
             })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/users/ghostw@example.com"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "user-1",
+                "displayName": "Ghost Writer",
+                "mail": "ghost@example.com",
+                "userPrincipalName": "ghostw@example.com"
+            })))
+            .expect(1)
             .mount(&server)
             .await;
 
@@ -475,6 +644,7 @@ mod tests {
 
         assert_eq!(result.candidates.len(), 1);
         assert_eq!(result.candidates[0].via, "people-search");
+        assert_eq!(result.candidates[0].id.as_deref(), Some("user-1"));
         assert_eq!(
             result.candidates[0].mail.as_deref(),
             Some("ghost@example.com")

@@ -320,6 +320,25 @@ fn config_output_format_is_honored_without_cli_output_flag() {
 // --- Phase 2: Team subcommand tests ---
 
 #[test]
+fn user_help_shows_subcommands() {
+    teams().args(["user", "--help"]).assert().success().stdout(
+        predicate::str::contains("me")
+            .and(predicate::str::contains("get"))
+            .and(predicate::str::contains("list"))
+            .and(predicate::str::contains("resolve")),
+    );
+}
+
+#[test]
+fn user_resolve_help_shows_max_chats() {
+    teams()
+        .args(["user", "resolve", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--max-chats <MAX_CHATS>"));
+}
+
+#[test]
 fn team_help_shows_subcommands() {
     teams().args(["team", "--help"]).assert().success().stdout(
         predicate::str::contains("list")

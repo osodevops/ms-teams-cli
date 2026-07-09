@@ -504,9 +504,10 @@ teams user resolve "jane smith" --max-chats 500
 
 `user resolve` turns a colleague reference into user-ID candidates, trying
 each lookup path the token's scopes allow and skipping past the ones that
-403: exact `/users/{q}` lookup (baseline scopes), people search (People.Read),
-and finally a sweep of shared group/meeting chat rosters (baseline scopes,
-bounded by `--max-chats`). An email query matches only the full address and
+403: exact `/users/{q}` lookup (baseline scopes), People API search
+(`People.Read`, verified back to `/users/{userPrincipalName}` before an object
+ID is returned), and finally a sweep of shared group/meeting chat rosters
+(baseline scopes, bounded by `--max-chats`). An email query matches only the full address and
 ends the sweep early; bare name or alias queries keep scanning to the bound
 so namesakes in other chats aren't silently missed. Ambiguous names return
 every match — candidates carry `jobTitle`/`department` where available to
