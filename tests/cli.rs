@@ -6,6 +6,17 @@ use std::fs;
 fn teams() -> Command {
     let mut cmd = Command::cargo_bin("teams").unwrap();
     cmd.env("TEAMS_CLI_DISABLE_KEYRING", "1");
+    // Isolate tests from the developer's real environment: a configured
+    // profile or exported credentials would otherwise change command output.
+    // dirs resolves via $HOME on macOS and $XDG_CONFIG_HOME on Linux; Windows
+    // uses the Known Folder API and is unaffected by these overrides.
+    cmd.env("HOME", env!("CARGO_TARGET_TMPDIR"));
+    cmd.env("XDG_CONFIG_HOME", env!("CARGO_TARGET_TMPDIR"));
+    cmd.env_remove("TEAMS_CLI_SCOPES");
+    cmd.env_remove("TEAMS_CLI_CLIENT_ID");
+    cmd.env_remove("TEAMS_CLI_CLIENT_SECRET");
+    cmd.env_remove("TEAMS_CLI_TENANT_ID");
+    cmd.env_remove("TEAMS_CLI_ACCESS_TOKEN");
     cmd
 }
 
@@ -71,6 +82,113 @@ fn auth_consent_url_uses_oso_default_client_id() {
                 .and(predicate::str::contains("organizations"))
                 .and(predicate::str::contains("ChannelMessage.Read.All").not()),
         );
+}
+
+#[test]
+fn auth_login_help_documents_scopes_flag_and_env() {
+    teams()
+        .args(["auth", "login", "--help"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("--scopes <SCOPES>")
+                .and(predicate::str::contains("TEAMS_CLI_SCOPES")),
+        );
+}
+
+#[test]
+fn auth_help_shows_refresh_subcommand() {
+    teams()
+        .args(["auth", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("refresh"));
+}
+
+#[test]
+fn auth_refresh_help_documents_scopes_flag_and_env() {
+    teams()
+        .args(["auth", "refresh", "--help"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("--scopes <SCOPES>")
+                .and(predicate::str::contains("TEAMS_CLI_SCOPES")),
+        );
+}
+
+#[test]
+fn auth_refresh_without_login_fails_with_auth_error() {
+    teams()
+        .args(["auth", "refresh", "--output", "json"])
+        .assert()
+        .code(3)
+        .stdout(predicate::str::contains("auth login"));
+}
+
+#[test]
+fn auth_consent_url_accepts_explicit_scopes() {
+    teams()
+        .args([
+            "auth",
+            "consent-url",
+            "--scopes",
+            "User.Read People.Read",
+            "--output",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("People.Read").and(predicate::str::contains("offline_access")),
+        );
+}
+
+#[test]
+fn auth_consent_url_uses_profile_scopes_override() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    fs::write(
+        &path,
+        r#"
+[profiles.customer]
+auth_app = "byo"
+client_id = "11111111-1111-1111-1111-111111111111"
+tenant_id = "22222222-2222-2222-2222-222222222222"
+scopes = "User.Read People.Read TeamMember.Read.All offline_access"
+"#,
+    )
+    .unwrap();
+
+    teams()
+        .args([
+            "--config",
+            path.to_str().unwrap(),
+            "--profile",
+            "customer",
+            "auth",
+            "consent-url",
+            "--output",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("People.Read")
+                .and(predicate::str::contains("TeamMember.Read.All"))
+                .and(predicate::str::contains(
+                    "11111111-1111-1111-1111-111111111111",
+                )),
+        );
+}
+
+#[test]
+fn auth_doctor_reports_resolved_delegated_scopes() {
+    teams()
+        .args(["auth", "doctor", "--output", "json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"resolved_delegated_scopes\""));
 }
 
 #[test]
@@ -200,6 +318,25 @@ fn config_output_format_is_honored_without_cli_output_flag() {
 }
 
 // --- Phase 2: Team subcommand tests ---
+
+#[test]
+fn user_help_shows_subcommands() {
+    teams().args(["user", "--help"]).assert().success().stdout(
+        predicate::str::contains("me")
+            .and(predicate::str::contains("get"))
+            .and(predicate::str::contains("list"))
+            .and(predicate::str::contains("resolve")),
+    );
+}
+
+#[test]
+fn user_resolve_help_shows_max_chats() {
+    teams()
+        .args(["user", "resolve", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--max-chats <MAX_CHATS>"));
+}
 
 #[test]
 fn team_help_shows_subcommands() {

@@ -51,8 +51,9 @@ Follow Graph pagination and return all pages.
 .SH AUTHENTICATION
 .nf
 teams auth login [--client-credentials] [--device-code] [--client-id ID] [--client-secret SECRET] [--tenant-id ID] [--scopes SCOPES]
+teams auth refresh [--scopes SCOPES]
 teams auth status
-teams auth consent-url [--client-id ID] [--tenant-id ID]
+teams auth consent-url [--client-id ID] [--tenant-id ID] [--scopes SCOPES]
 teams auth doctor [--client-id ID] [--tenant-id ID]
 teams auth list
 teams auth switch NAME
@@ -72,6 +73,17 @@ Credential resolution for explicit client ID and tenant ID is CLI flag,
 environment variable, then config profile. Client secret resolution is CLI
 flag, then
 .B TEAMS_CLI_CLIENT_SECRET.
+Delegated scope resolution is
+.B --scopes
+or
+.B TEAMS_CLI_SCOPES,
+then the profile
+.B scopes
+field, then the built-in default delegated scopes.
+.B teams auth refresh
+silently redeems the stored refresh token for the resolved scopes, picking up
+newly admin-consented permissions without a browser; without an explicit
+override it reuses the stored token's scope.
 Normal command token resolution is
 .B TEAMS_CLI_ACCESS_TOKEN
 then the OS keyring token for the selected profile.
@@ -80,7 +92,19 @@ then the OS keyring token for the selected profile.
 teams user me
 teams user get USER_ID_OR_UPN
 teams user list [--filter ODATA_FILTER]
+teams user resolve NAME_OR_EMAIL [--max-chats N]
 .fi
+.PP
+.B user resolve
+returns user candidates for a display name, email address, UPN, or object ID.
+It tries exact user lookup, People API search when
+.B People.Read
+is available (verified back to
+.B /users/{userPrincipalName}
+before returning an object ID), then a bounded shared-chat roster sweep. JSON candidates include
+.B via
+and a per-stage report so callers can see which lookup paths were used. No
+candidates exits with code 5.
 .SH CONFIG COMMANDS
 .nf
 teams config init
@@ -122,10 +146,12 @@ teams channel members remove TEAM_ID CHANNEL_ID MEMBER_ID
 .fi
 .SH MESSAGE COMMANDS
 .nf
-teams message send (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) (--body TEXT | --stdin) [--content-type text|html] [--adaptive-card PATH]
+teams message send (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) [--body TEXT | --stdin] [--content-type text|html] [--adaptive-card PATH] [--image PATH]... [--attach PATH]...
 teams message list (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID)
-teams message get --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID)
-teams message reply --team TEAM_ID --channel CHANNEL_ID --message-id MESSAGE_ID (--body TEXT | --stdin) [--content-type text|html]
+teams message get --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID) [--with-attachments]
+teams message attachments list (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID)
+teams message attachments download (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID) [--index N] [--dir DIR | --path FILE]
+teams message reply --team TEAM_ID --channel CHANNEL_ID --message-id MESSAGE_ID [--body TEXT | --stdin] [--content-type text|html] [--image PATH]... [--attach PATH]...
 teams message reply --team TEAM_ID --channel CHANNEL_ID --message MESSAGE_ID --body TEXT
 teams message update --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID) --body TEXT [--content-type text|html]
 teams message delete --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID)
@@ -263,6 +289,11 @@ Azure AD client secret for client credentials auth.
 .TP
 .B TEAMS_CLI_TENANT_ID
 Azure AD tenant ID.
+.TP
+.B TEAMS_CLI_SCOPES
+Delegated OAuth scopes for login. Same precedence as
+.B --scopes.
+Ignored by client credentials login.
 .TP
 .B RUST_LOG
 Tracing filter, for example

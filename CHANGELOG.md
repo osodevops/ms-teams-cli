@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+## v0.3.0 - 2026-07-09
+
+### Added
+
+- Per-profile delegated scope configuration for auth flows, including `TEAMS_CLI_SCOPES`, `--scopes` overrides, and scope-aware admin consent URLs.
+- `teams auth refresh` for explicitly redeeming a stored refresh token and upgrading delegated scopes without forcing a full login when consent already exists.
+- `teams user resolve`, which resolves IDs, UPNs, email addresses, and names using exact `/users` lookup, People API candidates, and an optional chat-roster sweep.
+- `teams message attachments list` and `teams message attachments download`: read the images users paste into messages (Graph hosted contents), file attachments stored in SharePoint/OneDrive, and code snippets. `list` returns an indexed inventory; `download` saves items to disk (or stdout with `--path -`) and reports each file's path, size, and MIME type. Works for channel messages, channel thread replies (`--reply`), and chats (`--chat`). Inline images need no scopes beyond message reads; file attachments require the `Files.Read.All` delegated scope and fail with an actionable hint without it.
+- `teams message get --with-attachments` embeds the same attachment inventory in the message output under `attachment_items`.
+- `teams message send`/`reply` gained `--image` (send a picture inline, like pasting a screenshot — no scopes beyond message sends) and `--attach` (upload a file to OneDrive/SharePoint and attach it — needs `Files.ReadWrite` for chats or `Files.ReadWrite.All` for channels). Both repeat for multiple files; `--body` is optional when media is present. Scope failures explain which storage the upload targets, which scope it needs, and how to grant it; docs/attachments-spec.md carries the full hosted-contents-vs-files explainer.
+
+### Fixed
+
+- CLI tests now isolate config-directory lookup from the developer's real machine config and scrub inherited auth environment variables.
+- `teams user resolve` now verifies People API hits through `/users/{userPrincipalName}` before returning a directory object ID, rather than treating the People resource ID as a Microsoft Entra user ID.
+- Attachment and inline-image parsing now accepts only Microsoft Graph hosted-content URLs for bearer-token downloads and rejects lookalike external URLs.
+- `teams message send --attach` now uses Microsoft Graph's 250MB simple-upload limit for DriveItem uploads instead of incorrectly applying the 4MB JSON request limit.
+- `teams message get` no longer silently drops the `contentUrl`, `thumbnailUrl`, and `teamsAppId` fields of message attachments, which made file attachments unresolvable from CLI output.
+- `teams completions` now generates completions on a larger worker-thread stack so the expanded command tree does not overflow the default Windows stack.
+
+### Changed
+
+- Refreshed the Rust dependency lockfile, including the `anyhow` advisory fix pulled in by the rust-minor dependency update.
+
 ## v0.2.8 - 2026-07-03
 
 ### Added

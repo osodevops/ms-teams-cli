@@ -1,4 +1,5 @@
 pub mod app;
+pub mod attachment_inventory;
 pub mod channel;
 pub mod chat;
 pub mod common;

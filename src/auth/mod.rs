@@ -7,7 +7,7 @@ pub mod token;
 
 use chrono::{Duration, Utc};
 
-use crate::config::DEFAULT_DELEGATED_SCOPES;
+use crate::config::{ensure_offline_access, DEFAULT_DELEGATED_SCOPES};
 use crate::error::{Result, TeamsError};
 use token::TokenInfo;
 
@@ -79,6 +79,58 @@ fn handle_refresh_failure(info: &TokenInfo, error: TeamsError) -> Result<TokenIn
 /// cannot be refreshed — e.g. no refresh token, undecodable claims, or the
 /// identity platform rejecting the request.
 async fn attempt_refresh(profile: &str, info: &TokenInfo) -> Result<TokenInfo> {
+    let scope = refresh_scope(info.scope.as_deref());
+    let refreshed = redeem_refresh_token(profile, info, &scope).await?;
+
+    // Best-effort persistence so the next invocation reuses the new token.
+    let _ = keyring::store_token(profile, &refreshed);
+
+    Ok(refreshed)
+}
+
+/// Redeem the stored refresh token for a delegated scope string, no
+/// interactive login. Refresh tokens are bound to user + client, not to the
+/// originally requested scopes, so this succeeds for any scope set already
+/// consented for the app — the mechanism behind `teams auth refresh` picking
+/// up newly admin-consented permissions silently. An unconsented scope makes
+/// the identity platform reject the whole request (AADSTS65001) rather than
+/// return a narrower token.
+///
+/// Without an explicit `scope` override the stored token's scope is reused,
+/// so a plain refresh never down-scopes a token that was minted with more
+/// than the defaults. Returns the scope string that was requested alongside
+/// the refreshed token.
+pub async fn refresh_token_with_scopes(
+    profile: &str,
+    scope: Option<&str>,
+) -> Result<(TokenInfo, String)> {
+    let info = keyring::get_token(profile).map_err(|_| {
+        TeamsError::AuthError("Not authenticated. Run `teams auth login` first.".into())
+    })?;
+
+    if info.refresh_token.is_none() {
+        return Err(TeamsError::AuthError(
+            "Stored token has no refresh token to redeem. Run `teams auth login` first.".into(),
+        ));
+    }
+
+    let scope = match scope {
+        Some(explicit) => explicit.to_string(),
+        None => refresh_scope(info.scope.as_deref()),
+    };
+
+    let refreshed = redeem_refresh_token(profile, &info, &scope).await?;
+
+    // The upgraded token is the whole point of the command, so a persistence
+    // failure is a hard error here, unlike the best-effort background refresh.
+    keyring::store_token(profile, &refreshed)?;
+
+    Ok((refreshed, scope))
+}
+
+/// Redeem the stored refresh token for the given scope string. Does not
+/// persist the result; callers decide whether storage failures are fatal.
+async fn redeem_refresh_token(profile: &str, info: &TokenInfo, scope: &str) -> Result<TokenInfo> {
     let refresh_token = info
         .refresh_token
         .as_deref()
@@ -93,16 +145,10 @@ async fn attempt_refresh(profile: &str, info: &TokenInfo) -> Result<TokenInfo> {
         .or(claims.appid)
         .ok_or(TeamsError::TokenExpired)?;
 
-    let scope = refresh_scope(info.scope.as_deref());
-
     let response =
-        refresh::refresh_access_token(&client_id, &tenant_id, refresh_token, &scope).await?;
-    let refreshed = refreshed_token_info(profile, info, response);
+        refresh::refresh_access_token(&client_id, &tenant_id, refresh_token, scope).await?;
 
-    // Best-effort persistence so the next invocation reuses the new token.
-    let _ = keyring::store_token(profile, &refreshed);
-
-    Ok(refreshed)
+    Ok(refreshed_token_info(profile, info, response))
 }
 
 fn refreshed_token_info(
@@ -128,13 +174,7 @@ fn refreshed_token_info(
 /// back to the default delegated scopes.
 fn refresh_scope(existing: Option<&str>) -> String {
     match existing {
-        Some(scope) if !scope.trim().is_empty() => {
-            if scope.split_whitespace().any(|s| s == "offline_access") {
-                scope.to_string()
-            } else {
-                format!("{scope} offline_access")
-            }
-        }
+        Some(scope) if !scope.trim().is_empty() => ensure_offline_access(scope),
         _ => DEFAULT_DELEGATED_SCOPES.to_string(),
     }
 }

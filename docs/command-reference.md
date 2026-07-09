@@ -26,8 +26,9 @@ teams [OPTIONS] <COMMAND>
 ```bash
 teams auth login [--device-code] [--client-id ID] [--tenant-id ID] [--scopes SCOPES]
 teams auth login --client-credentials --client-id ID --client-secret SECRET --tenant-id ID
+teams auth refresh [--scopes SCOPES]
 teams auth status
-teams auth consent-url [--client-id ID] [--tenant-id ID]
+teams auth consent-url [--client-id ID] [--tenant-id ID] [--scopes SCOPES]
 teams auth doctor [--client-id ID] [--tenant-id ID]
 teams auth list
 teams auth switch NAME
@@ -37,13 +38,25 @@ teams auth token [--format bearer|json]
 
 Delegated login defaults to the OSO public client app. Client credentials always require explicit customer credentials.
 
+Delegated scopes resolve as `--scopes` (or `TEAMS_CLI_SCOPES`), then the profile's `scopes` config field, then the built-in default scope set. `offline_access` is always ensured. `consent-url` and `doctor` reflect the resolved profile scopes.
+
+`auth refresh` silently redeems the stored refresh token for the resolved scopes — no browser — picking up newly admin-consented permissions. Without an explicit scope override it reuses the stored token's scope, never narrowing the session.
+
 ## Users
 
 ```bash
 teams user me
 teams user get USER_ID_OR_UPN
 teams user list [--filter ODATA_FILTER]
+teams user resolve NAME_OR_EMAIL [--max-chats N]
 ```
+
+`user resolve` returns user candidates for a display name, email address, UPN,
+or object ID. It tries exact user lookup, People API search when `People.Read`
+is available (verified back to `/users/{userPrincipalName}` before returning
+an object ID), then a bounded shared-chat roster sweep. JSON candidates include
+`via` and the output includes a per-stage report so callers can tell which
+lookup paths were used. No candidates exits with code 5.
 
 ## Config
 
@@ -93,10 +106,12 @@ teams channel members remove TEAM_ID CHANNEL_ID MEMBER_ID
 ## Messages
 
 ```bash
-teams message send (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) (--body TEXT | --stdin) [--content-type text|html] [--adaptive-card PATH]
+teams message send (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) [--body TEXT | --stdin] [--content-type text|html] [--adaptive-card PATH] [--image PATH]... [--attach PATH]...
 teams message list (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID)
-teams message get --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID)
-teams message reply --team TEAM_ID --channel CHANNEL_ID --message-id MESSAGE_ID (--body TEXT | --stdin) [--content-type text|html]
+teams message get --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID) [--with-attachments]
+teams message attachments list (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID)
+teams message attachments download (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID) [--index N] [--dir DIR | --path FILE]
+teams message reply --team TEAM_ID --channel CHANNEL_ID --message-id MESSAGE_ID [--body TEXT | --stdin] [--content-type text|html] [--image PATH]... [--attach PATH]...
 teams message update --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID) --body TEXT [--content-type text|html]
 teams message delete --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID)
 teams message react --team TEAM_ID --channel CHANNEL_ID --message-id MESSAGE_ID (REACTION | --reaction REACTION)
@@ -106,6 +121,10 @@ teams message unpin --team TEAM_ID --channel CHANNEL_ID (PINNED_MESSAGE_ID | --p
 ```
 
 Normal message mutation requires delegated auth. App-only/client-credentials tokens are rejected for these commands.
+
+`--image` sends a picture the way pasting a screenshot does — the bytes travel inside the message itself (a Graph "hosted content"), so it needs no scopes beyond sending messages. `--attach` uploads the file to real storage first (your OneDrive's `Microsoft Teams Chat Files` for chats, the team's SharePoint library for channels) and links it from the message; that upload needs `Files.ReadWrite` (chats) or `Files.ReadWrite.All` (channels). Both flags repeat for multiple files, and `--body` becomes optional when either is present. Inline images are capped at 3MB each; attachments use Graph's 250MB simple-upload limit.
+
+`message attachments` unifies the two ways Teams stores message media: inline images pasted into the compose box (Graph "hosted contents") and files attached via SharePoint/OneDrive (`reference` attachments). `list` returns an indexed inventory; `download` fetches everything downloadable by default, or one item with `--index` (add `--path FILE` for an exact destination, or `--path -` to stream to stdout). Inline images and code snippets need no scopes beyond message reads; file attachments additionally require the `Files.Read.All` delegated scope. `message get --with-attachments` embeds the same inventory under `attachment_items` in the message output.
 
 ## Chats
 

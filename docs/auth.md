@@ -93,6 +93,21 @@ These permissions cover the current chat read/write, channel-send, team/channel 
 teams auth login --device-code --scopes "User.Read ChannelMessage.Read.All offline_access"
 ```
 
+Downloading message file attachments (`teams message attachments download` on
+`reference` attachments stored in SharePoint/OneDrive) additionally requires
+the `Files.Read.All` delegated scope. Inline images and code snippets need no
+scopes beyond message reads. Add `Files.Read.All` to the profile's `scopes`
+and run `teams auth refresh` to pick it up without a new browser login.
+
+Sending has the same split (see the scope table in docs/attachments-spec.md):
+`message send --image` sends the picture inside the message itself and needs
+no Files scope at all, while `message send --attach` must first upload the
+file to storage — your own OneDrive for chats (`Files.ReadWrite`), the team's
+SharePoint library for channels (`Files.ReadWrite.All`, typically admin
+consent). Note that Graph masks drives the token cannot see as 404 rather
+than 403, so a "not found" from `--attach` usually means the missing scope,
+not a missing file.
+
 Future features may need additional consent.
 
 ## Login options
@@ -114,6 +129,48 @@ Custom scopes:
 ```bash
 teams auth login --device-code --scopes "User.Read ChatMessage.Send offline_access"
 ```
+
+Scopes can also be pinned per profile so every login for that profile requests
+them without repeating `--scopes`:
+
+```toml
+[profiles.customer]
+auth_app = "byo"
+client_id = "11111111-1111-1111-1111-111111111111"
+tenant_id = "22222222-2222-2222-2222-222222222222"
+scopes = "User.Read Chat.ReadWrite ChatMessage.Send People.Read offline_access"
+```
+
+The profile `scopes` value replaces the default delegated scope string (it is
+not additive); `offline_access` is appended when missing so refresh tokens
+keep working. Resolution order is `--scopes` or `TEAMS_CLI_SCOPES`, then the
+profile `scopes` field, then the default scope set. `teams auth consent-url`
+and `teams auth doctor` reflect the profile's resolved scopes, so admin
+consent links match what login will request. The default scope set remains
+free of admin-consent-required permissions; requesting broader scopes is an
+explicit opt-in for BYO app registrations. Do not use
+`https://graph.microsoft.com/.default` for delegated login — it would pull in
+every permission configured on the app registration instead of the explicit
+scope list.
+
+## Upgrading scopes without re-login
+
+Refresh tokens are bound to the user and client, not to the scopes originally
+requested, so an existing session can be upgraded to newly consented
+permissions silently — the same mechanism MSAL uses for incremental consent:
+
+```bash
+teams auth consent-url --scopes "User.Read People.Read offline_access"  # admin grants once
+teams auth refresh                                                      # silent upgrade, no browser
+```
+
+`auth refresh` redeems the stored refresh token for the resolved scope string
+(`--scopes`/`TEAMS_CLI_SCOPES`, then profile `scopes`). Without an explicit
+override it reuses the stored token's scope, so a plain refresh never narrows
+an existing session. If a requested scope has not been consented, the
+identity platform rejects the whole request (AADSTS65001) rather than issuing
+a narrower token; the CLI then prints the exact `consent-url` command to
+grant it, or fall back to `teams auth login` for interactive consent.
 
 Customer-owned delegated app:
 
@@ -231,6 +288,7 @@ teams auth logout --all
 | `TEAMS_CLI_CLIENT_ID` | Entra app client ID. |
 | `TEAMS_CLI_CLIENT_SECRET` | Client secret for client credentials flow. |
 | `TEAMS_CLI_TENANT_ID` | Tenant ID or tenant domain. |
+| `TEAMS_CLI_SCOPES` | Delegated OAuth scopes for login. Same precedence as `--scopes`; ignored by client credentials login. |
 | `TEAMS_CLI_DISABLE_KEYRING` | Test-only escape hatch used by CLI tests to avoid real OS keyring access. |
 
 ## Microsoft references

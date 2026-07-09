@@ -34,6 +34,12 @@ pub enum MessageCommand {
         /// Path to adaptive card JSON file
         #[arg(long)]
         adaptive_card: Option<String>,
+        /// Image file to send inline, like a pasted screenshot (repeatable)
+        #[arg(long)]
+        image: Vec<String>,
+        /// File to upload and attach (repeatable; needs a Files.ReadWrite scope)
+        #[arg(long)]
+        attach: Vec<String>,
     },
     /// List messages in a channel or chat
     List {
@@ -66,6 +72,14 @@ pub enum MessageCommand {
             conflicts_with = "message_id"
         )]
         message: Option<String>,
+        /// Include an inventory of attachments and inline images
+        #[arg(long)]
+        with_attachments: bool,
+    },
+    /// List or download message attachments and inline images
+    Attachments {
+        #[command(subcommand)]
+        command: super::message_attachments::AttachmentsCommand,
     },
     /// Reply to a channel message
     Reply {
@@ -87,6 +101,12 @@ pub enum MessageCommand {
         /// Content type: text or html
         #[arg(long, default_value = "text")]
         content_type: String,
+        /// Image file to send inline, like a pasted screenshot (repeatable)
+        #[arg(long)]
+        image: Vec<String>,
+        /// File to upload and attach (repeatable; needs a Files.ReadWrite scope)
+        #[arg(long)]
+        attach: Vec<String>,
     },
     /// Add a reaction to a message (beta)
     React {
@@ -250,14 +270,25 @@ pub async fn run(
             stdin,
             content_type,
             adaptive_card,
+            image,
+            attach,
         } => {
             let start = Instant::now();
             auth::require_delegated_token(&client.token, "Sending Teams messages")?;
 
-            let content = resolve_body(body, stdin)?;
-            let req = build_send_request(content, &content_type, adaptive_card.as_deref())?;
+            let has_media = !image.is_empty() || !attach.is_empty();
+            let content = resolve_body_or_media(body, stdin, has_media)?;
+            let mut req = build_send_request(content, &content_type, adaptive_card.as_deref())?;
 
             let msg = if let Some(chat_id) = chat {
+                super::message_media::apply_media(
+                    &client,
+                    &mut req,
+                    &image,
+                    &attach,
+                    super::message_media::AttachDestination::Chat,
+                )
+                .await?;
                 api::messages::send_chat_message(&client, &chat_id, &req).await?
             } else {
                 let team_id = team.ok_or_else(|| {
@@ -269,6 +300,17 @@ pub async fn run(
                 let channel_id = channel.ok_or_else(|| {
                     TeamsError::InvalidInput("--channel is required for channel messages".into())
                 })?;
+                super::message_media::apply_media(
+                    &client,
+                    &mut req,
+                    &image,
+                    &attach,
+                    super::message_media::AttachDestination::Channel {
+                        team_id: &team_id,
+                        channel_id: &channel_id,
+                    },
+                )
+                .await?;
                 api::messages::send_channel_message(&client, &team_id, &channel_id, &req).await?
             };
             output::print_success(format, &msg, start);
@@ -334,13 +376,34 @@ pub async fn run(
             channel,
             message_id,
             message,
+            with_attachments,
         } => {
             let start = Instant::now();
             let message_id = resolve_id(message_id, message, "--message or <MESSAGE_ID>")?;
             let msg =
                 api::messages::get_channel_message(&client, &team, &channel, &message_id).await?;
-            output::print_success(format, &msg, start);
+            if with_attachments {
+                let message_ref = api::messages::MessageRef::Channel {
+                    team_id: team,
+                    channel_id: channel,
+                    message_id,
+                };
+                let hosted = api::messages::list_hosted_contents(&client, &message_ref).await?;
+                let items = crate::models::attachment_inventory::build_inventory(&msg, &hosted);
+                let mut value = serde_json::to_value(&msg).map_err(|e| TeamsError::ApiError {
+                    status: 0,
+                    message: format!("Failed to serialize message: {e}"),
+                })?;
+                value["attachment_items"] = serde_json::to_value(items).unwrap_or_default();
+                output::print_success(format, &value, start);
+            } else {
+                output::print_success(format, &msg, start);
+            }
             Ok(())
+        }
+
+        MessageCommand::Attachments { command } => {
+            super::message_attachments::run(command, &client, format).await
         }
 
         MessageCommand::Reply {
@@ -350,11 +413,25 @@ pub async fn run(
             body,
             stdin,
             content_type,
+            image,
+            attach,
         } => {
             let start = Instant::now();
             auth::require_delegated_token(&client.token, "Replying to Teams messages")?;
-            let content = resolve_body(body, stdin)?;
-            let req = build_send_request(content, &content_type, None)?;
+            let has_media = !image.is_empty() || !attach.is_empty();
+            let content = resolve_body_or_media(body, stdin, has_media)?;
+            let mut req = build_send_request(content, &content_type, None)?;
+            super::message_media::apply_media(
+                &client,
+                &mut req,
+                &image,
+                &attach,
+                super::message_media::AttachDestination::Channel {
+                    team_id: &team,
+                    channel_id: &channel,
+                },
+            )
+            .await?;
             let msg = api::messages::reply_to_message(&client, &team, &channel, &message_id, &req)
                 .await?;
             output::print_success(format, &msg, start);
@@ -461,7 +538,11 @@ pub async fn run(
     }
 }
 
-fn resolve_id(positional: Option<String>, named: Option<String>, expected: &str) -> Result<String> {
+pub(crate) fn resolve_id(
+    positional: Option<String>,
+    named: Option<String>,
+    expected: &str,
+) -> Result<String> {
     match (positional, named) {
         (Some(_), Some(_)) => Err(TeamsError::InvalidInput(format!(
             "Provide only one of {expected}"
@@ -485,6 +566,15 @@ fn resolve_body(body: Option<String>, stdin: bool) -> Result<String> {
     }
 }
 
+/// A body is required unless the message carries media (`--image`/`--attach`),
+/// in which case it may be empty.
+fn resolve_body_or_media(body: Option<String>, stdin: bool, has_media: bool) -> Result<String> {
+    if body.is_none() && !stdin && has_media {
+        return Ok(String::new());
+    }
+    resolve_body(body, stdin)
+}
+
 fn build_send_request(
     content: String,
     content_type: &str,
@@ -501,7 +591,10 @@ fn build_send_request(
             id: Some(uuid::Uuid::new_v4().to_string()),
             content_type: Some("application/vnd.microsoft.card.adaptive".to_string()),
             content: Some(card_json),
+            content_url: None,
             name: None,
+            thumbnail_url: None,
+            teams_app_id: None,
         }])
     } else {
         None
@@ -513,5 +606,6 @@ fn build_send_request(
             content: Some(content),
         },
         attachments,
+        hosted_contents: None,
     })
 }

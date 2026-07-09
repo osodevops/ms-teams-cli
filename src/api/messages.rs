@@ -1,10 +1,134 @@
 use crate::error::Result;
 use crate::models::message::{
-    ChatMessage, PinMessageRequest, PinnedMessage, ReactionRequest, SendMessageRequest,
+    ChatMessage, ChatMessageHostedContent, PinMessageRequest, PinnedMessage, ReactionRequest,
+    SendMessageRequest,
 };
 
 use super::client::{GraphClient, PaginationOpts};
 use super::endpoints;
+
+/// Location of a message for operations that work across channel messages,
+/// channel thread replies, and chat messages.
+#[derive(Debug, Clone)]
+pub enum MessageRef {
+    Channel {
+        team_id: String,
+        channel_id: String,
+        message_id: String,
+    },
+    ChannelReply {
+        team_id: String,
+        channel_id: String,
+        message_id: String,
+        reply_id: String,
+    },
+    Chat {
+        chat_id: String,
+        message_id: String,
+    },
+}
+
+impl MessageRef {
+    fn message_url(&self) -> String {
+        match self {
+            Self::Channel {
+                team_id,
+                channel_id,
+                message_id,
+            } => endpoints::channel_message(team_id, channel_id, message_id),
+            Self::ChannelReply {
+                team_id,
+                channel_id,
+                message_id,
+                reply_id,
+            } => endpoints::channel_message_reply(team_id, channel_id, message_id, reply_id),
+            Self::Chat {
+                chat_id,
+                message_id,
+            } => endpoints::chat_message(chat_id, message_id),
+        }
+    }
+
+    fn hosted_contents_url(&self) -> String {
+        match self {
+            Self::Channel {
+                team_id,
+                channel_id,
+                message_id,
+            } => endpoints::channel_message_hosted_contents(team_id, channel_id, message_id),
+            Self::ChannelReply {
+                team_id,
+                channel_id,
+                message_id,
+                reply_id,
+            } => {
+                endpoints::channel_reply_hosted_contents(team_id, channel_id, message_id, reply_id)
+            }
+            Self::Chat {
+                chat_id,
+                message_id,
+            } => endpoints::chat_message_hosted_contents(chat_id, message_id),
+        }
+    }
+
+    fn hosted_content_value_url(&self, hosted_content_id: &str) -> String {
+        match self {
+            Self::Channel {
+                team_id,
+                channel_id,
+                message_id,
+            } => endpoints::channel_message_hosted_content_value(
+                team_id,
+                channel_id,
+                message_id,
+                hosted_content_id,
+            ),
+            Self::ChannelReply {
+                team_id,
+                channel_id,
+                message_id,
+                reply_id,
+            } => endpoints::channel_reply_hosted_content_value(
+                team_id,
+                channel_id,
+                message_id,
+                reply_id,
+                hosted_content_id,
+            ),
+            Self::Chat {
+                chat_id,
+                message_id,
+            } => {
+                endpoints::chat_message_hosted_content_value(chat_id, message_id, hosted_content_id)
+            }
+        }
+    }
+}
+
+pub async fn get_message(client: &GraphClient, message: &MessageRef) -> Result<ChatMessage> {
+    client.get(&message.message_url(), &[]).await
+}
+
+pub async fn list_hosted_contents(
+    client: &GraphClient,
+    message: &MessageRef,
+) -> Result<Vec<ChatMessageHostedContent>> {
+    client
+        .get_all_pages(&message.hosted_contents_url(), &[])
+        .await
+}
+
+/// Fetch a hosted content's raw bytes; the MIME type is only available from
+/// the response's Content-Type header, returned alongside the bytes.
+pub async fn get_hosted_content_bytes(
+    client: &GraphClient,
+    message: &MessageRef,
+    hosted_content_id: &str,
+) -> Result<(Vec<u8>, Option<String>)> {
+    client
+        .get_bytes_with_content_type(&message.hosted_content_value_url(hosted_content_id))
+        .await
+}
 
 // --- Channel Messages ---
 

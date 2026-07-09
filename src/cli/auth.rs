@@ -31,7 +31,13 @@ pub enum AuthCommand {
         tenant_id: Option<String>,
 
         /// OAuth scopes (space-separated, for delegated flows)
-        #[arg(long)]
+        #[arg(long, env = "TEAMS_CLI_SCOPES")]
+        scopes: Option<String>,
+    },
+    /// Silently redeem the stored refresh token for the resolved delegated scopes
+    Refresh {
+        /// OAuth scopes (space-separated, for delegated flows)
+        #[arg(long, env = "TEAMS_CLI_SCOPES")]
         scopes: Option<String>,
     },
     /// Check current auth status
@@ -45,6 +51,10 @@ pub enum AuthCommand {
         /// Azure AD tenant ID or domain
         #[arg(long, env = "TEAMS_CLI_TENANT_ID")]
         tenant_id: Option<String>,
+
+        /// OAuth scopes (space-separated) to include in the consent URL
+        #[arg(long, env = "TEAMS_CLI_SCOPES")]
+        scopes: Option<String>,
     },
     /// Diagnose auth configuration and current token state
     Doctor {
@@ -126,8 +136,38 @@ fn graph_admin_consent_scopes(scopes: &str) -> String {
         .join(" ")
 }
 
-fn delegated_admin_consent_url(client_id: &str, tenant_id: &str) -> String {
-    let scopes = graph_admin_consent_scopes(config::DEFAULT_DELEGATED_SCOPES);
+/// Turn the identity platform's consent-required rejection (AADSTS65001) of a
+/// refresh-token redemption into actionable guidance. The platform rejects the
+/// whole request when any requested scope lacks consent; it never returns a
+/// narrower token. When an explicit scope override failed, the guidance names
+/// it so the consent URL covers the exact scope set that was rejected.
+fn annotate_consent_error(
+    error: TeamsError,
+    profile: &str,
+    requested_scopes: Option<&str>,
+) -> TeamsError {
+    match error {
+        TeamsError::AuthError(message)
+            if message.contains("AADSTS65001") || message.contains("consent_required") =>
+        {
+            let consent_command = match requested_scopes {
+                Some(scopes) => {
+                    format!("teams --profile {profile} auth consent-url --scopes \"{scopes}\"")
+                }
+                None => format!("teams --profile {profile} auth consent-url"),
+            };
+            TeamsError::AuthError(format!(
+                "{message}\n\nThe requested scopes have not been consented for this app. \
+                 Grant admin consent (run `{consent_command}` for the URL) and retry, or run \
+                 `teams --profile {profile} auth login` for interactive consent."
+            ))
+        }
+        other => other,
+    }
+}
+
+fn delegated_admin_consent_url(client_id: &str, tenant_id: &str, delegated_scopes: &str) -> String {
+    let scopes = graph_admin_consent_scopes(delegated_scopes);
     format!(
         "https://login.microsoftonline.com/{tenant_id}/v2.0/adminconsent?client_id={client_id}&scope={}&redirect_uri={}",
         urlencoding::encode(&scopes),
@@ -179,15 +219,16 @@ pub async fn run(
                     config::resolve_delegated_client_id(client_id.as_deref(), profile, config)?;
                 let tenant_id =
                     config::resolve_delegated_tenant_id(tenant_id.as_deref(), profile, config);
-                auth::device_code::authenticate(&client_id, &tenant_id, scopes.as_deref()).await?
+                let scopes = config::resolve_delegated_scopes(scopes.as_deref(), profile, config);
+                auth::device_code::authenticate(&client_id, &tenant_id, Some(&scopes)).await?
             } else {
                 // Default: auth code + PKCE
                 let client_id =
                     config::resolve_delegated_client_id(client_id.as_deref(), profile, config)?;
                 let tenant_id =
                     config::resolve_delegated_tenant_id(tenant_id.as_deref(), profile, config);
-                auth::auth_code_pkce::authenticate(&client_id, &tenant_id, scopes.as_deref())
-                    .await?
+                let scopes = config::resolve_delegated_scopes(scopes.as_deref(), profile, config);
+                auth::auth_code_pkce::authenticate(&client_id, &tenant_id, Some(&scopes)).await?
             };
 
             let token_info = token_response.into_token_info(profile);
@@ -206,21 +247,46 @@ pub async fn run(
             Ok(())
         }
 
+        AuthCommand::Refresh { scopes } => {
+            let start = Instant::now();
+            // No explicit override means the stored token's scope is reused,
+            // so a plain refresh never down-scopes a previously broader login.
+            let override_scopes =
+                config::resolve_delegated_scopes_override(scopes.as_deref(), profile, config);
+
+            let (token_info, requested_scope) =
+                auth::refresh_token_with_scopes(profile, override_scopes.as_deref())
+                    .await
+                    .map_err(|e| annotate_consent_error(e, profile, override_scopes.as_deref()))?;
+
+            let msg = serde_json::json!({
+                "message": "Token refreshed successfully",
+                "profile": profile,
+                "requested_scope": requested_scope,
+                "granted_scope": token_info.scope,
+                "expires_at": token_info.expires_at.map(|e| e.to_rfc3339()),
+            });
+            output::print_success(format, &msg, start);
+            Ok(())
+        }
+
         AuthCommand::ConsentUrl {
             client_id,
             tenant_id,
+            scopes,
         } => {
             let start = Instant::now();
             let client_id =
                 config::resolve_delegated_client_id(client_id.as_deref(), profile, config)?;
             let tenant_id =
                 config::resolve_delegated_tenant_id(tenant_id.as_deref(), profile, config);
-            let url = delegated_admin_consent_url(&client_id, &tenant_id);
+            let scopes = config::resolve_delegated_scopes(scopes.as_deref(), profile, config);
+            let url = delegated_admin_consent_url(&client_id, &tenant_id, &scopes);
             let msg = serde_json::json!({
                 "admin_consent_url": url,
                 "client_id": client_id,
                 "tenant_id": tenant_id,
-                "scope": config::DEFAULT_DELEGATED_SCOPES,
+                "scope": scopes,
                 "redirect_uri": config::DEFAULT_REDIRECT_URI,
             });
             output::print_success(format, &msg, start);
@@ -245,7 +311,9 @@ pub async fn run(
             let token = auth::resolve_token(profile).await.ok();
             let claims = token.as_ref().and_then(|t| t.unverified_claims());
             let warnings = token_warnings(claims.as_ref());
-            let admin_consent_url = delegated_admin_consent_url(&client_id, &tenant_id);
+            let resolved_scopes = config::resolve_delegated_scopes(None, profile, config);
+            let admin_consent_url =
+                delegated_admin_consent_url(&client_id, &tenant_id, &resolved_scopes);
             let msg = serde_json::json!({
                 "profile": profile,
                 "auth_app": auth_app,
@@ -253,6 +321,7 @@ pub async fn run(
                 "tenant_id": tenant_id,
                 "admin_consent_url": admin_consent_url,
                 "default_delegated_scopes": config::DEFAULT_DELEGATED_SCOPES,
+                "resolved_delegated_scopes": resolved_scopes,
                 "redirect_uri": config::DEFAULT_REDIRECT_URI,
                 "authenticated": token.is_some(),
                 "warnings": warnings,
@@ -379,5 +448,47 @@ pub async fn run(
             }
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn annotate_consent_error_adds_guidance_with_requested_scopes() {
+        let error = TeamsError::AuthError("Token refresh failed: AADSTS65001: no consent".into());
+        let annotated = annotate_consent_error(error, "work", Some("User.Read People.Read"));
+
+        let TeamsError::AuthError(message) = annotated else {
+            panic!("expected AuthError");
+        };
+        assert!(message.contains("AADSTS65001"));
+        assert!(message
+            .contains("teams --profile work auth consent-url --scopes \"User.Read People.Read\""));
+        assert!(message.contains("--profile work auth login"));
+    }
+
+    #[test]
+    fn annotate_consent_error_omits_scopes_flag_without_override() {
+        let error = TeamsError::AuthError("consent_required".into());
+        let annotated = annotate_consent_error(error, "default", None);
+
+        let TeamsError::AuthError(message) = annotated else {
+            panic!("expected AuthError");
+        };
+        assert!(message.contains("`teams --profile default auth consent-url`"));
+        assert!(!message.contains("--scopes"));
+    }
+
+    #[test]
+    fn annotate_consent_error_passes_through_other_errors() {
+        let error = TeamsError::AuthError("Token refresh failed: AADSTS70008 expired".into());
+        let annotated = annotate_consent_error(error, "default", None);
+
+        let TeamsError::AuthError(message) = annotated else {
+            panic!("expected AuthError");
+        };
+        assert!(!message.contains("consent-url"));
     }
 }

@@ -80,6 +80,7 @@ pub struct ProfileConfig {
     pub client_id: Option<String>,
     pub tenant_id: Option<String>,
     pub auth_flow: Option<String>,
+    pub scopes: Option<String>,
 }
 
 fn default_format() -> String {
@@ -239,6 +240,56 @@ pub fn resolve_delegated_tenant_id(
         .unwrap_or_else(|| DEFAULT_DELEGATED_TENANT_ID.to_string())
 }
 
+/// Append `offline_access` to a delegated scope string when it is missing, so
+/// the identity platform always issues a refresh token.
+pub fn ensure_offline_access(scopes: &str) -> String {
+    let trimmed = scopes.trim();
+    if trimmed.split_whitespace().any(|s| s == "offline_access") {
+        trimmed.to_string()
+    } else {
+        format!("{trimmed} offline_access")
+    }
+}
+
+/// Resolve an explicitly configured delegated scope override: CLI flag or
+/// `TEAMS_CLI_SCOPES` env var (delivered via clap), then the profile's
+/// `scopes`. Returns `None` when neither is set so callers can pick their own
+/// fallback — login falls back to the defaults, refresh to the stored token's
+/// scope. Blank values fall through so an empty env var cannot produce an
+/// empty OAuth scope request. Overrides always get `offline_access` appended.
+pub fn resolve_delegated_scopes_override(
+    scopes_arg: Option<&str>,
+    profile: &str,
+    config: &ConfigFile,
+) -> Option<String> {
+    let non_blank = |s: &str| {
+        let trimmed = s.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
+    };
+
+    scopes_arg
+        .and_then(non_blank)
+        .or_else(|| {
+            config
+                .profiles
+                .get(profile)
+                .and_then(|p| p.scopes.as_deref())
+                .and_then(non_blank)
+        })
+        .map(|scopes| ensure_offline_access(&scopes))
+}
+
+/// Resolve the delegated scope string for login: the explicit override when
+/// set, otherwise the default delegated scopes.
+pub fn resolve_delegated_scopes(
+    scopes_arg: Option<&str>,
+    profile: &str,
+    config: &ConfigFile,
+) -> String {
+    resolve_delegated_scopes_override(scopes_arg, profile, config)
+        .unwrap_or_else(|| DEFAULT_DELEGATED_SCOPES.to_string())
+}
+
 pub fn resolve_client_secret(cli_flag: Option<&str>) -> Option<String> {
     if let Some(v) = cli_flag {
         return Some(v.to_string());
@@ -321,6 +372,7 @@ max_retries = 5
 client_id = "abc-123"
 tenant_id = "tenant-456"
 auth_flow = "device-code"
+scopes = "User.Read People.Read offline_access"
 "#;
         let config: ConfigFile = toml::from_str(toml_str).unwrap();
         assert_eq!(config.default.profile.as_deref(), Some("work"));
@@ -334,6 +386,10 @@ auth_flow = "device-code"
         assert_eq!(work.client_id.as_deref(), Some("abc-123"));
         assert_eq!(work.tenant_id.as_deref(), Some("tenant-456"));
         assert_eq!(work.auth_flow.as_deref(), Some("device-code"));
+        assert_eq!(
+            work.scopes.as_deref(),
+            Some("User.Read People.Read offline_access")
+        );
     }
 
     #[test]
@@ -373,6 +429,7 @@ auth_flow = "device-code"
                 client_id: Some("from-config".into()),
                 tenant_id: None,
                 auth_flow: None,
+                scopes: None,
             },
         );
 
@@ -413,6 +470,87 @@ auth_flow = "device-code"
         assert!(!DEFAULT_DELEGATED_SCOPES.contains("ChannelMessage.Read.All"));
     }
 
+    fn config_with_profile_scopes(scopes: Option<&str>) -> ConfigFile {
+        let mut config = ConfigFile::default();
+        config.profiles.insert(
+            "work".into(),
+            ProfileConfig {
+                scopes: scopes.map(|s| s.to_string()),
+                ..ProfileConfig::default()
+            },
+        );
+        config
+    }
+
+    #[test]
+    fn resolve_delegated_scopes_defaults_when_unset() {
+        let config = ConfigFile::default();
+        assert_eq!(
+            resolve_delegated_scopes(None, "default", &config),
+            DEFAULT_DELEGATED_SCOPES
+        );
+    }
+
+    #[test]
+    fn resolve_delegated_scopes_override_none_when_unset() {
+        let config = ConfigFile::default();
+        assert_eq!(
+            resolve_delegated_scopes_override(None, "default", &config),
+            None
+        );
+    }
+
+    #[test]
+    fn resolve_delegated_scopes_override_some_for_profile_value() {
+        let config = config_with_profile_scopes(Some("User.Read People.Read"));
+        assert_eq!(
+            resolve_delegated_scopes_override(None, "work", &config).as_deref(),
+            Some("User.Read People.Read offline_access")
+        );
+    }
+
+    #[test]
+    fn resolve_delegated_scopes_uses_profile_and_appends_offline_access() {
+        let config = config_with_profile_scopes(Some("User.Read People.Read"));
+        assert_eq!(
+            resolve_delegated_scopes(None, "work", &config),
+            "User.Read People.Read offline_access"
+        );
+    }
+
+    #[test]
+    fn resolve_delegated_scopes_preserves_existing_offline_access() {
+        let config = config_with_profile_scopes(Some("User.Read offline_access People.Read"));
+        assert_eq!(
+            resolve_delegated_scopes(None, "work", &config),
+            "User.Read offline_access People.Read"
+        );
+    }
+
+    #[test]
+    fn resolve_delegated_scopes_cli_value_beats_profile() {
+        let config = config_with_profile_scopes(Some("User.Read People.Read"));
+        assert_eq!(
+            resolve_delegated_scopes(Some("Chat.ReadWrite"), "work", &config),
+            "Chat.ReadWrite offline_access"
+        );
+    }
+
+    #[test]
+    fn resolve_delegated_scopes_blank_values_fall_through() {
+        let blank_profile = config_with_profile_scopes(Some("   "));
+        assert_eq!(
+            resolve_delegated_scopes(Some("  "), "work", &blank_profile),
+            DEFAULT_DELEGATED_SCOPES
+        );
+
+        let config = config_with_profile_scopes(Some("User.Read"));
+        assert_eq!(
+            resolve_delegated_scopes(Some(""), "work", &config),
+            "User.Read offline_access"
+        );
+    }
+
     #[test]
     fn delegated_auth_byo_requires_client_id() {
         let mut config = ConfigFile::default();
@@ -423,6 +561,7 @@ auth_flow = "device-code"
                 client_id: None,
                 tenant_id: Some("tenant".into()),
                 auth_flow: Some("device-code".into()),
+                scopes: None,
             },
         );
 

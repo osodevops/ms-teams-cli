@@ -140,7 +140,15 @@ auth_app = "byo"
 client_id = "11111111-1111-1111-1111-111111111111"
 tenant_id = "22222222-2222-2222-2222-222222222222"
 auth_flow = "device-code"
+scopes = "User.Read Chat.ReadWrite ChatMessage.Send People.Read offline_access"
 ```
+
+The optional `scopes` field replaces the default delegated scope string for
+that profile, so a BYO app with admin-consented permissions (for example
+`People.Read` for people search) can request them on every login without
+passing `--scopes`. The value is used verbatim except that `offline_access` is
+appended when missing. The default scope set is unchanged for profiles that
+omit the field.
 
 Then sign in:
 
@@ -222,6 +230,19 @@ needs channel message reads.
 
 **Credential resolution order**: CLI flags > environment variables > config file profiles.
 
+Delegated scope resolution follows the same order: `--scopes` (or
+`TEAMS_CLI_SCOPES`), then the profile's `scopes` field, then the built-in
+default scope set.
+
+When permissions are consented after login (for example an admin grants a new
+delegated scope), `teams auth refresh` silently redeems the stored refresh
+token for the resolved scopes — no browser or device code. Refresh tokens are
+bound to the user and client, not to the originally requested scopes, so the
+upgrade succeeds for any scope set already consented for the app. Without an
+explicit override the stored token's scope is reused, so a plain refresh never
+narrows a session. If consent is missing, the identity platform rejects the
+request and the CLI prints the matching `consent-url` command to fix it.
+
 ### Why not import Teams client tokens?
 
 Tools such as `fossteams/teams-token` are attractive because they avoid Entra
@@ -300,6 +321,7 @@ esac
 teams auth login             # Interactive login (browser)
 teams auth login --device-code  # Device code flow
 teams auth login --client-credentials  # App-only Graph operations where supported
+teams auth refresh           # Silently redeem the refresh token (picks up newly consented scopes)
 teams auth status            # Check if session is valid (exit code 0/1)
 teams auth consent-url       # Print admin consent URL for the active auth app
 teams auth doctor            # Diagnose config and token state
@@ -476,7 +498,24 @@ teams listen --port 8080
 teams user me
 teams user get <user-id-or-upn>
 teams user list
+teams user resolve <name-or-email>            # scope-aware candidate search
+teams user resolve "jane smith" --max-chats 500
 ```
+
+`user resolve` turns a colleague reference into user-ID candidates, trying
+each lookup path the token's scopes allow and skipping past the ones that
+403: exact `/users/{q}` lookup (baseline scopes), People API search
+(`People.Read`, verified back to `/users/{userPrincipalName}` before an object
+ID is returned), and finally a sweep of shared group/meeting chat rosters
+(baseline scopes, bounded by `--max-chats`). An email query matches only the full address and
+ends the sweep early; bare name or alias queries keep scanning to the bound
+so namesakes in other chats aren't silently missed. Ambiguous names return
+every match — candidates carry `jobTitle`/`department` where available to
+tell namesakes apart, plus a `via` field (`upn` | `people-search` | `roster`)
+so callers can judge match confidence, and a `stages` report shows what was
+attempted, including a `skippedChats` count when unreadable rosters made the
+sweep incomplete. A degraded Graph (rate limiting, 5xx) aborts with that
+error rather than reporting a false miss. No candidates means exit code 5.
 
 ### Configuration
 
@@ -546,6 +585,7 @@ auth_flow = "device-code"
 | `TEAMS_CLI_CLIENT_ID` | Azure AD application (client) ID |
 | `TEAMS_CLI_CLIENT_SECRET` | Azure AD client secret |
 | `TEAMS_CLI_TENANT_ID` | Azure AD tenant ID |
+| `TEAMS_CLI_SCOPES` | Delegated OAuth scopes for login (same precedence as `--scopes`; ignored by client credentials) |
 | `TEAMS_CLI_ACCESS_TOKEN` | Pre-obtained Microsoft Graph access token (skips login entirely) |
 | `RUST_LOG` | Tracing filter (e.g., `debug`, `teams=trace`) |
 
