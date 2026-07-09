@@ -19,10 +19,11 @@ pub mod team;
 pub mod user;
 
 use clap::{Parser, Subcommand};
+use std::io::Write as _;
 
 use crate::api::PaginationOpts;
 use crate::config::ConfigFile;
-use crate::error::Result;
+use crate::error::{Result, TeamsError};
 use crate::output::OutputFormat;
 
 #[derive(Debug, Parser)]
@@ -193,11 +194,7 @@ pub async fn run(cli: Cli, config: &ConfigFile) -> Result<()> {
         Commands::Config { command } => {
             config_cmd::run(command, config, cli.config.as_deref(), format).await
         }
-        Commands::Completions { shell } => {
-            use clap::CommandFactory;
-            clap_complete::generate(shell, &mut Cli::command(), "teams", &mut std::io::stdout());
-            Ok(())
-        }
+        Commands::Completions { shell } => generate_completions(shell),
         Commands::Team { command } => {
             team::run(command, &runtime_config, &profile, format, &pagination).await
         }
@@ -239,4 +236,29 @@ pub async fn run(cli: Cli, config: &ConfigFile) -> Result<()> {
         }
         Commands::Listen { port } => listen::run(port).await,
     }
+}
+
+fn generate_completions(shell: clap_complete::Shell) -> Result<()> {
+    let output = std::thread::Builder::new()
+        .name("teams-completions".into())
+        .stack_size(16 * 1024 * 1024)
+        .spawn(move || {
+            use clap::CommandFactory;
+
+            let mut command = Cli::command();
+            let mut output = Vec::new();
+            clap_complete::generate(shell, &mut command, "teams", &mut output);
+            output
+        })
+        .map_err(|e| {
+            TeamsError::Other(anyhow::anyhow!("Failed to start completion generator: {e}"))
+        })?
+        .join()
+        .map_err(|_| TeamsError::Other(anyhow::anyhow!("Completion generator panicked")))?;
+
+    std::io::stdout().write_all(&output).map_err(|e| {
+        TeamsError::Other(anyhow::anyhow!(
+            "Failed to write completions to stdout: {e}"
+        ))
+    })
 }

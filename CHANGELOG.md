@@ -20,6 +20,7 @@
 - Attachment and inline-image parsing now accepts only Microsoft Graph hosted-content URLs for bearer-token downloads and rejects lookalike external URLs.
 - `teams message send --attach` now uses Microsoft Graph's 250MB simple-upload limit for DriveItem uploads instead of incorrectly applying the 4MB JSON request limit.
 - `teams message get` no longer silently drops the `contentUrl`, `thumbnailUrl`, and `teamsAppId` fields of message attachments, which made file attachments unresolvable from CLI output.
+- `teams completions` now generates completions on a larger worker-thread stack so the expanded command tree does not overflow the default Windows stack.
 
 ### Changed
 
