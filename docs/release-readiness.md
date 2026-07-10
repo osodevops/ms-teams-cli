@@ -66,7 +66,7 @@ The full release path is version-bump driven, not PR-merge driven:
 4. After the PR is merged to `main`, confirm `.github/workflows/auto-tag.yml` runs successfully.
 5. Confirm `auto-tag.yml` creates the `vX.Y.Z` tag.
 6. Confirm the tag starts `.github/workflows/release.yml`.
-7. Confirm the release workflow completes all build targets, creates checksums, publishes the GitHub Release, and runs the Homebrew tap and Scoop bucket update jobs.
+7. Confirm the release workflow completes all build targets, creates checksums, publishes the GitHub Release, and runs the Homebrew tap and Scoop bucket update jobs. The Homebrew job must verify the published formula before it succeeds.
 
 Important details:
 
@@ -80,14 +80,14 @@ Important details:
   - `aarch64-unknown-linux-musl`
   - `x86_64-pc-windows-msvc`
 
-Distribution follow-up as of 2026-06-21:
+Distribution automation as of 2026-07-10:
 
 - `release.yml` sends a `repository_dispatch` event to `osodevops/homebrew-tap`.
 - `release.yml` sends a `repository_dispatch` event to `osodevops/scoop-bucket`.
-- The tap repository currently has no workflow listening for that dispatch event.
-- Until that automation exists, update `osodevops/homebrew-tap` manually after each CLI release.
-- Use the published `checksums-sha256.txt` from the GitHub Release to update `Formula/teams-cli.rb`.
-- Verify the remote formula points at the new release URLs and checksums.
+- The tap's `update-teams-formula.yml` workflow validates the source repository and tag, downloads the published `checksums-sha256.txt`, updates all four macOS/Linux artifact blocks, and commits `Formula/teams-cli.rb`.
+- The CLI release job polls the remote formula and fails after five minutes unless all four release URLs and SHA-256 values are present. A successful dispatch alone is not considered publication.
+- The tap workflow also supports a manual `workflow_dispatch` with a `tag` input for recovery or backfill.
+- After a release, verify the remote formula and the Homebrew workflow run as well as the source release run.
 - The Scoop release job uses `SCOOP_BUCKET_TOKEN`, matching the dedicated bucket-token pattern used by `osodevops/kafka-backup`.
 - The Scoop bucket has an `update-teams-manifest` workflow listener. Verify `bucket/teams.json` points at the new Windows release URL and checksum after each release.
 

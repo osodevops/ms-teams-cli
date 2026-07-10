@@ -135,6 +135,7 @@ jobs:
     name: Update Homebrew Tap
     needs: release
     runs-on: ubuntu-latest
+    timeout-minutes: 12
     permissions: {}
     steps:
       - name: Update homebrew formula
@@ -149,6 +150,67 @@ jobs:
               "tag": "${{ github.ref_name }}",
               "repo": "${{ github.repository }}"
             }
+
+      - name: Verify homebrew formula was published
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          checksums_file="$(mktemp)"
+          trap 'rm -f "$checksums_file"' EXIT
+          curl --fail --location --silent --show-error \
+            --retry 5 --retry-all-errors \
+            "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/checksums-sha256.txt" \
+            --output "$checksums_file"
+
+          targets=(
+            aarch64-apple-darwin
+            x86_64-apple-darwin
+            aarch64-unknown-linux-musl
+            x86_64-unknown-linux-musl
+          )
+
+          for attempt in $(seq 1 30); do
+            formula="$(
+              curl --fail --silent --show-error \
+                --header "Authorization: Bearer ${GH_TOKEN}" \
+                --header "Accept: application/vnd.github.raw+json" \
+                --header "X-GitHub-Api-Version: 2022-11-28" \
+                "https://api.github.com/repos/osodevops/homebrew-tap/contents/Formula/teams-cli.rb?ref=main"
+            )" || formula=""
+
+            published=true
+            for target in "${targets[@]}"; do
+              asset="teams-${RELEASE_TAG}-${target}.tar.gz"
+              checksum="$(awk -v asset="$asset" '$2 == asset { print $1 }' "$checksums_file")"
+              if [[ ! "$checksum" =~ ^[0-9a-f]{64}$ ]]; then
+                echo "Release checksums are missing a valid SHA-256 for ${asset}" >&2
+                exit 1
+              fi
+
+              url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${asset}"
+              if ! grep -Fq "$url" <<<"$formula" ||
+                ! grep -Fq "sha256 \"${checksum}\"" <<<"$formula"; then
+                published=false
+                break
+              fi
+            done
+
+            if [[ "$published" == true ]]; then
+              echo "Homebrew formula publishes ${RELEASE_TAG} with all expected checksums"
+              exit 0
+            fi
+
+            echo "Waiting for the Homebrew tap to publish ${RELEASE_TAG} (attempt ${attempt}/30)"
+            sleep 10
+          done
+
+          echo "Homebrew tap did not publish ${RELEASE_TAG} within five minutes" >&2
+          echo "Check https://github.com/osodevops/homebrew-tap/actions" >&2
+          exit 1
 
   publish-scoop-manifest:
     name: Publish Scoop Manifest
