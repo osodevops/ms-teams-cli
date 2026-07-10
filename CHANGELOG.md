@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Homebrew publication is now verified end to end: release jobs fail if the tap does not publish all four platform URLs with the release checksums, instead of treating an accepted but unhandled dispatch event as success.
+
 ## v0.3.0 - 2026-07-09
 
 ### Added
