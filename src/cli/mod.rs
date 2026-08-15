@@ -18,13 +18,11 @@ pub mod tag;
 pub mod team;
 pub mod user;
 
-use clap::{Parser, Subcommand};
-use std::io::Write as _;
-
 use crate::api::PaginationOpts;
 use crate::config::ConfigFile;
 use crate::error::{Result, TeamsError};
 use crate::output::OutputFormat;
+use clap::{Parser, Subcommand};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -256,9 +254,6 @@ fn generate_completions(shell: clap_complete::Shell) -> Result<()> {
         .join()
         .map_err(|_| TeamsError::Other(anyhow::anyhow!("Completion generator panicked")))?;
 
-    std::io::stdout().write_all(&output).map_err(|e| {
-        TeamsError::Other(anyhow::anyhow!(
-            "Failed to write completions to stdout: {e}"
-        ))
-    })
+    crate::output::write_stdout(&output);
+    Ok(())
 }

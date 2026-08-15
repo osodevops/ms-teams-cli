@@ -443,7 +443,7 @@ pub async fn run(
                 }
                 _ => {
                     // bearer (default) — just print the token
-                    println!("{}", token.access_token);
+                    output::write_stdout_line(&token.access_token);
                 }
             }
             Ok(())

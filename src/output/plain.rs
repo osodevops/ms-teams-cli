@@ -13,14 +13,11 @@ pub fn print_object<T: Serialize>(data: &T) {
                 serde_json::Value::String(s) => s.clone(),
                 other => other.to_string(),
             };
-            println!("{key}: {display}");
+            super::write_stdout_line(&format!("{key}: {display}"));
         }
     } else {
         // Fallback for non-objects
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&value).unwrap_or_default()
-        );
+        super::write_stdout_line(&serde_json::to_string_pretty(&value).unwrap_or_default());
     }
 }
 
@@ -43,7 +40,7 @@ pub fn print_list<T: Serialize>(items: &[T]) {
     };
 
     // Print header row
-    println!("{}", headers.join("\t"));
+    super::write_stdout_line(&headers.join("\t"));
 
     // Print data rows
     for val in &values {
@@ -56,7 +53,7 @@ pub fn print_list<T: Serialize>(items: &[T]) {
                     Some(other) => other.to_string(),
                 })
                 .collect();
-            println!("{}", row.join("\t"));
+            super::write_stdout_line(&row.join("\t"));
         }
     }
 }

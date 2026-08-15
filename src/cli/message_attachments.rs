@@ -1,4 +1,3 @@
-use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -123,9 +122,7 @@ pub async fn run(
             if path.as_deref() == Some("-") {
                 let item = selected[0];
                 let (bytes, _) = fetch_item_bytes(client, &message_ref, item).await?;
-                std::io::stdout().write_all(&bytes).map_err(|e| {
-                    TeamsError::InvalidInput(format!("Failed to write stdout: {e}"))
-                })?;
+                output::write_stdout(&bytes);
                 return Ok(());
             }
 

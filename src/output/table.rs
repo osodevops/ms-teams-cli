@@ -7,5 +7,5 @@ pub fn print_table(headers: Vec<&str>, rows: Vec<Vec<String>>) {
     for row in rows {
         table.add_row(row);
     }
-    println!("{table}");
+    super::write_stdout_line(&table.to_string());
 }

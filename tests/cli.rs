@@ -2,9 +2,11 @@ use assert_cmd::Command;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use predicates::prelude::*;
 use std::fs;
+use std::io::Read;
+use std::process::Stdio;
 
-fn teams() -> Command {
-    let mut cmd = Command::cargo_bin("teams").unwrap();
+fn teams_process() -> std::process::Command {
+    let mut cmd = std::process::Command::new(assert_cmd::cargo::cargo_bin!("teams"));
     cmd.env("TEAMS_CLI_DISABLE_KEYRING", "1");
     // Isolate tests from the developer's real environment: a configured
     // profile or exported credentials would otherwise change command output.
@@ -19,6 +21,10 @@ fn teams() -> Command {
     cmd.env_remove("TEAMS_CLI_TENANT_ID");
     cmd.env_remove("TEAMS_CLI_ACCESS_TOKEN");
     cmd
+}
+
+fn teams() -> Command {
+    Command::from_std(teams_process())
 }
 
 #[test]
@@ -351,6 +357,30 @@ fn completions_generates_output() {
         .assert()
         .success()
         .stdout(predicate::str::contains("teams"));
+}
+
+#[test]
+fn closed_stdout_pipe_does_not_panic() {
+    let mut child = teams_process()
+        .args(["completions", "bash"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let mut stdout = child.stdout.take().unwrap();
+    let mut first_byte = [0_u8; 1];
+    stdout.read_exact(&mut first_byte).unwrap();
+    drop(stdout);
+
+    let output = child.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "status: {}; stderr: {stderr}",
+        output.status
+    );
+    assert!(stderr.is_empty(), "unexpected stderr: {stderr}");
 }
 
 #[test]

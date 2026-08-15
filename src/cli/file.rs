@@ -1,5 +1,5 @@
 use clap::Subcommand;
-use std::io::{self, Read as IoRead, Write as IoWrite};
+use std::io::{self, Read as IoRead};
 use std::time::Instant;
 
 use crate::api::{self, GraphClient, PaginationOpts};
@@ -221,11 +221,7 @@ pub async fn run(
                     output::print_success(format, &result, start);
                 }
             } else {
-                io::stdout().write_all(&bytes).map_err(|e| {
-                    crate::error::TeamsError::InvalidInput(format!(
-                        "Failed to write to stdout: {e}"
-                    ))
-                })?;
+                output::write_stdout(&bytes);
             }
             Ok(())
         }
