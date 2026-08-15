@@ -105,6 +105,45 @@ teams search teams --query "<name>" --output json
 
 Microsoft Graph currently says `/me/joinedTeams` does not support OData query parameters to customize the response. The CLI avoids `$top` for this endpoint.
 
+## macOS keychain prompts
+
+Symptoms:
+
+- macOS asks for the login keychain password when running `teams`, sometimes
+  on every invocation.
+- Clicking "Always Allow" does not stop the prompts.
+- Prompts return after upgrading the CLI or building it from source.
+
+Cause: macOS binds keychain access grants to the exact code signature of the
+binary. The released binaries are ad-hoc signed, so every upgrade produces
+what macOS considers a different application, and a grant made for one build
+does not carry over to the next. Local builds from source each count as
+another distinct application for the same reason. The stored items are
+visible with:
+
+```bash
+security find-generic-password -s teams-cli
+```
+
+Actions:
+
+- Expect one prompt per profile after upgrading or rebuilding; approve it
+  and the grant holds until the binary changes again.
+- To make grants persist across rebuilds, re-sign the binary with a stable
+  local identity: create a self-signed code-signing certificate in Keychain
+  Access (Certificate Assistant, certificate type "Code Signing"), then
+  after each upgrade or build run:
+
+```bash
+codesign --force --sign <certificate-name> --identifier com.osodevops.teams-cli "$(command -v teams)"
+```
+
+- In tests only, set `TEAMS_CLI_DISABLE_KEYRING=1` so the suite never
+  touches the real keychain.
+
+Do not set `TEAMS_CLI_DISABLE_KEYRING=1` for real usage; it prevents token
+storage.
+
 ## Windows keyring issues
 
 Symptoms:
