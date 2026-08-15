@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- Browser login now sends `prompt=select_account`, so the identity platform always shows the account picker instead of silently reusing an existing browser session. This makes it possible to sign a second account into another profile with `teams --profile <name> auth login`. This resolves #52.
+
 ### Fixed
 
 - Homebrew publication is now verified end to end: release jobs fail if the tap does not publish all four platform URLs with the release checksums, instead of treating an accepted but unhandled dispatch event as success.
