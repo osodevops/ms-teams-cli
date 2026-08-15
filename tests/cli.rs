@@ -12,6 +12,7 @@ fn teams() -> Command {
     // uses the Known Folder API and is unaffected by these overrides.
     cmd.env("HOME", env!("CARGO_TARGET_TMPDIR"));
     cmd.env("XDG_CONFIG_HOME", env!("CARGO_TARGET_TMPDIR"));
+    cmd.env_remove("TEAMS_CLI_PROFILE");
     cmd.env_remove("TEAMS_CLI_SCOPES");
     cmd.env_remove("TEAMS_CLI_CLIENT_ID");
     cmd.env_remove("TEAMS_CLI_CLIENT_SECRET");
@@ -180,6 +181,123 @@ scopes = "User.Read People.Read TeamMember.Read.All offline_access"
                     "11111111-1111-1111-1111-111111111111",
                 )),
         );
+}
+
+fn write_customer_profile_config(dir: &tempfile::TempDir) -> std::path::PathBuf {
+    let path = dir.path().join("config.toml");
+    fs::write(
+        &path,
+        r#"
+[profiles.customer]
+auth_app = "byo"
+client_id = "11111111-1111-1111-1111-111111111111"
+tenant_id = "22222222-2222-2222-2222-222222222222"
+"#,
+    )
+    .unwrap();
+    path
+}
+
+#[test]
+fn profile_env_var_selects_profile() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_customer_profile_config(&dir);
+
+    teams()
+        .env("TEAMS_CLI_PROFILE", "customer")
+        .args([
+            "--config",
+            path.to_str().unwrap(),
+            "auth",
+            "consent-url",
+            "--output",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "11111111-1111-1111-1111-111111111111",
+        ));
+}
+
+#[test]
+fn profile_flag_beats_profile_env_var() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_customer_profile_config(&dir);
+
+    // The env var points at the BYO profile; the flag selects the built-in
+    // default profile, so the OSO public client id must win.
+    teams()
+        .env("TEAMS_CLI_PROFILE", "customer")
+        .args([
+            "--config",
+            path.to_str().unwrap(),
+            "--profile",
+            "default",
+            "auth",
+            "consent-url",
+            "--output",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("fba1b5d0-fdd0-4fe2-9729-9ccdc38f9595")
+                .and(predicate::str::contains("11111111-1111-1111-1111-111111111111").not()),
+        );
+}
+
+#[test]
+fn explicit_default_profile_ignores_config_default() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    fs::write(
+        &path,
+        r#"
+[default]
+profile = "customer"
+
+[profiles.customer]
+auth_app = "byo"
+client_id = "11111111-1111-1111-1111-111111111111"
+tenant_id = "22222222-2222-2222-2222-222222222222"
+"#,
+    )
+    .unwrap();
+
+    // Without the flag the config default applies; with an explicit
+    // --profile default the profile named "default" must be addressable.
+    teams()
+        .args([
+            "--config",
+            path.to_str().unwrap(),
+            "auth",
+            "consent-url",
+            "--output",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "11111111-1111-1111-1111-111111111111",
+        ));
+
+    teams()
+        .args([
+            "--config",
+            path.to_str().unwrap(),
+            "--profile",
+            "default",
+            "auth",
+            "consent-url",
+            "--output",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "fba1b5d0-fdd0-4fe2-9729-9ccdc38f9595",
+        ));
 }
 
 #[test]

@@ -33,9 +33,12 @@ Disable ANSI color codes.
 Read and write configuration at PATH instead of the platform default.
 .TP
 .B --profile NAME
-Use a named credential profile. Defaults to
-.B default
-or the configured default profile.
+Use a named credential profile. Falls back to
+.B TEAMS_CLI_PROFILE,
+then the configured default profile, then
+.B default.
+An explicit NAME always wins, even when it is the literal
+.B default.
 .TP
 .B --timeout SECONDS
 Override Graph request timeout.
@@ -289,6 +292,10 @@ Azure AD client secret for client credentials auth.
 .TP
 .B TEAMS_CLI_TENANT_ID
 Azure AD tenant ID.
+.TP
+.B TEAMS_CLI_PROFILE
+Named credential profile. Overridden by
+.B --profile.
 .TP
 .B TEAMS_CLI_SCOPES
 Delegated OAuth scopes for login. Same precedence as
