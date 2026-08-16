@@ -158,8 +158,8 @@ teams message reply --team TEAM_ID --channel CHANNEL_ID --message-id MESSAGE_ID 
 teams message reply --team TEAM_ID --channel CHANNEL_ID --message MESSAGE_ID --body TEXT
 teams message update --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID) --body TEXT [--content-type text|html]
 teams message delete --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID)
-teams message react --team TEAM_ID --channel CHANNEL_ID --message-id MESSAGE_ID (REACTION | --reaction REACTION)
-teams message unreact --team TEAM_ID --channel CHANNEL_ID --message-id MESSAGE_ID (REACTION | --reaction REACTION)
+teams message react (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) --message-id MESSAGE_ID (REACTION | --reaction REACTION)
+teams message unreact (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) --message-id MESSAGE_ID (REACTION | --reaction REACTION)
 teams message pin --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID)
 teams message unpin --team TEAM_ID --channel CHANNEL_ID (PINNED_MESSAGE_ID | --pinned-message-id PINNED_MESSAGE_ID)
 .fi
@@ -172,6 +172,18 @@ Supported reaction names depend on Microsoft Graph. Common values include
 .B sad,
 and
 .B angry.
+Anything outside that list must reach Microsoft Graph as the emoji character
+itself, so a reaction may also be given as the character, for example
+.B 👀.
+The names
+.B eyes,
+.B thumbsup,
+.B thumbsdown,
+.B tada,
+.B rocket,
+and
+.B fire
+are translated to their character before the request is sent.
 .SH CHAT COMMANDS
 .nf
 teams chat list

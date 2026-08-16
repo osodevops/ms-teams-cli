@@ -568,6 +568,37 @@ fn message_reactions_accept_chat() {
 }
 
 #[test]
+fn message_react_rejects_incomplete_target() {
+    for args in [
+        vec!["message", "react", "--message-id", "1", "eyes"],
+        vec![
+            "message",
+            "react",
+            "--team",
+            "team-id",
+            "--message-id",
+            "1",
+            "eyes",
+        ],
+        vec![
+            "message",
+            "unreact",
+            "--channel",
+            "channel-id",
+            "--message-id",
+            "1",
+            "eyes",
+        ],
+    ] {
+        teams()
+            .args(&args)
+            .assert()
+            .code(2)
+            .stderr(predicate::str::contains("required"));
+    }
+}
+
+#[test]
 fn message_react_rejects_chat_with_team() {
     teams()
         .args([

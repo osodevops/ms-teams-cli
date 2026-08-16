@@ -109,12 +109,15 @@ pub enum MessageCommand {
         attach: Vec<String>,
     },
     /// Add a reaction to a channel or chat message (beta)
+    #[command(
+        override_usage = "teams message react (--team <TEAM> --channel <CHANNEL> | --chat <CHAT>) --message-id <MESSAGE_ID> <REACTION>"
+    )]
     React {
         /// Team ID (for channel messages)
-        #[arg(long)]
+        #[arg(long, required_unless_present = "chat", requires = "channel")]
         team: Option<String>,
         /// Channel ID (for channel messages)
-        #[arg(long)]
+        #[arg(long, required_unless_present = "chat", requires = "team")]
         channel: Option<String>,
         /// Chat ID (for chat messages)
         #[arg(long, conflicts_with_all = ["team", "channel"])]
@@ -138,12 +141,15 @@ pub enum MessageCommand {
         reaction_flag: Option<String>,
     },
     /// Remove a reaction from a channel or chat message (beta)
+    #[command(
+        override_usage = "teams message unreact (--team <TEAM> --channel <CHANNEL> | --chat <CHAT>) --message-id <MESSAGE_ID> <REACTION>"
+    )]
     Unreact {
         /// Team ID (for channel messages)
-        #[arg(long)]
+        #[arg(long, required_unless_present = "chat", requires = "channel")]
         team: Option<String>,
         /// Channel ID (for channel messages)
-        #[arg(long)]
+        #[arg(long, required_unless_present = "chat", requires = "team")]
         channel: Option<String>,
         /// Chat ID (for chat messages)
         #[arg(long, conflicts_with_all = ["team", "channel"])]
@@ -612,8 +618,10 @@ fn reaction_type_for(reaction: &str) -> String {
         .map_or_else(|| reaction.to_string(), |(_, emoji)| (*emoji).to_string())
 }
 
-/// Channel reactions need both halves of the team/channel pair; the error
-/// wording matches `message list` so the two commands read the same.
+/// Unwraps the team/channel pair for the channel branch. Clap rejects an
+/// incomplete pair during parsing, so this is the residual unwrap rather than
+/// the primary check; the wording matches `message list` for the case where a
+/// future caller reaches it.
 fn require_channel(team: Option<String>, channel: Option<String>) -> Result<(String, String)> {
     let team_id = team.ok_or_else(|| {
         TeamsError::InvalidInput("--team and --channel required, or use --chat".into())

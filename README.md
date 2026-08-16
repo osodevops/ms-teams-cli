@@ -376,9 +376,17 @@ teams message reply --team <team-id> --channel <channel-id> --message <msg-id> -
 teams message delete --team <team-id> --channel <channel-id> --message <msg-id>
 teams message react --team <team-id> --channel <channel-id> --message <msg-id> --reaction like
 teams message unreact --team <team-id> --channel <channel-id> --message <msg-id> --reaction like
+teams message react --chat <chat-id> --message <msg-id> --reaction eyes
+teams message unreact --chat <chat-id> --message <msg-id> --reaction 👀
 teams message pin --team <team-id> --channel <channel-id> --message <msg-id>
 teams message unpin --team <team-id> --channel <channel-id> --pinned-message-id <id>
 ```
+
+Reactions accept either a channel (`--team` with `--channel`) or a chat (`--chat`), never both.
+A reaction may be given as one of the names Microsoft Graph recognises — `like`, `heart`,
+`laugh`, `surprised`, `sad`, `angry` — or as the emoji character itself, which is how Graph
+expects anything outside that list. A few common names (`eyes`, `thumbsup`, `thumbsdown`,
+`tada`, `rocket`, `fire`) are translated to their character for you.
 
 ### Chats
 
