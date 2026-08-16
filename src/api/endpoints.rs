@@ -100,6 +100,14 @@ pub fn chat_messages(chat_id: &str) -> String {
     format!("{GRAPH_V1}/chats/{chat_id}/messages")
 }
 
+pub fn chat_message_set_reaction(chat_id: &str, message_id: &str) -> String {
+    format!("{GRAPH_BETA}/chats/{chat_id}/messages/{message_id}/setReaction")
+}
+
+pub fn chat_message_unset_reaction(chat_id: &str, message_id: &str) -> String {
+    format!("{GRAPH_BETA}/chats/{chat_id}/messages/{message_id}/unsetReaction")
+}
+
 #[allow(dead_code)]
 pub fn chat_message(chat_id: &str, message_id: &str) -> String {
     format!("{GRAPH_V1}/chats/{chat_id}/messages/{message_id}")

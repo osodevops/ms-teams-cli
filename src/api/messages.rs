@@ -273,6 +273,42 @@ pub async fn unset_reaction(
         .await
 }
 
+pub async fn set_chat_reaction(
+    client: &GraphClient,
+    chat_id: &str,
+    message_id: &str,
+    reaction: &str,
+) -> Result<()> {
+    tracing::warn!("Using beta API endpoint for reactions");
+    let req = ReactionRequest {
+        reaction_type: reaction.to_string(),
+    };
+    client
+        .post_no_content(
+            &endpoints::chat_message_set_reaction(chat_id, message_id),
+            &req,
+        )
+        .await
+}
+
+pub async fn unset_chat_reaction(
+    client: &GraphClient,
+    chat_id: &str,
+    message_id: &str,
+    reaction: &str,
+) -> Result<()> {
+    tracing::warn!("Using beta API endpoint for reactions");
+    let req = ReactionRequest {
+        reaction_type: reaction.to_string(),
+    };
+    client
+        .post_no_content(
+            &endpoints::chat_message_unset_reaction(chat_id, message_id),
+            &req,
+        )
+        .await
+}
+
 // --- Pinned Messages ---
 
 pub async fn pin_message(
