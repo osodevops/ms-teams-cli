@@ -26,9 +26,11 @@ pub fn store_token(profile: &str, token: &TokenInfo) -> Result<()> {
     let json = serde_json::to_string(token)
         .map_err(|e| TeamsError::KeyringError(format!("Failed to serialize token: {e}")))?;
 
+    // Update in place rather than delete-and-recreate: recreating the item
+    // discards its access control list on macOS, so every silent token
+    // refresh would revoke a previously granted "Always Allow".
     let entry = ::keyring::Entry::new(SERVICE_NAME, &key)
         .map_err(|e| TeamsError::KeyringError(format!("Failed to create keyring entry: {e}")))?;
-    entry.delete_credential().ok();
     entry
         .set_password(&json)
         .map_err(|e| TeamsError::KeyringError(format!("Failed to store token: {e}")))?;
@@ -88,15 +90,7 @@ pub fn add_profile_to_index(profile: &str) -> Result<()> {
     if !profiles.contains(&profile.to_string()) {
         profiles.push(profile.to_string());
     }
-    let json = serde_json::to_string(&profiles)
-        .map_err(|e| TeamsError::KeyringError(format!("Failed to serialize index: {e}")))?;
-    let entry = ::keyring::Entry::new(SERVICE_NAME, "profile-index")
-        .map_err(|e| TeamsError::KeyringError(format!("Failed to create keyring entry: {e}")))?;
-    entry.delete_credential().ok();
-    entry
-        .set_password(&json)
-        .map_err(|e| TeamsError::KeyringError(format!("Failed to store index: {e}")))?;
-    Ok(())
+    write_profile_index(&profiles)
 }
 
 pub fn remove_profile_from_index(profile: &str) -> Result<()> {
@@ -106,11 +100,14 @@ pub fn remove_profile_from_index(profile: &str) -> Result<()> {
 
     let mut profiles = list_profiles();
     profiles.retain(|p| p != profile);
-    let json = serde_json::to_string(&profiles)
+    write_profile_index(&profiles)
+}
+
+fn write_profile_index(profiles: &[String]) -> Result<()> {
+    let json = serde_json::to_string(profiles)
         .map_err(|e| TeamsError::KeyringError(format!("Failed to serialize index: {e}")))?;
     let entry = ::keyring::Entry::new(SERVICE_NAME, "profile-index")
         .map_err(|e| TeamsError::KeyringError(format!("Failed to create keyring entry: {e}")))?;
-    entry.delete_credential().ok();
     entry
         .set_password(&json)
         .map_err(|e| TeamsError::KeyringError(format!("Failed to store index: {e}")))?;
