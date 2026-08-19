@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.4.0 - 2026-08-19
+
 ### Added
 
 - `TEAMS_CLI_PROFILE` environment variable for selecting the credential profile, with the same precedence as other auth environment variables: `--profile` flag, then `TEAMS_CLI_PROFILE`, then the config's `default.profile`, then `default`. This resolves #53.
@@ -14,6 +16,7 @@
 - Browser login now sends `prompt=select_account`, so the identity platform always shows the account picker instead of silently reusing an existing browser session. This makes it possible to sign a second account into another profile with `teams --profile <name> auth login`. This resolves #52.
 - Reactions call the Microsoft Graph v1.0 `setReaction`/`unsetReaction` actions instead of beta.
 - Reaction names are translated to the emoji character Graph requires on writes: the classic `like`, `heart`, `laugh`, `surprised`, `sad`, `angry` (which Graph now rejects by name with HTTP 400) plus `thumbsup`, `thumbsdown`, `eyes`, `tada`, `rocket`, `fire`. Any emoji character passes through unchanged.
+- Refreshed the Rust dependency lockfile (rust-minor group) and bumped `h2` to 0.4.16 for RUSTSEC-2026-0258. GitHub Actions pins updated to `actions/checkout` v7.0.1, `Swatinem/rust-cache` v2.9.2, and `softprops/action-gh-release` v3.0.2.
 
 ### Fixed
 
