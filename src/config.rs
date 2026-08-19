@@ -164,11 +164,15 @@ pub fn save_config(config: &ConfigFile, path: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-pub fn resolve_profile<'a>(cli_profile: &'a str, config: &'a ConfigFile) -> &'a str {
-    if cli_profile != "default" {
-        return cli_profile;
+/// Resolve the active profile: an explicit `--profile` flag or
+/// `TEAMS_CLI_PROFILE` value (delivered via clap) wins even when it is the
+/// literal "default", so `auth switch` cannot shadow a profile of that name;
+/// otherwise the config's `default.profile`, then "default".
+pub fn resolve_profile<'a>(cli_profile: Option<&'a str>, config: &'a ConfigFile) -> &'a str {
+    match cli_profile {
+        Some(profile) => profile,
+        None => config.default.profile.as_deref().unwrap_or("default"),
     }
-    config.default.profile.as_deref().unwrap_or("default")
 }
 
 pub fn resolve_client_id(
@@ -409,14 +413,29 @@ scopes = "User.Read People.Read offline_access"
     #[test]
     fn resolve_profile_uses_cli_override() {
         let config = ConfigFile::default();
-        assert_eq!(resolve_profile("custom", &config), "custom");
+        assert_eq!(resolve_profile(Some("custom"), &config), "custom");
     }
 
     #[test]
     fn resolve_profile_uses_config_default() {
         let mut config = ConfigFile::default();
         config.default.profile = Some("work".into());
-        assert_eq!(resolve_profile("default", &config), "work");
+        assert_eq!(resolve_profile(None, &config), "work");
+    }
+
+    #[test]
+    fn resolve_profile_falls_back_to_default_name() {
+        let config = ConfigFile::default();
+        assert_eq!(resolve_profile(None, &config), "default");
+    }
+
+    #[test]
+    fn resolve_profile_explicit_default_beats_config_default() {
+        // An explicit --profile default must address the profile named
+        // "default" even after `auth switch` set another config default.
+        let mut config = ConfigFile::default();
+        config.default.profile = Some("work".into());
+        assert_eq!(resolve_profile(Some("default"), &config), "default");
     }
 
     #[test]

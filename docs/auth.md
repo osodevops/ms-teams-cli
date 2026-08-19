@@ -289,7 +289,8 @@ teams auth logout --all
 
 | Variable | Purpose |
 | --- | --- |
-| `TEAMS_CLI_ACCESS_TOKEN` | Use this bearer token instead of the keyring token. |
+| `TEAMS_CLI_ACCESS_TOKEN` | Use this bearer token instead of the keyring token. When set, `--profile` and `TEAMS_CLI_PROFILE` do not affect which token is used. |
+| `TEAMS_CLI_PROFILE` | Named credential profile. Precedence: `--profile`, then `TEAMS_CLI_PROFILE`, then the config's `default.profile`, then `default`. |
 | `TEAMS_CLI_CLIENT_ID` | Entra app client ID. |
 | `TEAMS_CLI_CLIENT_SECRET` | Client secret for client credentials flow. |
 | `TEAMS_CLI_TENANT_ID` | Tenant ID or tenant domain. |

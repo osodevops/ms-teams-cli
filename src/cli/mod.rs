@@ -53,9 +53,9 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub config: Option<String>,
 
-    /// Named credential profile
-    #[arg(long, global = true, default_value = "default")]
-    pub profile: String,
+    /// Named credential profile (defaults to "default")
+    #[arg(long, global = true, env = "TEAMS_CLI_PROFILE")]
+    pub profile: Option<String>,
 
     /// Request timeout in seconds
     #[arg(long, global = true)]
@@ -177,7 +177,7 @@ pub async fn run(cli: Cli, config: &ConfigFile) -> Result<()> {
         cli.output.as_deref(),
         config,
     ));
-    let profile = crate::config::resolve_profile(&cli.profile, config).to_string();
+    let profile = crate::config::resolve_profile(cli.profile.as_deref(), config).to_string();
     let mut runtime_config = config.clone();
     runtime_config.network =
         crate::config::effective_network_config(config, cli.timeout, cli.retry);

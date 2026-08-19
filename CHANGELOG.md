@@ -2,12 +2,17 @@
 
 ## Unreleased
 
+### Added
+
+- `TEAMS_CLI_PROFILE` environment variable for selecting the credential profile, with the same precedence as other auth environment variables: `--profile` flag, then `TEAMS_CLI_PROFILE`, then the config's `default.profile`, then `default`. This resolves #53.
+
 ### Changed
 
 - Browser login now sends `prompt=select_account`, so the identity platform always shows the account picker instead of silently reusing an existing browser session. This makes it possible to sign a second account into another profile with `teams --profile <name> auth login`. This resolves #52.
 
 ### Fixed
 
+- An explicit `--profile default` now addresses the profile named "default" even after `teams auth switch` has set another config default. Previously the flag's default value was indistinguishable from an explicit one, so the switched profile shadowed the literal "default" profile and it became unreachable from the command line. This resolves #55.
 - Token storage no longer deletes and recreates the keyring item on every write. On macOS the recreation discarded the item's access control list, so an "Always Allow" grant was revoked by the next silent token refresh and the keychain prompt returned within the hour. Items are now updated in place, which preserves the grant. This resolves #51.
 - Homebrew publication is now verified end to end: release jobs fail if the tap does not publish all four platform URLs with the release checksums, instead of treating an accepted but unhandled dispatch event as success.
 
