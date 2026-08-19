@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- Browser login now sends `prompt=select_account`, so the identity platform always shows the account picker instead of silently reusing an existing browser session. This makes it possible to sign a second account into another profile with `teams --profile <name> auth login`. This resolves #52.
+
 ### Fixed
 
 - Token storage no longer deletes and recreates the keyring item on every write. On macOS the recreation discarded the item's access control list, so an "Always Allow" grant was revoked by the next silent token refresh and the keychain prompt returned within the hour. Items are now updated in place, which preserves the grant. This resolves #51.

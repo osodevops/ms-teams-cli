@@ -118,6 +118,11 @@ Browser PKCE login:
 teams auth login
 ```
 
+The browser flow always shows the Microsoft account picker
+(`prompt=select_account`), so an existing browser session is never reused
+silently. This is what lets you sign a second account into another profile,
+for example `teams --profile alt auth login`.
+
 Device-code login:
 
 ```bash

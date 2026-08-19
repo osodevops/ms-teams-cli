@@ -28,6 +28,33 @@ fn generate_pkce() -> Result<(String, String)> {
     Ok((verifier, challenge))
 }
 
+/// Build the authorization URL for the browser login.
+///
+/// `prompt=select_account` forces the account picker. Without it the identity
+/// platform silently reuses an existing browser session, which makes it
+/// impossible to sign a second account into another profile.
+fn build_authorize_url(
+    client_id: &str,
+    tenant_id: &str,
+    scopes: &str,
+    state: &str,
+    challenge: &str,
+) -> String {
+    format!(
+        "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize?\
+         client_id={client_id}\
+         &response_type=code\
+         &redirect_uri={}\
+         &scope={}\
+         &state={state}\
+         &code_challenge={challenge}\
+         &code_challenge_method=S256\
+         &prompt=select_account",
+        urlencoding::encode(DEFAULT_REDIRECT_URI),
+        urlencoding::encode(scopes),
+    )
+}
+
 /// Authenticate using authorization code flow with PKCE.
 /// Opens a browser and starts a loopback HTTP server to receive the callback.
 pub async fn authenticate(
@@ -40,18 +67,7 @@ pub async fn authenticate(
 
     let state = random_urlsafe_bytes(16)?;
 
-    let auth_url = format!(
-        "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize?\
-         client_id={client_id}\
-         &response_type=code\
-         &redirect_uri={}\
-         &scope={}\
-         &state={state}\
-         &code_challenge={challenge}\
-         &code_challenge_method=S256",
-        urlencoding::encode(DEFAULT_REDIRECT_URI),
-        urlencoding::encode(scopes),
-    );
+    let auth_url = build_authorize_url(client_id, tenant_id, scopes, &state, &challenge);
 
     // Start loopback server
     let (tx, rx) = oneshot::channel::<String>();
@@ -166,4 +182,37 @@ pub async fn authenticate(
     resp.json::<MsTokenResponse>()
         .await
         .map_err(|e| TeamsError::AuthError(format!("Failed to parse token response: {e}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn authorize_url_contains_expected_parameters() {
+        let url = build_authorize_url(
+            "client-1",
+            "tenant-1",
+            "User.Read offline_access",
+            "st4te",
+            "ch4llenge",
+        );
+
+        assert!(
+            url.starts_with("https://login.microsoftonline.com/tenant-1/oauth2/v2.0/authorize?")
+        );
+        assert!(url.contains("client_id=client-1"));
+        assert!(url.contains("&response_type=code"));
+        assert!(url.contains("&scope=User.Read%20offline_access"));
+        assert!(url.contains("&state=st4te"));
+        assert!(url.contains("&code_challenge=ch4llenge"));
+        assert!(url.contains("&code_challenge_method=S256"));
+    }
+
+    #[test]
+    fn authorize_url_forces_account_picker() {
+        let url = build_authorize_url("client-1", "tenant-1", "User.Read", "s", "c");
+
+        assert!(url.contains("&prompt=select_account"));
+    }
 }
