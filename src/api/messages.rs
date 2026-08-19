@@ -233,7 +233,12 @@ pub async fn send_chat_message(
     client.post(&endpoints::chat_messages(chat_id), req).await
 }
 
-// --- Reactions (beta) ---
+// --- Reactions ---
+//
+// Microsoft Graph documents setReaction/unsetReaction on v1.0 for channel
+// messages, channel replies, and chat messages. The request body must carry
+// the reaction as a unicode character; legacy names such as `like` are only
+// ever returned on reads, and are rejected on writes with HTTP 400.
 
 pub async fn set_reaction(
     client: &GraphClient,
@@ -242,16 +247,12 @@ pub async fn set_reaction(
     message_id: &str,
     reaction: &str,
 ) -> Result<()> {
-    tracing::warn!("Using beta API endpoint for reactions");
-    let req = ReactionRequest {
-        reaction_type: reaction.to_string(),
-    };
-    client
-        .post_no_content(
-            &endpoints::message_set_reaction(team_id, channel_id, message_id),
-            &req,
-        )
-        .await
+    set_reaction_at(
+        client,
+        &endpoints::message_set_reaction(team_id, channel_id, message_id),
+        reaction,
+    )
+    .await
 }
 
 pub async fn unset_reaction(
@@ -261,16 +262,49 @@ pub async fn unset_reaction(
     message_id: &str,
     reaction: &str,
 ) -> Result<()> {
-    tracing::warn!("Using beta API endpoint for reactions");
+    set_reaction_at(
+        client,
+        &endpoints::message_unset_reaction(team_id, channel_id, message_id),
+        reaction,
+    )
+    .await
+}
+
+pub async fn set_chat_reaction(
+    client: &GraphClient,
+    chat_id: &str,
+    message_id: &str,
+    reaction: &str,
+) -> Result<()> {
+    set_reaction_at(
+        client,
+        &endpoints::chat_message_set_reaction(chat_id, message_id),
+        reaction,
+    )
+    .await
+}
+
+pub async fn unset_chat_reaction(
+    client: &GraphClient,
+    chat_id: &str,
+    message_id: &str,
+    reaction: &str,
+) -> Result<()> {
+    set_reaction_at(
+        client,
+        &endpoints::chat_message_unset_reaction(chat_id, message_id),
+        reaction,
+    )
+    .await
+}
+
+/// POST `{"reactionType": reaction}` to a setReaction/unsetReaction action URL.
+/// Graph answers both with `204 No Content`.
+async fn set_reaction_at(client: &GraphClient, url: &str, reaction: &str) -> Result<()> {
     let req = ReactionRequest {
         reaction_type: reaction.to_string(),
     };
-    client
-        .post_no_content(
-            &endpoints::message_unset_reaction(team_id, channel_id, message_id),
-            &req,
-        )
-        .await
+    client.post_no_content(url, &req).await
 }
 
 // --- Pinned Messages ---
@@ -307,4 +341,161 @@ pub async fn unpin_message(
             pinned_message_id,
         ))
         .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::auth::token::TokenInfo;
+    use crate::config::NetworkConfig;
+    use crate::error::TeamsError;
+    use reqwest::Client;
+    use wiremock::matchers::{body_json, header, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn test_client() -> GraphClient {
+        GraphClient {
+            http: Client::new(),
+            token: TokenInfo {
+                access_token: "test-token".into(),
+                expires_at: None,
+                token_type: "Bearer".into(),
+                scope: None,
+                refresh_token: None,
+                profile: "default".into(),
+            },
+            network: NetworkConfig {
+                timeout: 30,
+                max_retries: 0,
+                retry_backoff_base: 2,
+            },
+        }
+    }
+
+    #[test]
+    fn reaction_endpoints_target_v1() {
+        assert_eq!(
+            endpoints::chat_message_set_reaction("19:abc@thread.v2", "1700000000000"),
+            "https://graph.microsoft.com/v1.0/chats/19:abc@thread.v2/messages/1700000000000/setReaction"
+        );
+        assert_eq!(
+            endpoints::chat_message_unset_reaction("19:abc@thread.v2", "1700000000000"),
+            "https://graph.microsoft.com/v1.0/chats/19:abc@thread.v2/messages/1700000000000/unsetReaction"
+        );
+        assert_eq!(
+            endpoints::message_set_reaction("team-id", "channel-id", "1700000000000"),
+            "https://graph.microsoft.com/v1.0/teams/team-id/channels/channel-id/messages/1700000000000/setReaction"
+        );
+        assert_eq!(
+            endpoints::message_unset_reaction("team-id", "channel-id", "1700000000000"),
+            "https://graph.microsoft.com/v1.0/teams/team-id/channels/channel-id/messages/1700000000000/unsetReaction"
+        );
+    }
+
+    /// Graph expects the reaction as a unicode character in `reactionType`
+    /// and answers a successful setReaction with 204 and an empty body.
+    #[tokio::test]
+    async fn set_chat_reaction_posts_unicode_and_accepts_no_content() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/chats/chat-id/messages/message-id/setReaction"))
+            .and(header("authorization", "Bearer test-token"))
+            .and(body_json(serde_json::json!({ "reactionType": "👀" })))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        set_reaction_at(
+            &test_client(),
+            &format!(
+                "{}/chats/chat-id/messages/message-id/setReaction",
+                server.uri()
+            ),
+            "👀",
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn unset_chat_reaction_posts_unicode_and_accepts_no_content() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/chats/chat-id/messages/message-id/unsetReaction"))
+            .and(body_json(serde_json::json!({ "reactionType": "👍" })))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        set_reaction_at(
+            &test_client(),
+            &format!(
+                "{}/chats/chat-id/messages/message-id/unsetReaction",
+                server.uri()
+            ),
+            "👍",
+        )
+        .await
+        .unwrap();
+    }
+
+    /// A legacy name that slips through to Graph is rejected with 400; the
+    /// client must surface that as an API error rather than a parse failure.
+    #[tokio::test]
+    async fn set_reaction_surfaces_bad_request_for_unsupported_value() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(400).set_body_json(serde_json::json!({
+                "error": {
+                    "code": "BadRequest",
+                    "message": "Unicode 'like' in the payload is not supported"
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let err = set_reaction_at(
+            &test_client(),
+            &format!(
+                "{}/chats/chat-id/messages/message-id/setReaction",
+                server.uri()
+            ),
+            "like",
+        )
+        .await
+        .unwrap_err();
+
+        assert!(
+            matches!(&err, TeamsError::ApiError { status: 400, message } if message.contains("not supported")),
+            "{err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn set_reaction_reports_permission_denied() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(403).set_body_json(serde_json::json!({
+                "error": { "code": "Forbidden", "message": "Insufficient privileges" }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let err = set_reaction_at(
+            &test_client(),
+            &format!(
+                "{}/chats/chat-id/messages/message-id/setReaction",
+                server.uri()
+            ),
+            "👀",
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(err, TeamsError::PermissionDenied(_)), "{err:?}");
+    }
 }

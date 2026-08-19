@@ -1,4 +1,5 @@
 pub const GRAPH_V1: &str = "https://graph.microsoft.com/v1.0";
+#[allow(dead_code)]
 pub const GRAPH_BETA: &str = "https://graph.microsoft.com/beta";
 
 // --- Users ---
@@ -86,18 +87,24 @@ pub fn channel_message_replies(team_id: &str, channel_id: &str, message_id: &str
 }
 
 pub fn message_set_reaction(team_id: &str, channel_id: &str, message_id: &str) -> String {
-    format!("{GRAPH_BETA}/teams/{team_id}/channels/{channel_id}/messages/{message_id}/setReaction")
+    format!("{GRAPH_V1}/teams/{team_id}/channels/{channel_id}/messages/{message_id}/setReaction")
 }
 
 pub fn message_unset_reaction(team_id: &str, channel_id: &str, message_id: &str) -> String {
-    format!(
-        "{GRAPH_BETA}/teams/{team_id}/channels/{channel_id}/messages/{message_id}/unsetReaction"
-    )
+    format!("{GRAPH_V1}/teams/{team_id}/channels/{channel_id}/messages/{message_id}/unsetReaction")
 }
 
 // --- Chat Messages ---
 pub fn chat_messages(chat_id: &str) -> String {
     format!("{GRAPH_V1}/chats/{chat_id}/messages")
+}
+
+pub fn chat_message_set_reaction(chat_id: &str, message_id: &str) -> String {
+    format!("{GRAPH_V1}/chats/{chat_id}/messages/{message_id}/setReaction")
+}
+
+pub fn chat_message_unset_reaction(chat_id: &str, message_id: &str) -> String {
+    format!("{GRAPH_V1}/chats/{chat_id}/messages/{message_id}/unsetReaction")
 }
 
 #[allow(dead_code)]

@@ -114,13 +114,15 @@ teams message attachments download (--team TEAM_ID --channel CHANNEL_ID [--reply
 teams message reply --team TEAM_ID --channel CHANNEL_ID --message-id MESSAGE_ID [--body TEXT | --stdin] [--content-type text|html] [--image PATH]... [--attach PATH]...
 teams message update --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID) --body TEXT [--content-type text|html]
 teams message delete --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID)
-teams message react --team TEAM_ID --channel CHANNEL_ID --message-id MESSAGE_ID (REACTION | --reaction REACTION)
-teams message unreact --team TEAM_ID --channel CHANNEL_ID --message-id MESSAGE_ID (REACTION | --reaction REACTION)
+teams message react (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) --message-id MESSAGE_ID (REACTION | --reaction REACTION)
+teams message unreact (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) --message-id MESSAGE_ID (REACTION | --reaction REACTION)
 teams message pin --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID)
 teams message unpin --team TEAM_ID --channel CHANNEL_ID (PINNED_MESSAGE_ID | --pinned-message-id PINNED_MESSAGE_ID)
 ```
 
 Normal message mutation requires delegated auth. App-only/client-credentials tokens are rejected for these commands.
+
+`REACTION` is an emoji character or one of the names the CLI translates for you (`like`, `heart`, `laugh`, `surprised`, `sad`, `angry`, `thumbsup`, `thumbsdown`, `eyes`, `tada`, `rocket`, `fire`). Graph only accepts the emoji character on writes.
 
 `--image` sends a picture the way pasting a screenshot does — the bytes travel inside the message itself (a Graph "hosted content"), so it needs no scopes beyond sending messages. `--attach` uploads the file to real storage first (your OneDrive's `Microsoft Teams Chat Files` for chats, the team's SharePoint library for channels) and links it from the message; that upload needs `Files.ReadWrite` (chats) or `Files.ReadWrite.All` (channels). Both flags repeat for multiple files, and `--body` becomes optional when either is present. Inline images are capped at 3MB each; attachments use Graph's 250MB simple-upload limit.
 

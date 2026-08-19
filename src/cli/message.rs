@@ -108,24 +108,30 @@ pub enum MessageCommand {
         #[arg(long)]
         attach: Vec<String>,
     },
-    /// Add a reaction to a message (beta)
+    /// Add a reaction to a channel or chat message
+    #[command(
+        override_usage = "teams message react (--team <TEAM> --channel <CHANNEL> | --chat <CHAT>) --message-id <MESSAGE_ID> <REACTION>"
+    )]
     React {
-        /// Team ID
-        #[arg(long)]
-        team: String,
-        /// Channel ID
-        #[arg(long)]
-        channel: String,
+        /// Team ID (for channel messages)
+        #[arg(long, required_unless_present = "chat", requires = "channel")]
+        team: Option<String>,
+        /// Channel ID (for channel messages)
+        #[arg(long, required_unless_present = "chat", requires = "team")]
+        channel: Option<String>,
+        /// Chat ID (for chat messages)
+        #[arg(long, conflicts_with_all = ["team", "channel"])]
+        chat: Option<String>,
         /// Message ID
         #[arg(long, visible_alias = "message")]
         message_id: String,
-        /// Reaction type (e.g., like, heart, laugh, surprised, sad, angry)
+        /// Reaction name (like, heart, laugh, surprised, sad, angry, eyes) or emoji character
         #[arg(
             required_unless_present = "reaction_flag",
             conflicts_with = "reaction_flag"
         )]
         reaction: Option<String>,
-        /// Reaction type (e.g., like, heart, laugh, surprised, sad, angry)
+        /// Reaction name (like, heart, laugh, surprised, sad, angry, eyes) or emoji character
         #[arg(
             long = "reaction",
             value_name = "REACTION",
@@ -134,24 +140,30 @@ pub enum MessageCommand {
         )]
         reaction_flag: Option<String>,
     },
-    /// Remove a reaction from a message (beta)
+    /// Remove a reaction from a channel or chat message
+    #[command(
+        override_usage = "teams message unreact (--team <TEAM> --channel <CHANNEL> | --chat <CHAT>) --message-id <MESSAGE_ID> <REACTION>"
+    )]
     Unreact {
-        /// Team ID
-        #[arg(long)]
-        team: String,
-        /// Channel ID
-        #[arg(long)]
-        channel: String,
+        /// Team ID (for channel messages)
+        #[arg(long, required_unless_present = "chat", requires = "channel")]
+        team: Option<String>,
+        /// Channel ID (for channel messages)
+        #[arg(long, required_unless_present = "chat", requires = "team")]
+        channel: Option<String>,
+        /// Chat ID (for chat messages)
+        #[arg(long, conflicts_with_all = ["team", "channel"])]
+        chat: Option<String>,
         /// Message ID
         #[arg(long, visible_alias = "message")]
         message_id: String,
-        /// Reaction type to remove
+        /// Reaction name (like, heart, laugh, surprised, sad, angry, eyes) or emoji character
         #[arg(
             required_unless_present = "reaction_flag",
             conflicts_with = "reaction_flag"
         )]
         reaction: Option<String>,
-        /// Reaction type to remove
+        /// Reaction name (like, heart, laugh, surprised, sad, angry, eyes) or emoji character
         #[arg(
             long = "reaction",
             value_name = "REACTION",
@@ -441,6 +453,7 @@ pub async fn run(
         MessageCommand::React {
             team,
             channel,
+            chat,
             message_id,
             reaction,
             reaction_flag,
@@ -448,7 +461,21 @@ pub async fn run(
             let start = Instant::now();
             auth::require_delegated_token(&client.token, "Reacting to Teams messages")?;
             let reaction = resolve_id(reaction, reaction_flag, "--reaction or <REACTION>")?;
-            api::messages::set_reaction(&client, &team, &channel, &message_id, &reaction).await?;
+            let reaction_type = reaction_type_for(&reaction);
+            if let Some(chat_id) = chat {
+                api::messages::set_chat_reaction(&client, &chat_id, &message_id, &reaction_type)
+                    .await?;
+            } else {
+                let (team_id, channel_id) = require_channel(team, channel)?;
+                api::messages::set_reaction(
+                    &client,
+                    &team_id,
+                    &channel_id,
+                    &message_id,
+                    &reaction_type,
+                )
+                .await?;
+            }
             let result = serde_json::json!({"status": "reaction_set", "reaction": reaction});
             output::print_success(format, &result, start);
             Ok(())
@@ -457,6 +484,7 @@ pub async fn run(
         MessageCommand::Unreact {
             team,
             channel,
+            chat,
             message_id,
             reaction,
             reaction_flag,
@@ -464,7 +492,21 @@ pub async fn run(
             let start = Instant::now();
             auth::require_delegated_token(&client.token, "Removing Teams message reactions")?;
             let reaction = resolve_id(reaction, reaction_flag, "--reaction or <REACTION>")?;
-            api::messages::unset_reaction(&client, &team, &channel, &message_id, &reaction).await?;
+            let reaction_type = reaction_type_for(&reaction);
+            if let Some(chat_id) = chat {
+                api::messages::unset_chat_reaction(&client, &chat_id, &message_id, &reaction_type)
+                    .await?;
+            } else {
+                let (team_id, channel_id) = require_channel(team, channel)?;
+                api::messages::unset_reaction(
+                    &client,
+                    &team_id,
+                    &channel_id,
+                    &message_id,
+                    &reaction_type,
+                )
+                .await?;
+            }
             let result = serde_json::json!({"status": "reaction_removed", "reaction": reaction});
             output::print_success(format, &result, start);
             Ok(())
@@ -554,6 +596,55 @@ pub(crate) fn resolve_id(
     }
 }
 
+/// Reaction names mapped to the unicode character Microsoft Graph expects.
+///
+/// Graph's setReaction/unsetReaction only accept a unicode character in the
+/// request body; the legacy names (`like`, `heart`, ...) appear on reads for
+/// backward compatibility but are rejected on writes with HTTP 400
+/// ("Unicode 'like' in the payload is not supported"). The characters for the
+/// six classic Teams reactions were confirmed against a live tenant via the
+/// `displayName` Graph returns for them (`Like`, `Heart`, `Laugh`,
+/// `Surprised`, `Sad`, `Angry`); note that `❤` without the variation
+/// selector and `😢`/`😡` map to different reactions. Anything unlisted — an
+/// unknown name, or an emoji character supplied directly — passes through
+/// untouched.
+const REACTION_UNICODE: &[(&str, &str)] = &[
+    // Classic Teams reactions
+    ("like", "👍"),
+    ("heart", "❤️"),
+    ("laugh", "😆"),
+    ("surprised", "😮"),
+    ("sad", "🙁"),
+    ("angry", "😠"),
+    // Common aliases
+    ("thumbsup", "👍"),
+    ("thumbsdown", "👎"),
+    ("eyes", "👀"),
+    ("tada", "🎉"),
+    ("rocket", "🚀"),
+    ("fire", "🔥"),
+];
+
+fn reaction_type_for(reaction: &str) -> String {
+    REACTION_UNICODE
+        .iter()
+        .find(|(name, _)| *name == reaction)
+        .map_or_else(|| reaction.to_string(), |(_, emoji)| (*emoji).to_string())
+}
+
+/// Unwraps the team/channel pair for the channel branch. Clap rejects an
+/// incomplete pair during parsing, so this is the residual unwrap rather than
+/// the primary check; the wording matches `message list` for the case where a
+/// future caller reaches it.
+fn require_channel(team: Option<String>, channel: Option<String>) -> Result<(String, String)> {
+    let team_id = team.ok_or_else(|| {
+        TeamsError::InvalidInput("--team and --channel required, or use --chat".into())
+    })?;
+    let channel_id =
+        channel.ok_or_else(|| TeamsError::InvalidInput("--channel is required".into()))?;
+    Ok((team_id, channel_id))
+}
+
 fn resolve_body(body: Option<String>, stdin: bool) -> Result<String> {
     if stdin {
         let mut buf = String::new();
@@ -608,4 +699,45 @@ fn build_send_request(
         attachments,
         hosted_contents: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn named_reaction_becomes_unicode() {
+        assert_eq!(reaction_type_for("eyes"), "👀");
+    }
+
+    #[test]
+    fn emoji_reaction_passes_through() {
+        assert_eq!(reaction_type_for("👀"), "👀");
+        assert_eq!(reaction_type_for("💘"), "💘");
+    }
+
+    #[test]
+    fn classic_names_become_unicode() {
+        for (name, emoji) in [
+            ("like", "👍"),
+            ("heart", "❤️"),
+            ("laugh", "😆"),
+            ("surprised", "😮"),
+            ("sad", "🙁"),
+            ("angry", "😠"),
+        ] {
+            assert_eq!(reaction_type_for(name), emoji, "{name}");
+        }
+    }
+
+    #[test]
+    fn unknown_name_passes_through() {
+        assert_eq!(reaction_type_for("fist bump"), "fist bump");
+    }
+
+    #[test]
+    fn require_channel_reports_missing_team() {
+        let err = require_channel(None, Some("channel".into())).unwrap_err();
+        assert!(err.to_string().contains("--chat"), "{err}");
+    }
 }

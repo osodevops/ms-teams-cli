@@ -555,6 +555,69 @@ fn message_documented_flags_are_available() {
 }
 
 #[test]
+fn message_reactions_accept_chat() {
+    for sub in ["react", "unreact"] {
+        teams()
+            .args(["message", sub, "--help"])
+            .assert()
+            .success()
+            .stdout(
+                predicate::str::contains("--chat <CHAT>").and(predicate::str::contains("emoji")),
+            );
+    }
+}
+
+#[test]
+fn message_react_rejects_incomplete_target() {
+    for args in [
+        vec!["message", "react", "--message-id", "1", "eyes"],
+        vec![
+            "message",
+            "react",
+            "--team",
+            "team-id",
+            "--message-id",
+            "1",
+            "eyes",
+        ],
+        vec![
+            "message",
+            "unreact",
+            "--channel",
+            "channel-id",
+            "--message-id",
+            "1",
+            "eyes",
+        ],
+    ] {
+        teams()
+            .args(&args)
+            .assert()
+            .code(2)
+            .stderr(predicate::str::contains("required"));
+    }
+}
+
+#[test]
+fn message_react_rejects_chat_with_team() {
+    teams()
+        .args([
+            "message",
+            "react",
+            "--chat",
+            "19:abc@thread.v2",
+            "--team",
+            "team-id",
+            "--message-id",
+            "1",
+            "eyes",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot be used with"));
+}
+
+#[test]
 fn chat_help_shows_subcommands() {
     teams().args(["chat", "--help"]).assert().success().stdout(
         predicate::str::contains("list")

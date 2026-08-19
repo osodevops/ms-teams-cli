@@ -16,6 +16,24 @@ pub struct ChatMessage {
     pub attachments: Option<Vec<ChatMessageAttachment>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reactions: Option<Vec<ChatMessageReaction>>,
+}
+
+/// A reaction on a message. `reaction_type` is the unicode character (or a
+/// legacy name such as `like` on older messages); `display_name` is Graph's
+/// label for it, for example `Eyes` for 👀.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatMessageReaction {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reaction_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_date_time: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user: Option<ChatMessageFrom>,
 }
 
 /// Message body with content type.
@@ -151,6 +169,7 @@ mod tests {
             }),
             attachments: None,
             message_type: Some("message".into()),
+            reactions: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         let parsed: ChatMessage = serde_json::from_str(&json).unwrap();

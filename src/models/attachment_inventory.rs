@@ -265,6 +265,7 @@ mod tests {
             }),
             attachments: Some(attachments),
             message_type: Some("message".into()),
+            reactions: None,
         }
     }
 
