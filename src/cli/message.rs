@@ -237,12 +237,15 @@ pub enum MessageCommand {
     },
     /// Update a message
     Update {
-        /// Team ID
-        #[arg(long)]
-        team: String,
-        /// Channel ID
-        #[arg(long)]
-        channel: String,
+        /// Team ID (for channel messages; requires --channel)
+        #[arg(long, requires = "channel", conflicts_with = "chat")]
+        team: Option<String>,
+        /// Channel ID (for channel messages; requires --team)
+        #[arg(long, requires = "team", conflicts_with = "chat")]
+        channel: Option<String>,
+        /// Chat ID (for chat messages)
+        #[arg(long, required_unless_present = "team")]
+        chat: Option<String>,
         /// Message ID
         #[arg(required_unless_present = "message", conflicts_with = "message")]
         message_id: Option<String>,
@@ -563,6 +566,7 @@ pub async fn run(
         MessageCommand::Update {
             team,
             channel,
+            chat,
             message_id,
             message,
             body,
@@ -572,8 +576,37 @@ pub async fn run(
             auth::require_delegated_token(&client.token, "Updating Teams messages")?;
             let message_id = resolve_id(message_id, message, "--message or <MESSAGE_ID>")?;
             let req = build_send_request(body, &content_type, None)?;
-            let msg =
-                api::messages::update_message(&client, &team, &channel, &message_id, &req).await?;
+            let target = if let Some(chat_id) = chat {
+                api::messages::MessageRef::Chat {
+                    chat_id,
+                    message_id: message_id.clone(),
+                }
+            } else {
+                let (team_id, channel_id) = require_channel(team, channel)?;
+                api::messages::MessageRef::Channel {
+                    team_id,
+                    channel_id,
+                    message_id: message_id.clone(),
+                }
+            };
+            api::messages::update_message(&client, &target, &req).await?;
+            // Graph answers a delegated edit with no content, so the message is
+            // fetched back to show the new text. The edit has already been
+            // applied by this point, so a failed read-back is reported alongside
+            // a successful update rather than as a failed command.
+            let msg = match api::messages::get_message(&client, &target).await {
+                Ok(updated) => {
+                    serde_json::to_value(updated).map_err(|e| TeamsError::Other(e.into()))?
+                }
+                Err(err) => {
+                    tracing::warn!("Message updated, but reading it back failed: {err}");
+                    serde_json::json!({
+                        "id": message_id,
+                        "updated": true,
+                        "readBackError": err.to_string(),
+                    })
+                }
+            };
             output::print_success(format, &msg, start);
             Ok(())
         }
