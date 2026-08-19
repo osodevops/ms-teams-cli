@@ -51,10 +51,15 @@ scopes = "User.Read Chat.ReadWrite ChatMessage.Send People.Read offline_access"
 .SH DEFAULT SECTION
 .TP
 .B profile
-Default profile used when
+Default profile used when neither
 .B --profile
-is not supplied or is
-.B default.
+nor
+.B TEAMS_CLI_PROFILE
+is supplied. An explicit
+.B --profile default
+always addresses the profile named
+.B default,
+even when this setting points elsewhere.
 .TP
 .B output
 Default output format override. Valid values are
@@ -137,6 +142,14 @@ built-in default delegated scopes;
 .B offline_access
 is appended when missing. Ignored by client credentials login.
 .SH RESOLUTION ORDER
+Profile resolution:
+.nf
+1. --profile flag
+2. TEAMS_CLI_PROFILE
+3. [default] profile in the config file
+4. default
+.fi
+.PP
 Client ID and tenant ID resolution:
 .nf
 1. CLI flag

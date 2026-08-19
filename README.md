@@ -587,7 +587,7 @@ auth_flow = "device-code"
 | `TEAMS_CLI_TENANT_ID` | Azure AD tenant ID |
 | `TEAMS_CLI_PROFILE` | Named credential profile (overridden by `--profile`; an explicit value beats the config's `default.profile`) |
 | `TEAMS_CLI_SCOPES` | Delegated OAuth scopes for login (same precedence as `--scopes`; ignored by client credentials) |
-| `TEAMS_CLI_ACCESS_TOKEN` | Pre-obtained Microsoft Graph access token (skips login entirely) |
+| `TEAMS_CLI_ACCESS_TOKEN` | Pre-obtained Microsoft Graph access token (skips login entirely; `--profile`/`TEAMS_CLI_PROFILE` do not affect which token is used) |
 | `RUST_LOG` | Tracing filter (e.g., `debug`, `teams=trace`) |
 
 ## Verbosity
