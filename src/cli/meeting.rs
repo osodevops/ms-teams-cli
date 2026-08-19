@@ -163,7 +163,7 @@ pub async fn run(
             let meeting = api::meetings::get_meeting(&client, &meeting_id).await?;
             let url = meeting.join_web_url.unwrap_or_default();
             if format == OutputFormat::Plain {
-                println!("{}", url);
+                output::write_stdout_line(&url);
             } else {
                 let result = serde_json::json!({"joinWebUrl": url});
                 output::print_success(format, &result, start);

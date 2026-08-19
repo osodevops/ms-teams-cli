@@ -60,6 +60,8 @@ On failure:
 | 8 | Server error (5xx) | Retry with backoff |
 | 10 | Configuration error | Check config/env vars |
 
+A closed stdout pipe (e.g. `teams team list | head -1`) is treated as normal early termination: exit 0, nothing on stderr. Errors that occur while the pipe is already closed still return their real exit code.
+
 **Output auto-detection**: When stdout is a TTY, output defaults to human-readable tables. When piped (which is how agents call it), output defaults to JSON. Override with `--output json|human|plain`.
 
 ## Install

@@ -81,6 +81,12 @@ Server error after configured retries.
 .TP
 .B 10
 Configuration or keyring error.
+.PP
+A closed stdout pipe (for example when piping into
+.B head\c
+) is treated as normal early termination: the process exits 0 with nothing on
+stderr. If a command fails while its stdout pipe is already closed, the real
+error code is still returned even though the error envelope cannot be written.
 .SH RETRY AND PAGINATION
 Microsoft Graph calls go through a shared client that applies request timeout,
 bearer authentication, retries, and pagination. HTTP 429 honors

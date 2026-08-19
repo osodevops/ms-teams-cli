@@ -3,6 +3,7 @@ use hyper::body::{Bytes, Incoming};
 use hyper::{Method, Request, Response, StatusCode};
 
 use crate::models::subscription::ChangeNotificationCollection;
+use crate::output;
 
 type HandlerResult = std::result::Result<Response<Full<Bytes>>, hyper::Error>;
 
@@ -28,7 +29,7 @@ pub async fn handle_request(req: Request<Incoming>) -> HandlerResult {
                 Ok(collection) => {
                     for notification in &collection.value {
                         let json = serde_json::to_string(notification).unwrap_or_default();
-                        println!("{json}");
+                        output::write_stdout_line(&json);
                     }
                     Ok(ok_response(""))
                 }
