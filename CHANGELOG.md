@@ -5,10 +5,14 @@
 ### Added
 
 - `TEAMS_CLI_PROFILE` environment variable for selecting the credential profile, with the same precedence as other auth environment variables: `--profile` flag, then `TEAMS_CLI_PROFILE`, then the config's `default.profile`, then `default`. This resolves #53.
+- `teams message react` and `teams message unreact` accept `--chat <chat-id>` for one-on-one and group chat messages, as an alternative to the `--team`/`--channel` pair. This resolves #62.
+- `message list` and `message get` now include each message's `reactions` (`reactionType`, `displayName`, `createdDateTime`, `user`).
 
 ### Changed
 
 - Browser login now sends `prompt=select_account`, so the identity platform always shows the account picker instead of silently reusing an existing browser session. This makes it possible to sign a second account into another profile with `teams --profile <name> auth login`. This resolves #52.
+- Reactions call the Microsoft Graph v1.0 `setReaction`/`unsetReaction` actions instead of beta.
+- Reaction names are translated to the emoji character Graph requires on writes: the classic `like`, `heart`, `laugh`, `surprised`, `sad`, `angry` (which Graph now rejects by name with HTTP 400) plus `thumbsup`, `thumbsdown`, `eyes`, `tada`, `rocket`, `fire`. Any emoji character passes through unchanged.
 
 ### Fixed
 

@@ -164,26 +164,32 @@ teams message pin --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message ME
 teams message unpin --team TEAM_ID --channel CHANNEL_ID (PINNED_MESSAGE_ID | --pinned-message-id PINNED_MESSAGE_ID)
 .fi
 .PP
-Supported reaction names depend on Microsoft Graph. Common values include
-.B like,
-.B heart,
-.B laugh,
-.B surprised,
-.B sad,
-and
-.B angry.
-Anything outside that list must reach Microsoft Graph as the emoji character
-itself, so a reaction may also be given as the character, for example
-.B 👀.
-The names
-.B eyes,
+Microsoft Graph expects a reaction as an emoji character, so a reaction may be
+given as the character itself, for example
+.B 👀,
+or as a name that is translated before the request is sent: the classic Teams
+reactions
+.B like
+(👍),
+.B heart
+(❤️),
+.B laugh
+(😆),
+.B surprised
+(😮),
+.B sad
+(🙁), and
+.B angry
+(😠), plus
 .B thumbsup,
 .B thumbsdown,
+.B eyes,
 .B tada,
 .B rocket,
 and
-.B fire
-are translated to their character before the request is sent.
+.B fire.
+A user has one reaction per message, so reacting again replaces the previous
+one; unreacting a reaction that is not set succeeds without effect.
 .SH CHAT COMMANDS
 .nf
 teams chat list

@@ -89,7 +89,7 @@ All Microsoft Graph calls should go through `GraphClient` in `src/api/client.rs`
 - Pagination through `get_paged` and `get_all_pages`.
 - Raw byte helpers for file upload/download.
 
-Use endpoint builders from `src/api/endpoints.rs` rather than constructing Graph URLs inline in command handlers. Existing endpoints mostly target `https://graph.microsoft.com/v1.0`; reactions currently use beta endpoints.
+Use endpoint builders from `src/api/endpoints.rs` rather than constructing Graph URLs inline in command handlers. Endpoints target `https://graph.microsoft.com/v1.0` (setReaction/unsetReaction moved from beta to v1.0 in Graph and the CLI follows); `GRAPH_BETA` remains available for any future beta-only call.
 
 ## Command Implementation Pattern
 

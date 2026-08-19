@@ -383,10 +383,12 @@ teams message unpin --team <team-id> --channel <channel-id> --pinned-message-id 
 ```
 
 Reactions accept either a channel (`--team` with `--channel`) or a chat (`--chat`), never both.
-A reaction may be given as one of the names Microsoft Graph recognises — `like`, `heart`,
-`laugh`, `surprised`, `sad`, `angry` — or as the emoji character itself, which is how Graph
-expects anything outside that list. A few common names (`eyes`, `thumbsup`, `thumbsdown`,
-`tada`, `rocket`, `fire`) are translated to their character for you.
+Microsoft Graph expects the reaction as an emoji character, so a reaction may be given as the
+character itself (any emoji works) or as a name that the CLI translates for you: the classic
+Teams reactions `like` 👍, `heart` ❤️, `laugh` 😆, `surprised` 😮, `sad` 🙁, `angry` 😠, plus
+`thumbsup`, `thumbsdown`, `eyes`, `tada`, `rocket`, and `fire`. A user has one reaction per
+message, so reacting again replaces the previous one; unreacting a reaction that is not set is
+a no-op. `message list` and `message get` include each message's `reactions` in their output.
 
 ### Chats
 

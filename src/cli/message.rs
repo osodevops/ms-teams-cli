@@ -108,7 +108,7 @@ pub enum MessageCommand {
         #[arg(long)]
         attach: Vec<String>,
     },
-    /// Add a reaction to a channel or chat message (beta)
+    /// Add a reaction to a channel or chat message
     #[command(
         override_usage = "teams message react (--team <TEAM> --channel <CHANNEL> | --chat <CHAT>) --message-id <MESSAGE_ID> <REACTION>"
     )]
@@ -140,7 +140,7 @@ pub enum MessageCommand {
         )]
         reaction_flag: Option<String>,
     },
-    /// Remove a reaction from a channel or chat message (beta)
+    /// Remove a reaction from a channel or chat message
     #[command(
         override_usage = "teams message unreact (--team <TEAM> --channel <CHANNEL> | --chat <CHAT>) --message-id <MESSAGE_ID> <REACTION>"
     )]
@@ -596,16 +596,30 @@ pub(crate) fn resolve_id(
     }
 }
 
-/// Reaction names that Graph does not recognise, mapped to the unicode
-/// character it expects. The names in the original help text (`like`, `heart`,
-/// `laugh`, `surprised`, `sad`, `angry`) are deliberately absent: the service
-/// accepts those verbatim, and translating them would change behaviour that
-/// already works. Anything unlisted — an unknown name, or an emoji character
-/// supplied directly — passes through untouched.
+/// Reaction names mapped to the unicode character Microsoft Graph expects.
+///
+/// Graph's setReaction/unsetReaction only accept a unicode character in the
+/// request body; the legacy names (`like`, `heart`, ...) appear on reads for
+/// backward compatibility but are rejected on writes with HTTP 400
+/// ("Unicode 'like' in the payload is not supported"). The characters for the
+/// six classic Teams reactions were confirmed against a live tenant via the
+/// `displayName` Graph returns for them (`Like`, `Heart`, `Laugh`,
+/// `Surprised`, `Sad`, `Angry`); note that `❤` without the variation
+/// selector and `😢`/`😡` map to different reactions. Anything unlisted — an
+/// unknown name, or an emoji character supplied directly — passes through
+/// untouched.
 const REACTION_UNICODE: &[(&str, &str)] = &[
-    ("eyes", "👀"),
+    // Classic Teams reactions
+    ("like", "👍"),
+    ("heart", "❤️"),
+    ("laugh", "😆"),
+    ("surprised", "😮"),
+    ("sad", "🙁"),
+    ("angry", "😠"),
+    // Common aliases
     ("thumbsup", "👍"),
     ("thumbsdown", "👎"),
+    ("eyes", "👀"),
     ("tada", "🎉"),
     ("rocket", "🚀"),
     ("fire", "🔥"),
@@ -703,9 +717,16 @@ mod tests {
     }
 
     #[test]
-    fn original_names_are_untranslated() {
-        for name in ["like", "heart", "laugh", "surprised", "sad", "angry"] {
-            assert_eq!(reaction_type_for(name), name);
+    fn classic_names_become_unicode() {
+        for (name, emoji) in [
+            ("like", "👍"),
+            ("heart", "❤️"),
+            ("laugh", "😆"),
+            ("surprised", "😮"),
+            ("sad", "🙁"),
+            ("angry", "😠"),
+        ] {
+            assert_eq!(reaction_type_for(name), emoji, "{name}");
         }
     }
 
