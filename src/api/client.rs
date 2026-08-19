@@ -152,6 +152,22 @@ impl GraphClient {
         .await
     }
 
+    /// PATCH request returning no content.
+    ///
+    /// Some Graph endpoints answer a successful PATCH with an empty body rather
+    /// than the updated resource; editing a chat message is one. Decoding that
+    /// as the resource type reports a parse failure on what was in fact a
+    /// success, so those callers use this and read the resource back instead.
+    pub async fn patch_no_content<B: serde::Serialize>(&self, url: &str, body: &B) -> Result<()> {
+        self.request_with_retry_no_content(|this| {
+            this.http
+                .patch(url)
+                .header("Authorization", this.token.bearer_header())
+                .json(body)
+        })
+        .await
+    }
+
     /// DELETE request returning no content.
     pub async fn delete(&self, url: &str) -> Result<()> {
         self.request_with_retry_no_content(|this| {

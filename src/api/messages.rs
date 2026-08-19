@@ -187,19 +187,30 @@ pub async fn reply_to_message(
         .await
 }
 
+/// Edit a message already sent to a channel, a channel reply, or a chat.
+///
+/// A delegated caller may update every property of a message except
+/// `policyViolation`, so one's own message body can be rewritten in place. An
+/// application-only token is confined to `policyViolation`, which is why the
+/// command layer requires a delegated token first.
+///
+/// For delegated callers Graph answers this PATCH with `204 No Content` on
+/// every target rather than the updated message, so nothing is returned; call
+/// [`get_message`] afterwards to show the new text.
 pub async fn update_message(
     client: &GraphClient,
-    team_id: &str,
-    channel_id: &str,
-    message_id: &str,
+    message: &MessageRef,
     req: &SendMessageRequest,
-) -> Result<ChatMessage> {
-    client
-        .patch(
-            &endpoints::channel_message(team_id, channel_id, message_id),
-            req,
-        )
-        .await
+) -> Result<()> {
+    update_message_at(client, &message.message_url(), req).await
+}
+
+async fn update_message_at(
+    client: &GraphClient,
+    url: &str,
+    req: &SendMessageRequest,
+) -> Result<()> {
+    client.patch_no_content(url, req).await
 }
 
 pub async fn delete_message(
@@ -349,6 +360,7 @@ mod tests {
     use crate::auth::token::TokenInfo;
     use crate::config::NetworkConfig;
     use crate::error::TeamsError;
+    use crate::models::message::ItemBody;
     use reqwest::Client;
     use wiremock::matchers::{body_json, header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -497,5 +509,143 @@ mod tests {
         .unwrap_err();
 
         assert!(matches!(err, TeamsError::PermissionDenied(_)), "{err:?}");
+    }
+
+    fn edit_request() -> SendMessageRequest {
+        SendMessageRequest {
+            body: ItemBody {
+                content_type: Some("text".to_string()),
+                content: Some("corrected text".to_string()),
+            },
+            attachments: None,
+            hosted_contents: None,
+        }
+    }
+
+    #[test]
+    fn chat_message_endpoint_targets_the_chats_collection() {
+        assert_eq!(
+            endpoints::chat_message("19:abc@thread.v2", "1700000000000"),
+            "https://graph.microsoft.com/v1.0/chats/19:abc@thread.v2/messages/1700000000000"
+        );
+    }
+
+    #[test]
+    fn message_ref_update_urls_target_the_message_resource() {
+        let chat = MessageRef::Chat {
+            chat_id: "19:abc@thread.v2".into(),
+            message_id: "1700000000000".into(),
+        };
+        assert_eq!(
+            chat.message_url(),
+            "https://graph.microsoft.com/v1.0/chats/19:abc@thread.v2/messages/1700000000000"
+        );
+        let channel = MessageRef::Channel {
+            team_id: "team-id".into(),
+            channel_id: "channel-id".into(),
+            message_id: "1700000000000".into(),
+        };
+        assert_eq!(
+            channel.message_url(),
+            "https://graph.microsoft.com/v1.0/teams/team-id/channels/channel-id/messages/1700000000000"
+        );
+    }
+
+    /// Graph answers a successful delegated edit with 204 and an empty body,
+    /// for chat messages and channel messages alike.
+    #[tokio::test]
+    async fn update_message_sends_the_body_and_accepts_no_content() {
+        let server = MockServer::start().await;
+        Mock::given(method("PATCH"))
+            .and(path("/chats/chat-id/messages/message-id"))
+            .and(header("authorization", "Bearer test-token"))
+            .and(body_json(serde_json::json!({
+                "body": { "contentType": "text", "content": "corrected text" }
+            })))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        update_message_at(
+            &test_client(),
+            &format!("{}/chats/chat-id/messages/message-id", server.uri()),
+            &edit_request(),
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn update_channel_message_accepts_no_content() {
+        let server = MockServer::start().await;
+        Mock::given(method("PATCH"))
+            .and(path(
+                "/teams/team-id/channels/channel-id/messages/message-id",
+            ))
+            .and(body_json(serde_json::json!({
+                "body": { "contentType": "text", "content": "corrected text" }
+            })))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        update_message_at(
+            &test_client(),
+            &format!(
+                "{}/teams/team-id/channels/channel-id/messages/message-id",
+                server.uri()
+            ),
+            &edit_request(),
+        )
+        .await
+        .unwrap();
+    }
+
+    /// Editing someone else's message, or one in a chat the caller cannot
+    /// write to, must surface as a permission error rather than a parse error.
+    #[tokio::test]
+    async fn update_message_reports_permission_denied() {
+        let server = MockServer::start().await;
+        Mock::given(method("PATCH"))
+            .respond_with(ResponseTemplate::new(403).set_body_json(serde_json::json!({
+                "error": { "code": "Forbidden", "message": "Insufficient privileges" }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let err = update_message_at(
+            &test_client(),
+            &format!("{}/chats/chat-id/messages/message-id", server.uri()),
+            &edit_request(),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(err, TeamsError::PermissionDenied(_)), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn update_message_reports_missing_message() {
+        let server = MockServer::start().await;
+        Mock::given(method("PATCH"))
+            .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
+                "error": { "code": "NotFound", "message": "Message not found" }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let err = update_message_at(
+            &test_client(),
+            &format!("{}/chats/chat-id/messages/message-id", server.uri()),
+            &edit_request(),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(err, TeamsError::NotFound(_)), "{err:?}");
     }
 }

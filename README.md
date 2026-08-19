@@ -373,6 +373,8 @@ teams message list --team <team-id> --channel <channel-id>
 teams message list --chat <chat-id>
 teams message get --team <team-id> --channel <channel-id> --message <msg-id>
 teams message reply --team <team-id> --channel <channel-id> --message <msg-id> --body "Thanks!"
+teams message update --team <team-id> --channel <channel-id> --message <msg-id> --body "Corrected"
+teams message update --chat <chat-id> --message <msg-id> --body "Corrected"
 teams message delete --team <team-id> --channel <channel-id> --message <msg-id>
 teams message react --team <team-id> --channel <channel-id> --message <msg-id> --reaction like
 teams message unreact --team <team-id> --channel <channel-id> --message <msg-id> --reaction like

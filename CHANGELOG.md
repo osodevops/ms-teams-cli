@@ -7,6 +7,7 @@
 - `TEAMS_CLI_PROFILE` environment variable for selecting the credential profile, with the same precedence as other auth environment variables: `--profile` flag, then `TEAMS_CLI_PROFILE`, then the config's `default.profile`, then `default`. This resolves #53.
 - `teams message react` and `teams message unreact` accept `--chat <chat-id>` for one-on-one and group chat messages, as an alternative to the `--team`/`--channel` pair. This resolves #62.
 - `message list` and `message get` now include each message's `reactions` (`reactionType`, `displayName`, `createdDateTime`, `user`).
+- `teams message update` accepts `--chat <chat-id>` to edit one's own chat messages, as an alternative to the `--team`/`--channel` pair.
 
 ### Changed
 
@@ -19,6 +20,7 @@
 - An explicit `--profile default` now addresses the profile named "default" even after `teams auth switch` has set another config default. Previously the flag's default value was indistinguishable from an explicit one, so the switched profile shadowed the literal "default" profile and it became unreachable from the command line. This resolves #55.
 - Token storage no longer deletes and recreates the keyring item on every write. On macOS the recreation discarded the item's access control list, so an "Always Allow" grant was revoked by the next silent token refresh and the keychain prompt returned within the hour. Items are now updated in place, which preserves the grant. This resolves #51.
 - A closed stdout pipe (for example `teams completions bash | head`) no longer panics with exit 101. Stdout writes are centralized in `output::write_stdout` / `write_stdout_line`; a broken pipe is treated as normal early termination (exit 0, nothing on stderr), and a command that fails while its pipe closes still exits with its real error code. This resolves #59.
+- `teams message update` no longer reports "Failed to parse API response" on a successful edit. For delegated callers Microsoft Graph answers the PATCH with `204 No Content` for chat and channel messages alike; the command now sends a no-content PATCH and reads the message back to show the new text. If the read-back fails the command still succeeds and returns `{"id": ..., "updated": true, "readBackError": ...}`.
 - Homebrew publication is now verified end to end: release jobs fail if the tap does not publish all four platform URLs with the release checksums, instead of treating an accepted but unhandled dispatch event as success.
 
 ## v0.3.0 - 2026-07-09

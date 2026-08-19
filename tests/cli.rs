@@ -853,3 +853,57 @@ fn subscribe_unknown_subcommand_fails() {
         .assert()
         .failure();
 }
+
+#[test]
+fn message_update_accepts_chat_target() {
+    teams()
+        .args(["message", "update", "--help"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("--chat")
+                .and(predicate::str::contains("for chat messages"))
+                .and(predicate::str::contains("for channel messages")),
+        );
+}
+
+#[test]
+fn message_update_without_a_target_is_rejected() {
+    teams()
+        .args(["message", "update", "1234", "--body", "x"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--chat"));
+}
+
+#[test]
+fn message_update_rejects_mixing_chat_and_channel_targets() {
+    teams()
+        .args([
+            "message",
+            "update",
+            "1234",
+            "--body",
+            "x",
+            "--chat",
+            "19:abc@thread.v2",
+            "--team",
+            "team-id",
+            "--channel",
+            "channel-id",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot be used with"));
+}
+
+#[test]
+fn message_update_requires_channel_alongside_team() {
+    teams()
+        .args([
+            "message", "update", "1234", "--body", "x", "--team", "team-id",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--channel"));
+}

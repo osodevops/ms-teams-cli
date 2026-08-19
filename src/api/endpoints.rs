@@ -107,7 +107,6 @@ pub fn chat_message_unset_reaction(chat_id: &str, message_id: &str) -> String {
     format!("{GRAPH_V1}/chats/{chat_id}/messages/{message_id}/unsetReaction")
 }
 
-#[allow(dead_code)]
 pub fn chat_message(chat_id: &str, message_id: &str) -> String {
     format!("{GRAPH_V1}/chats/{chat_id}/messages/{message_id}")
 }
