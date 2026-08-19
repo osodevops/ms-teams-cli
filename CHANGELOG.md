@@ -14,6 +14,7 @@
 
 - An explicit `--profile default` now addresses the profile named "default" even after `teams auth switch` has set another config default. Previously the flag's default value was indistinguishable from an explicit one, so the switched profile shadowed the literal "default" profile and it became unreachable from the command line. This resolves #55.
 - Token storage no longer deletes and recreates the keyring item on every write. On macOS the recreation discarded the item's access control list, so an "Always Allow" grant was revoked by the next silent token refresh and the keychain prompt returned within the hour. Items are now updated in place, which preserves the grant. This resolves #51.
+- A closed stdout pipe (for example `teams completions bash | head`) no longer panics with exit 101. Stdout writes are centralized in `output::write_stdout` / `write_stdout_line`; a broken pipe is treated as normal early termination (exit 0, nothing on stderr), and a command that fails while its pipe closes still exits with its real error code. This resolves #59.
 - Homebrew publication is now verified end to end: release jobs fail if the tap does not publish all four platform URLs with the release checksums, instead of treating an accepted but unhandled dispatch event as success.
 
 ## v0.3.0 - 2026-07-09
