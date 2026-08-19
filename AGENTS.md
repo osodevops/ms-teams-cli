@@ -117,7 +117,7 @@ For new command domains, update:
 
 The CLI currently covers:
 
-- `auth`: login, status, list, switch, logout, token export.
+- `auth`: login, refresh, status, consent-url, doctor, list, switch, logout, token export.
 - `user`: me, get, list.
 - `config`: init, show, get, set, path, profiles.
 - `team`: list/get/create/update/delete/clone/archive/unarchive/member operations.
@@ -176,6 +176,7 @@ CI runs on GitHub Actions:
 - Microsoft Graph permissions differ by tenant and auth type. A compile-time pass does not prove a command is usable with every auth flow.
 - Webhook subscriptions require an HTTPS public endpoint; `teams listen` only runs the local HTTP listener.
 - Most tests do not hit Microsoft Graph. Add mocked tests for API behavior instead of requiring live credentials.
+- macOS binds keychain access grants to the exact binary signature, so every local build is a "new" application and triggers a fresh keychain prompt when it touches stored tokens. Set `TEAMS_CLI_DISABLE_KEYRING=1` in tests (the CLI test harness already does), and see the macOS keychain section in `docs/troubleshooting.md` for the local re-signing workaround.
 - Keep global option names reserved. In particular, command-specific file paths must not reuse global `--output`, which is the JSON/human/plain output selector.
 - Keep `README.md`, `docs/man/teams.1`, and CLI help in sync. If a documented flag form exists in README, add a CLI regression test for it.
 - When verifying whether a PR is good to merge, check whether it is intended to release. Release automation is version-bump driven: a feature PR without a `Cargo.toml` package version change only runs CI on `main`; a release needs `Cargo.toml` and the root `teams-cli` entry in `Cargo.lock` bumped together, plus a matching `CHANGELOG.md` entry.

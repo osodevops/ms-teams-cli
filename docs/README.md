@@ -11,7 +11,7 @@ Project website: [msteamscli.com](http://msteamscli.com/)
 - [Command reference](command-reference.md): practical syntax for every command group.
 - [Examples](examples.md): copyable shell and PowerShell examples for common workflows.
 - [Use cases](use-cases.md): agency, consultancy, enterprise, support, DevOps, and agent patterns.
-- [Troubleshooting](troubleshooting.md): auth, Graph permissions, Windows keyring, rate limits, and stale chats.
+- [Troubleshooting](troubleshooting.md): auth, Graph permissions, macOS keychain prompts, Windows and Linux keyring, rate limits, and stale chats.
 - [FAQ](faq.md): product and auth questions likely to come up during customer rollout.
 - [Release readiness](release-readiness.md): what must pass before internal, RC, and commercial release.
 

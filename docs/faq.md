@@ -81,6 +81,10 @@ In the operating system keyring:
 
 Tokens are not stored in `config.toml`.
 
+On macOS, keychain access grants are tied to the binary's code signature, so
+upgrading or rebuilding `teams` triggers a fresh keychain prompt. See
+[macOS keychain prompts](troubleshooting.md#macos-keychain-prompts).
+
 ## Where is the config file?
 
 ```text
