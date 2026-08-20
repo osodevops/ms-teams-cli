@@ -49,6 +49,29 @@ impl MessageRef {
         }
     }
 
+    /// URL of a Graph action (`softDelete`, `undoSoftDelete`) on this message.
+    fn action_url(&self, action: &str) -> String {
+        match self {
+            Self::Channel {
+                team_id,
+                channel_id,
+                message_id,
+            } => endpoints::channel_message_action(team_id, channel_id, message_id, action),
+            Self::ChannelReply {
+                team_id,
+                channel_id,
+                message_id,
+                reply_id,
+            } => endpoints::channel_message_reply_action(
+                team_id, channel_id, message_id, reply_id, action,
+            ),
+            Self::Chat {
+                chat_id,
+                message_id,
+            } => endpoints::me_chat_message_action(chat_id, message_id, action),
+        }
+    }
+
     fn hosted_contents_url(&self) -> String {
         match self {
             Self::Channel {
@@ -213,15 +236,25 @@ async fn update_message_at(
     client.patch_no_content(url, req).await
 }
 
-pub async fn delete_message(
-    client: &GraphClient,
-    team_id: &str,
-    channel_id: &str,
-    message_id: &str,
-) -> Result<()> {
-    client
-        .delete(&endpoints::channel_message(team_id, channel_id, message_id))
-        .await
+/// Soft-delete a message the signed-in user sent. Graph rejects the DELETE
+/// verb on messages ("Requested API is not supported"); the `softDelete`
+/// action answers `204 No Content`, and does so again for a message that is
+/// already deleted, so the caller must read the message back to learn its
+/// state. The action is delegated-only; the command layer requires a
+/// delegated token first.
+pub async fn soft_delete_message(client: &GraphClient, message: &MessageRef) -> Result<()> {
+    post_action(client, &message.action_url("softDelete")).await
+}
+
+/// Reverse [`soft_delete_message`]; Graph answers `204 No Content`.
+pub async fn undo_soft_delete_message(client: &GraphClient, message: &MessageRef) -> Result<()> {
+    post_action(client, &message.action_url("undoSoftDelete")).await
+}
+
+/// The actions take no parameters. Graph accepts an empty JSON object as the
+/// body, which lets the shared no-content POST helper be reused as is.
+async fn post_action(client: &GraphClient, url: &str) -> Result<()> {
+    client.post_no_content(url, &serde_json::json!({})).await
 }
 
 // --- Chat Messages ---
@@ -827,5 +860,133 @@ mod tests {
                 .and_then(|body| body.content.as_deref()),
             Some("first")
         );
+    }
+    #[test]
+    fn message_ref_action_urls_follow_graph_paths() {
+        let chat = MessageRef::Chat {
+            chat_id: "19:abc@thread.v2".into(),
+            message_id: "1700000000000".into(),
+        };
+        assert_eq!(
+            chat.action_url("softDelete"),
+            "https://graph.microsoft.com/v1.0/me/chats/19:abc@thread.v2/messages/1700000000000/softDelete"
+        );
+        let channel = MessageRef::Channel {
+            team_id: "team-id".into(),
+            channel_id: "channel-id".into(),
+            message_id: "1700000000000".into(),
+        };
+        assert_eq!(
+            channel.action_url("undoSoftDelete"),
+            "https://graph.microsoft.com/v1.0/teams/team-id/channels/channel-id/messages/1700000000000/undoSoftDelete"
+        );
+        let reply = MessageRef::ChannelReply {
+            team_id: "team-id".into(),
+            channel_id: "channel-id".into(),
+            message_id: "1700000000000".into(),
+            reply_id: "1700000000001".into(),
+        };
+        assert_eq!(
+            reply.action_url("softDelete"),
+            "https://graph.microsoft.com/v1.0/teams/team-id/channels/channel-id/messages/1700000000000/replies/1700000000001/softDelete"
+        );
+    }
+
+    /// Graph answers both actions with 204 and an empty body, and accepts an
+    /// empty JSON object as the request body.
+    #[tokio::test]
+    async fn soft_delete_posts_the_action_and_accepts_no_content() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/me/chats/chat-id/messages/message-id/softDelete"))
+            .and(header("authorization", "Bearer test-token"))
+            .and(body_json(serde_json::json!({})))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        post_action(
+            &test_client(),
+            &format!(
+                "{}/me/chats/chat-id/messages/message-id/softDelete",
+                server.uri()
+            ),
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn undo_soft_delete_posts_the_action_and_accepts_no_content() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(
+                "/teams/team-id/channels/channel-id/messages/message-id/undoSoftDelete",
+            ))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        post_action(
+            &test_client(),
+            &format!(
+                "{}/teams/team-id/channels/channel-id/messages/message-id/undoSoftDelete",
+                server.uri()
+            ),
+        )
+        .await
+        .unwrap();
+    }
+
+    /// Deleting someone else's message, or a channel post without the
+    /// ChannelMessage.ReadWrite scope, must surface as a permission error.
+    #[tokio::test]
+    async fn soft_delete_reports_permission_denied() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(403).set_body_json(serde_json::json!({
+                "error": { "code": "Forbidden", "message": "Insufficient privileges" }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let err = post_action(
+            &test_client(),
+            &format!(
+                "{}/me/chats/chat-id/messages/message-id/softDelete",
+                server.uri()
+            ),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(err, TeamsError::PermissionDenied(_)), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn soft_delete_reports_missing_message() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
+                "error": { "code": "NotFound", "message": "Message not found" }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let err = post_action(
+            &test_client(),
+            &format!(
+                "{}/me/chats/chat-id/messages/message-id/softDelete",
+                server.uri()
+            ),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(err, TeamsError::NotFound(_)), "{err:?}");
     }
 }

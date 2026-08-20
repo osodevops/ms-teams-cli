@@ -91,6 +91,8 @@ All Microsoft Graph calls should go through `GraphClient` in `src/api/client.rs`
 
 Use endpoint builders from `src/api/endpoints.rs` rather than constructing Graph URLs inline in command handlers. Endpoints target `https://graph.microsoft.com/v1.0` (setReaction/unsetReaction moved from beta to v1.0 in Graph and the CLI follows); `GRAPH_BETA` remains available for any future beta-only call.
 
+Message deletion goes through the v1.0 `softDelete` / `undoSoftDelete` actions, never the DELETE verb, which Graph rejects for messages. Verified with a delegated token on 2026-08-20: `POST /me/chats/{chat}/messages/{id}/softDelete` and the documented `/users/{oid}/chats/...` form answer 204 (with an empty body or `{}`); the undocumented `/chats/{chat}/messages/{id}/softDelete` form answers 405; a repeat `softDelete` on an already-deleted message is also 204, so state must be read back (`deletedDateTime`). Channel targets need `ChannelMessage.ReadWrite`, which is not in the default delegated scopes.
+
 ## Command Implementation Pattern
 
 Most command modules follow this shape:
@@ -122,7 +124,7 @@ The CLI currently covers:
 - `config`: init, show, get, set, path, profiles.
 - `team`: list/get/create/update/delete/clone/archive/unarchive/member operations.
 - `channel`: list/get/create/update/delete/member operations.
-- `message`: send/list/get/reply/update/delete/react/unreact/pin/unpin.
+- `message`: send/list/get/reply/update/delete/undelete/react/unreact/pin/unpin.
 - `chat`: list/get/create/update/hide/unhide/member operations.
 - `presence`: get, batch get, set, clear, preferred set/clear, status message.
 - `search`: messages, users, teams.

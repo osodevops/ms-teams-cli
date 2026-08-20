@@ -2,13 +2,20 @@
 
 ## Unreleased
 
+### Added
+
+- `teams message undelete` restores a message removed with `message delete`, through the Graph `undoSoftDelete` action.
+- `message list` and `message get` include `deletedDateTime` on soft-deleted messages.
+
 ### Changed
 
 - Refreshed the Rust dependencies: the rust-minor group (`clap` 4.6.7, `clap_complete` 4.6.11, `toml` 1.1.6, `hyper` 1.11.1, `hyper-util` 0.1.21, `uuid` 1.26.1, `thiserror` 2.0.21) and `rustls` 0.23.37 → 0.23.45 (with `rustls-webpki` 0.103.15), which clears RUSTSEC-2026-0285 (TLS 1.3 handshake messages accepted across encryption-level boundaries; `rustls` is reached through `reqwest`) from `cargo audit`. The release workflow's `softprops/action-gh-release` pin moves to v3.0.3.
+- `teams message delete` now calls the Graph `softDelete` action and accepts `--chat <chat-id>` as well as the `--team`/`--channel` pair, plus `--reply <reply-id>` for channel thread replies. Deletion must be confirmed with `--yes`; without it the command exits with code 2 and sends nothing. On success the message is read back so the output shows `deletedDateTime`.
 
 ### Fixed
 
 - `message list` and `message get` no longer drop a mention's identity when the mention is not a person. The mention model only knew the `user` form of Graph's `chatMessageMentionedIdentitySet`, so an @Everyone (a `conversation` identity naming the chat or channel itself), an @channel or @team, and a team `tag` mention all read back as `"mentioned": {}` on every output, making a resolved mention look like one that never resolved. A bot or other app mentioned by a person (an `application` identity) was dropped the same way, and so was the sender of a message a bot, workflow or connector posted: `from` read back as `{}` and the human list's From column was blank. Every identity form Graph documents — `user`, `application`, `device`, `conversation` and `tag` — is now retained with its id, display name and type; the From column falls back to the application's name; user mentions and the send-side `--mention` shape are unchanged.
+- `teams message delete` previously sent the DELETE verb, which Microsoft Graph rejects for messages ("Requested API is not supported"), so the command could never delete anything.
 
 ## v0.7.0 - 2026-09-06
 

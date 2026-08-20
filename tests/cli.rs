@@ -639,7 +639,8 @@ fn message_help_shows_subcommands() {
                 .and(predicate::str::contains("reply"))
                 .and(predicate::str::contains("react"))
                 .and(predicate::str::contains("pin"))
-                .and(predicate::str::contains("delete")),
+                .and(predicate::str::contains("delete"))
+                .and(predicate::str::contains("undelete")),
         );
 }
 
@@ -786,6 +787,69 @@ fn documented_chat_attachment_command_parses_before_authentication() {
         .assert()
         .code(3)
         .stdout(predicate::str::contains("auth login"));
+}
+
+#[test]
+fn message_delete_and_undelete_accept_chat_and_reply_targets() {
+    for sub in ["delete", "undelete"] {
+        teams()
+            .args(["message", sub, "--help"])
+            .assert()
+            .success()
+            .stdout(
+                predicate::str::contains("--chat <CHAT>")
+                    .and(predicate::str::contains("--reply <REPLY>"))
+                    .and(predicate::str::contains("--message <MESSAGE>")),
+            );
+    }
+}
+
+/// Deletion must be confirmed explicitly. Without `--yes` the command fails
+/// at argument parsing, before any token is resolved or request is sent, so
+/// the exit code is 2 rather than the auth error a bare environment produces.
+#[test]
+fn message_delete_requires_yes() {
+    teams()
+        .args([
+            "message",
+            "delete",
+            "--chat",
+            "19:abc@thread.v2",
+            "1700000000000",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("--yes"));
+}
+
+#[test]
+fn message_delete_rejects_incomplete_or_mixed_targets() {
+    teams()
+        .args(["message", "delete", "--team", "team-id", "1", "--yes"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("--channel"));
+
+    teams()
+        .args([
+            "message",
+            "delete",
+            "--chat",
+            "19:abc@thread.v2",
+            "--reply",
+            "2",
+            "1",
+            "--yes",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("cannot be used with"));
+
+    teams()
+        .args(["message", "undelete", "--channel", "channel-id", "1"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("--team"));
 }
 
 #[test]

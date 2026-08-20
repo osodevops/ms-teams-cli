@@ -236,14 +236,55 @@ pub enum MessageCommand {
         )]
         pinned_message: Option<String>,
     },
-    /// Delete a message
+    /// Delete your own message (a soft delete; undo it with `message undelete`)
+    #[command(
+        override_usage = "teams message delete (--team <TEAM> --channel <CHANNEL> [--reply <REPLY>] | --chat <CHAT>) (MESSAGE_ID | --message <MESSAGE>) --yes"
+    )]
     Delete {
-        /// Team ID
-        #[arg(long)]
-        team: String,
-        /// Channel ID
-        #[arg(long)]
-        channel: String,
+        /// Team ID (for channel messages; requires --channel)
+        #[arg(long, requires = "channel", conflicts_with = "chat")]
+        team: Option<String>,
+        /// Channel ID (for channel messages; requires --team)
+        #[arg(long, requires = "team", conflicts_with = "chat")]
+        channel: Option<String>,
+        /// Chat ID (for chat messages)
+        #[arg(long, required_unless_present = "team")]
+        chat: Option<String>,
+        /// Reply ID, to target a reply in a channel thread (MESSAGE_ID is then the parent post)
+        #[arg(long, requires = "team", conflicts_with = "chat")]
+        reply: Option<String>,
+        /// Message ID
+        #[arg(required_unless_present = "message", conflicts_with = "message")]
+        message_id: Option<String>,
+        /// Message ID
+        #[arg(
+            long = "message",
+            alias = "message-id",
+            required_unless_present = "message_id",
+            conflicts_with = "message_id"
+        )]
+        message: Option<String>,
+        /// Confirm the deletion; without it nothing is sent and the command exits with code 2
+        #[arg(long, required = true)]
+        yes: bool,
+    },
+    /// Restore a message removed with `message delete`
+    #[command(
+        override_usage = "teams message undelete (--team <TEAM> --channel <CHANNEL> [--reply <REPLY>] | --chat <CHAT>) (MESSAGE_ID | --message <MESSAGE>)"
+    )]
+    Undelete {
+        /// Team ID (for channel messages; requires --channel)
+        #[arg(long, requires = "channel", conflicts_with = "chat")]
+        team: Option<String>,
+        /// Channel ID (for channel messages; requires --team)
+        #[arg(long, requires = "team", conflicts_with = "chat")]
+        channel: Option<String>,
+        /// Chat ID (for chat messages)
+        #[arg(long, required_unless_present = "team")]
+        chat: Option<String>,
+        /// Reply ID, to target a reply in a channel thread (MESSAGE_ID is then the parent post)
+        #[arg(long, requires = "team", conflicts_with = "chat")]
+        reply: Option<String>,
         /// Message ID
         #[arg(required_unless_present = "message", conflicts_with = "message")]
         message_id: Option<String>,
@@ -585,15 +626,53 @@ pub async fn run(
         MessageCommand::Delete {
             team,
             channel,
+            chat,
+            reply,
             message_id,
             message,
+            yes: _,
         } => {
             let start = Instant::now();
             auth::require_delegated_token(&client.token, "Deleting Teams messages")?;
             let message_id = resolve_id(message_id, message, "--message or <MESSAGE_ID>")?;
-            api::messages::delete_message(&client, &team, &channel, &message_id).await?;
-            let result = serde_json::json!({"status": "deleted"});
-            output::print_success(format, &result, start);
+            let target = super::message_attachments::resolve_message_ref(
+                team,
+                channel,
+                chat,
+                reply,
+                message_id.clone(),
+            )?;
+            api::messages::soft_delete_message(&client, &target)
+                .await
+                .map_err(|err| with_channel_scope_hint(err, &target))?;
+            let msg = read_back(&client, &target, &message_id, "deleted").await;
+            output::print_success(format, &msg, start);
+            Ok(())
+        }
+
+        MessageCommand::Undelete {
+            team,
+            channel,
+            chat,
+            reply,
+            message_id,
+            message,
+        } => {
+            let start = Instant::now();
+            auth::require_delegated_token(&client.token, "Restoring Teams messages")?;
+            let message_id = resolve_id(message_id, message, "--message or <MESSAGE_ID>")?;
+            let target = super::message_attachments::resolve_message_ref(
+                team,
+                channel,
+                chat,
+                reply,
+                message_id.clone(),
+            )?;
+            api::messages::undo_soft_delete_message(&client, &target)
+                .await
+                .map_err(|err| with_channel_scope_hint(err, &target))?;
+            let msg = read_back(&client, &target, &message_id, "restored").await;
+            output::print_success(format, &msg, start);
             Ok(())
         }
 
@@ -624,26 +703,51 @@ pub async fn run(
                 }
             };
             api::messages::update_message(&client, &target, &req).await?;
-            // Graph answers a delegated edit with no content, so the message is
-            // fetched back to show the new text. The edit has already been
-            // applied by this point, so a failed read-back is reported alongside
-            // a successful update rather than as a failed command.
-            let msg = match api::messages::get_message(&client, &target).await {
-                Ok(updated) => {
-                    serde_json::to_value(updated).map_err(|e| TeamsError::Other(e.into()))?
-                }
-                Err(err) => {
-                    tracing::warn!("Message updated, but reading it back failed: {err}");
-                    serde_json::json!({
-                        "id": message_id,
-                        "updated": true,
-                        "readBackError": err.to_string(),
-                    })
-                }
-            };
+            let msg = read_back(&client, &target, &message_id, "updated").await;
             output::print_success(format, &msg, start);
             Ok(())
         }
+    }
+}
+
+/// Graph answers a delegated edit, delete or undelete with no content, so the
+/// message is fetched back to show its new state (the edited text, or
+/// `deletedDateTime` set or cleared). The mutation has already been applied by
+/// this point, so a failed read-back is reported alongside the successful
+/// change rather than as a failed command, with `outcome` naming the change.
+async fn read_back(
+    client: &GraphClient,
+    target: &api::messages::MessageRef,
+    message_id: &str,
+    outcome: &str,
+) -> serde_json::Value {
+    let fetched = api::messages::get_message(client, target)
+        .await
+        .and_then(|msg| serde_json::to_value(msg).map_err(|e| TeamsError::Other(e.into())));
+    match fetched {
+        Ok(value) => value,
+        Err(err) => {
+            tracing::warn!("Message {outcome}, but reading it back failed: {err}");
+            serde_json::json!({
+                "id": message_id,
+                outcome: true,
+                "readBackError": err.to_string(),
+            })
+        }
+    }
+}
+
+/// Channel deletion needs a delegated scope the default login does not
+/// request, and Graph's 403 does not say so. Name the scope so the fix is
+/// obvious; chat targets pass the error through unchanged.
+fn with_channel_scope_hint(err: TeamsError, target: &api::messages::MessageRef) -> TeamsError {
+    let is_channel = !matches!(target, api::messages::MessageRef::Chat { .. });
+    match err {
+        TeamsError::PermissionDenied(msg) if is_channel => TeamsError::PermissionDenied(format!(
+            "{msg} (channel messages need the ChannelMessage.ReadWrite delegated scope; \
+             sign in again with `teams auth login --scopes ...` including it)"
+        )),
+        other => other,
     }
 }
 

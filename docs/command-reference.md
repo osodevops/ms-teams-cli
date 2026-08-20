@@ -113,7 +113,8 @@ teams message attachments list (--team TEAM_ID --channel CHANNEL_ID [--reply REP
 teams message attachments download (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID) [--index N] [--dir DIR | --path FILE]
 teams message reply --team TEAM_ID --channel CHANNEL_ID --message-id MESSAGE_ID [--body TEXT | --stdin] [--content-type text|html] [--image PATH]... [--attach PATH]... [--mention USER]...
 teams message update (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID) --body TEXT [--content-type text|html]
-teams message delete --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID)
+teams message delete (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID) --yes
+teams message undelete (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID)
 teams message react (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) --message-id MESSAGE_ID (REACTION | --reaction REACTION)
 teams message unreact (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) --message-id MESSAGE_ID (REACTION | --reaction REACTION)
 teams message pin --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID)
@@ -159,6 +160,8 @@ teams message reply --team TEAM_ID --channel CHANNEL_ID --message-id ROOT_MESSAG
 teams message send --team TEAM_ID --channel CHANNEL_ID \
   --subject "Release plan" --body "Details inside."
 ```
+
+`message delete` soft-deletes your own message through the Graph `softDelete` action (Graph does not support the DELETE verb on messages); `message undelete` reverses it with `undoSoftDelete`. Both are delegated-only. Chat targets need `Chat.ReadWrite`; channel posts and replies need the `ChannelMessage.ReadWrite` delegated scope, which the default login does not request. Deletion must be confirmed with `--yes`: without it the command exits with code 2 and sends nothing. Graph returns no content on success, and answers 204 again for a message that is already deleted, so each command reads the message back and prints it: a deleted message has `deletedDateTime` set and an empty body, a restored one has it cleared. If the read-back fails the change has still been applied and the output is `{"id": ..., "deleted": true, "readBackError": ...}` (or `"restored"`).
 
 `message attachments` unifies the two ways Teams stores message media: inline images pasted into the compose box (Graph "hosted contents") and files attached via SharePoint/OneDrive (`reference` attachments). `list` returns an indexed inventory; `download` fetches everything downloadable by default, or one item with `--index` (add `--path FILE` for an exact destination, or `--path -` to stream to stdout). Inline images and code snippets need no scopes beyond message reads; file attachments additionally require the `Files.Read.All` delegated scope. `message get --with-attachments` embeds the same inventory under `attachment_items` in the message output.
 

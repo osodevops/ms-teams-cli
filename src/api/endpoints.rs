@@ -115,6 +115,38 @@ pub fn chat_message(chat_id: &str, message_id: &str) -> String {
     format!("{GRAPH_V1}/chats/{chat_id}/messages/{message_id}")
 }
 
+/// Graph exposes message deletion as the `softDelete` and `undoSoftDelete`
+/// actions rather than the DELETE verb. For channel posts and replies the
+/// action hangs off the message resource.
+pub fn channel_message_action(
+    team_id: &str,
+    channel_id: &str,
+    message_id: &str,
+    action: &str,
+) -> String {
+    format!("{GRAPH_V1}/teams/{team_id}/channels/{channel_id}/messages/{message_id}/{action}")
+}
+
+pub fn channel_message_reply_action(
+    team_id: &str,
+    channel_id: &str,
+    message_id: &str,
+    reply_id: &str,
+    action: &str,
+) -> String {
+    format!(
+        "{GRAPH_V1}/teams/{team_id}/channels/{channel_id}/messages/{message_id}/replies/{reply_id}/{action}"
+    )
+}
+
+/// Chat message actions are only served under a user path. Graph documents
+/// `/users/{id}/chats/...` and also accepts `/me/chats/...`, while the plain
+/// `/chats/{id}/messages/{id}/softDelete` form answers 405 (verified
+/// 2026-08-20 with a delegated token).
+pub fn me_chat_message_action(chat_id: &str, message_id: &str, action: &str) -> String {
+    format!("{GRAPH_V1}/me/chats/{chat_id}/messages/{message_id}/{action}")
+}
+
 // --- Pinned Messages ---
 pub fn channel_pinned_messages(team_id: &str, channel_id: &str) -> String {
     format!("{GRAPH_V1}/teams/{team_id}/channels/{channel_id}/pinnedMessages")

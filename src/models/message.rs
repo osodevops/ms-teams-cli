@@ -8,6 +8,9 @@ pub struct ChatMessage {
     pub id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_date_time: Option<String>,
+    /// Set once the message has been soft-deleted; Graph also blanks the body.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deleted_date_time: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subject: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -263,6 +266,7 @@ mod tests {
             id: Some("msg1".into()),
             created_date_time: Some("2024-01-01T00:00:00Z".into()),
             subject: None,
+            deleted_date_time: None,
             from: Some(ChatMessageFrom {
                 user: Some(ChatMessageUser {
                     id: Some("u1".into()),

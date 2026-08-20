@@ -387,7 +387,9 @@ teams message get --team <team-id> --channel <channel-id> --message <msg-id>
 teams message reply --team <team-id> --channel <channel-id> --message <msg-id> --mention <user-id-or-upn> --body "Thanks!"
 teams message update --team <team-id> --channel <channel-id> --message <msg-id> --body "Corrected"
 teams message update --chat <chat-id> --message <msg-id> --body "Corrected"
-teams message delete --team <team-id> --channel <channel-id> --message <msg-id>
+teams message delete --chat <chat-id> --message <msg-id> --yes
+teams message delete --team <team-id> --channel <channel-id> --message <msg-id> --yes
+teams message undelete --chat <chat-id> --message <msg-id>
 teams message react --team <team-id> --channel <channel-id> --message <msg-id> --reaction like
 teams message unreact --team <team-id> --channel <channel-id> --message <msg-id> --reaction like
 teams message react --chat <chat-id> --message <msg-id> --reaction eyes

@@ -188,7 +188,7 @@ pub async fn fetch_inventory(
     Ok(build_inventory(&msg, &hosted))
 }
 
-fn resolve_message_ref(
+pub(crate) fn resolve_message_ref(
     team: Option<String>,
     channel: Option<String>,
     chat: Option<String>,
