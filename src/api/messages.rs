@@ -29,7 +29,7 @@ pub enum MessageRef {
 }
 
 impl MessageRef {
-    fn message_url(&self) -> String {
+    pub(crate) fn message_url(&self) -> String {
         match self {
             Self::Channel {
                 team_id,
@@ -129,7 +129,11 @@ impl MessageRef {
 }
 
 pub async fn get_message(client: &GraphClient, message: &MessageRef) -> Result<ChatMessage> {
-    client.get(&message.message_url(), &[]).await
+    get_message_at(client, &message.message_url()).await
+}
+
+pub(crate) async fn get_message_at(client: &GraphClient, url: &str) -> Result<ChatMessage> {
+    client.get(url, &[]).await
 }
 
 pub async fn list_hosted_contents(
@@ -964,6 +968,28 @@ mod tests {
         .unwrap_err();
 
         assert!(matches!(err, TeamsError::PermissionDenied(_)), "{err:?}");
+        assert_eq!(err.exit_code(), 4);
+    }
+
+    /// Graph answers a repeat softDelete on an already-deleted message with
+    /// 204 as well, so the action itself never reports "already deleted";
+    /// callers learn the state from the read-back instead.
+    #[tokio::test]
+    async fn repeat_soft_delete_is_not_an_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/me/chats/chat-id/messages/message-id/softDelete"))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(2)
+            .mount(&server)
+            .await;
+
+        let url = format!(
+            "{}/me/chats/chat-id/messages/message-id/softDelete",
+            server.uri()
+        );
+        post_action(&test_client(), &url).await.unwrap();
+        post_action(&test_client(), &url).await.unwrap();
     }
 
     #[tokio::test]
@@ -988,5 +1014,6 @@ mod tests {
         .unwrap_err();
 
         assert!(matches!(err, TeamsError::NotFound(_)), "{err:?}");
+        assert_eq!(err.exit_code(), 5);
     }
 }

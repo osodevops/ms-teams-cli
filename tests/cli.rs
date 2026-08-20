@@ -804,9 +804,10 @@ fn message_delete_and_undelete_accept_chat_and_reply_targets() {
     }
 }
 
-/// Deletion must be confirmed explicitly. Without `--yes` the command fails
-/// at argument parsing, before any token is resolved or request is sent, so
-/// the exit code is 2 rather than the auth error a bare environment produces.
+/// Deletion must be confirmed explicitly. Without `--yes` the command is
+/// refused before any token is resolved or request is sent, so the exit code
+/// is 2 (not the auth error a bare environment would otherwise produce) and
+/// the refusal arrives in the normal error envelope.
 #[test]
 fn message_delete_requires_yes() {
     teams()
@@ -816,6 +817,26 @@ fn message_delete_requires_yes() {
             "--chat",
             "19:abc@thread.v2",
             "1700000000000",
+            "--output",
+            "json",
+        ])
+        .assert()
+        .code(2)
+        .stdout(
+            predicate::str::contains("\"success\": false")
+                .and(predicate::str::contains("INVALID_INPUT"))
+                .and(predicate::str::contains("--yes")),
+        );
+
+    teams()
+        .args([
+            "message",
+            "delete",
+            "--chat",
+            "19:abc@thread.v2",
+            "1700000000000",
+            "--output",
+            "human",
         ])
         .assert()
         .code(2)

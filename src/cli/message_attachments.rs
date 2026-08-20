@@ -9,6 +9,8 @@ use crate::error::{Result, TeamsError};
 use crate::models::attachment_inventory::{build_inventory, AttachmentItem, ItemKind};
 use crate::output::{self, OutputFormat};
 
+use super::message::resolve_message_ref;
+
 #[derive(Debug, Subcommand)]
 pub enum AttachmentsCommand {
     /// List attachments and inline images in a message
@@ -186,44 +188,6 @@ pub async fn fetch_inventory(
     let msg = api::messages::get_message(client, message_ref).await?;
     let hosted = api::messages::list_hosted_contents(client, message_ref).await?;
     Ok(build_inventory(&msg, &hosted))
-}
-
-pub(crate) fn resolve_message_ref(
-    team: Option<String>,
-    channel: Option<String>,
-    chat: Option<String>,
-    reply: Option<String>,
-    message_id: String,
-) -> Result<MessageRef> {
-    match (chat, team, channel) {
-        (Some(chat_id), None, None) => {
-            if reply.is_some() {
-                return Err(TeamsError::InvalidInput(
-                    "--reply only applies to channel messages".into(),
-                ));
-            }
-            Ok(MessageRef::Chat {
-                chat_id,
-                message_id,
-            })
-        }
-        (None, Some(team_id), Some(channel_id)) => Ok(match reply {
-            Some(reply_id) => MessageRef::ChannelReply {
-                team_id,
-                channel_id,
-                message_id,
-                reply_id,
-            },
-            None => MessageRef::Channel {
-                team_id,
-                channel_id,
-                message_id,
-            },
-        }),
-        _ => Err(TeamsError::InvalidInput(
-            "Provide either --chat, or both --team and --channel".into(),
-        )),
-    }
 }
 
 fn select_items(items: &[AttachmentItem], index: Option<usize>) -> Result<Vec<&AttachmentItem>> {
@@ -535,32 +499,5 @@ mod tests {
             code_snippet_hosted_content_id("https://evil.example.com/hostedContents//$value"),
             None
         );
-    }
-
-    #[test]
-    fn resolve_message_ref_validates_target_combinations() {
-        assert!(matches!(
-            resolve_message_ref(None, None, Some("19:x".into()), None, "m".into()),
-            Ok(MessageRef::Chat { .. })
-        ));
-        assert!(matches!(
-            resolve_message_ref(
-                Some("t".into()),
-                Some("c".into()),
-                None,
-                Some("r".into()),
-                "m".into()
-            ),
-            Ok(MessageRef::ChannelReply { .. })
-        ));
-        assert!(resolve_message_ref(Some("t".into()), None, None, None, "m".into()).is_err());
-        assert!(resolve_message_ref(
-            None,
-            None,
-            Some("19:x".into()),
-            Some("r".into()),
-            "m".into()
-        )
-        .is_err());
     }
 }
