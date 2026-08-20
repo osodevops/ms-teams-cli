@@ -170,16 +170,16 @@ fn annotate_consent_error(
 ///
 /// The identity comes from the access token's unverified claims, the same
 /// source `auth status` and `auth doctor` use. A profile whose token cannot be
-/// read or decoded is still listed, with the identity fields null, so a broken
-/// keyring entry does not hide the profile.
+/// read or decoded is still listed, with every field but `name` null, so a
+/// broken keyring entry does not hide the profile.
 fn summarize_profile(name: &str, token: Option<&auth::token::TokenInfo>) -> serde_json::Value {
-    let claims = token.and_then(|t| t.unverified_claims());
+    let decoded = token.and_then(|t| t.unverified_claims().map(|claims| (t, claims)));
     serde_json::json!({
         "name": name,
-        "user": claims.as_ref().and_then(|c| c.user()),
-        "tenant_id": claims.as_ref().and_then(|c| c.tid.as_deref()),
-        "auth_type": claims.as_ref().map(|c| c.auth_type()),
-        "expires_at": token.and_then(|t| t.expires_at.map(|e| e.to_rfc3339())),
+        "user": decoded.as_ref().and_then(|(_, c)| c.user()),
+        "tenant_id": decoded.as_ref().and_then(|(_, c)| c.tid.as_deref()),
+        "auth_type": decoded.as_ref().map(|(_, c)| c.auth_type()),
+        "expires_at": decoded.as_ref().and_then(|(t, _)| t.expires_at.map(|e| e.to_rfc3339())),
     })
 }
 
@@ -530,16 +530,17 @@ mod tests {
     }
 
     #[test]
-    fn summarize_profile_keeps_expiry_when_token_is_not_a_jwt() {
+    fn summarize_profile_nulls_every_field_when_token_is_not_a_jwt() {
         let mut token = token_with_payload(serde_json::json!({}));
         token.access_token = "opaque-token".into();
 
         let summary = summarize_profile("opaque", Some(&token));
 
+        assert_eq!(summary["name"], "opaque");
         assert!(summary["user"].is_null());
         assert!(summary["tenant_id"].is_null());
         assert!(summary["auth_type"].is_null());
-        assert_eq!(summary["expires_at"], "2030-01-02T03:04:05+00:00");
+        assert!(summary["expires_at"].is_null());
     }
 
     #[test]
