@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- `teams auth list` reports, for each profile, the signed-in `user`, `tenant_id`, and `auth_type` (`delegated`, `app-only`, or `unknown`) decoded from the stored token's claims, plus the stored token's `expires_at`, without any network call. A profile whose token cannot be read or decoded is still listed with those fields `null`. This resolves #54.
+
 ## v0.4.0 - 2026-08-19
 
 ### Added

@@ -272,11 +272,36 @@ Check whether the profile is authenticated:
 teams auth status --output json
 ```
 
-List profiles:
+List profiles and the account each one holds:
 
 ```bash
 teams auth list --output json
 ```
+
+Each entry reports the signed-in `user` (principal name), `tenant_id`, and
+`auth_type` (`delegated`, `app-only`, or `unknown`), decoded from the stored
+token's claims, plus the stored token's `expires_at`. No network call is made
+and no refresh is attempted, so `expires_at` may be in the past. A profile
+whose token cannot be read or decoded is still listed with all four fields
+`null`, so a broken keyring entry does not hide the profile. An `app-only`
+profile has no `user`.
+
+```json
+{
+  "success": true,
+  "data": {
+    "profiles": [
+      { "name": "default", "user": "a@contoso.com", "tenant_id": "...", "auth_type": "delegated", "expires_at": "..." },
+      { "name": "alt", "user": "b@contoso.com", "tenant_id": "...", "auth_type": "delegated", "expires_at": "..." }
+    ],
+    "active": "default"
+  },
+  "metadata": { "request_id": "...", "timestamp": "...", "api_version": "v1.0", "duration_ms": 12 }
+}
+```
+
+On macOS this reads one keychain item per profile, so the first run of a new
+binary may prompt once per profile.
 
 Log out:
 
