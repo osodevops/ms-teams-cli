@@ -75,6 +75,18 @@ fn auth_status_without_login_exits_nonzero() {
 }
 
 #[test]
+fn auth_list_without_keyring_reports_no_profiles() {
+    teams()
+        .args(["auth", "list", "--output", "json"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("\"profiles\": []")
+                .and(predicate::str::contains("\"active\": \"default\"")),
+        );
+}
+
+#[test]
 fn auth_consent_url_uses_oso_default_client_id() {
     teams()
         .args(["auth", "consent-url", "--output", "json"])
