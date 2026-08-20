@@ -335,7 +335,7 @@ teams auth refresh           # Silently redeem the refresh token (picks up newly
 teams auth status            # Check if session is valid (exit code 0/1)
 teams auth consent-url       # Print admin consent URL for the active auth app
 teams auth doctor            # Diagnose config and token state
-teams auth list              # List authenticated profiles
+teams auth list              # List profiles and the account each one holds
 teams auth switch <profile>  # Switch active profile
 teams auth logout            # Clear stored credentials
 teams auth token             # Export access token to stdout

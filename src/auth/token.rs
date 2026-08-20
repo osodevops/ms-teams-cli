@@ -46,6 +46,14 @@ pub struct TokenClaims {
 }
 
 impl TokenClaims {
+    /// The signed-in user's principal name, when the token carries one.
+    ///
+    /// Delegated tokens carry `preferred_username`; older tokens carry only
+    /// `upn`. App-only tokens carry neither.
+    pub fn user(&self) -> Option<&str> {
+        self.preferred_username.as_deref().or(self.upn.as_deref())
+    }
+
     pub fn auth_type(&self) -> &'static str {
         if self.scp.as_deref().is_some_and(|s| !s.trim().is_empty()) {
             "delegated"

@@ -66,7 +66,7 @@ pub enum AuthCommand {
         #[arg(long, env = "TEAMS_CLI_TENANT_ID")]
         tenant_id: Option<String>,
     },
-    /// List all authenticated profiles
+    /// List stored profiles and the account each one holds
     List,
     /// Switch active profile
     Switch {
@@ -164,6 +164,23 @@ fn annotate_consent_error(
         }
         other => other,
     }
+}
+
+/// Describe one stored profile for `auth list` without touching the network.
+///
+/// The identity comes from the access token's unverified claims, the same
+/// source `auth status` and `auth doctor` use. A profile whose token cannot be
+/// read or decoded is still listed, with the identity fields null, so a broken
+/// keyring entry does not hide the profile.
+fn summarize_profile(name: &str, token: Option<&auth::token::TokenInfo>) -> serde_json::Value {
+    let claims = token.and_then(|t| t.unverified_claims());
+    serde_json::json!({
+        "name": name,
+        "user": claims.as_ref().and_then(|c| c.user()),
+        "tenant_id": claims.as_ref().and_then(|c| c.tid.as_deref()),
+        "auth_type": claims.as_ref().map(|c| c.auth_type()),
+        "expires_at": token.and_then(|t| t.expires_at.map(|e| e.to_rfc3339())),
+    })
 }
 
 fn delegated_admin_consent_url(client_id: &str, tenant_id: &str, delegated_scopes: &str) -> String {
@@ -333,7 +350,7 @@ pub async fn run(
                     "is_graph_audience": claims.as_ref().and_then(|c| c.is_graph_audience()),
                     "tenant_id": claims.as_ref().and_then(|c| c.tid.clone()),
                     "app_id": claims.as_ref().and_then(|c| c.appid.clone()).or_else(|| claims.as_ref().and_then(|c| c.azp.clone())),
-                    "user": claims.as_ref().and_then(|c| c.preferred_username.clone()).or_else(|| claims.as_ref().and_then(|c| c.upn.clone())),
+                    "user": claims.as_ref().and_then(|c| c.user()),
                 })),
             });
             output::print_success(format, &msg, start);
@@ -369,7 +386,10 @@ pub async fn run(
 
         AuthCommand::List => {
             let start = Instant::now();
-            let profiles = auth::keyring::list_profiles();
+            let profiles: Vec<serde_json::Value> = auth::keyring::list_profiles()
+                .iter()
+                .map(|name| summarize_profile(name, auth::keyring::get_token(name).ok().as_ref()))
+                .collect();
             let msg = serde_json::json!({
                 "profiles": profiles,
                 "active": profile,
@@ -454,6 +474,73 @@ pub async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    use chrono::{TimeZone, Utc};
+
+    fn token_with_payload(payload: serde_json::Value) -> auth::token::TokenInfo {
+        auth::token::TokenInfo {
+            access_token: format!(
+                "header.{}.signature",
+                URL_SAFE_NO_PAD.encode(payload.to_string())
+            ),
+            expires_at: Some(Utc.with_ymd_and_hms(2030, 1, 2, 3, 4, 5).unwrap()),
+            token_type: "Bearer".into(),
+            scope: None,
+            refresh_token: None,
+            profile: "work".into(),
+        }
+    }
+
+    #[test]
+    fn summarize_profile_reports_identity_from_token_claims() {
+        let token = token_with_payload(serde_json::json!({
+            "preferred_username": "a@contoso.com",
+            "tid": "tenant-1",
+            "scp": "User.Read",
+        }));
+
+        let summary = summarize_profile("work", Some(&token));
+
+        assert_eq!(summary["name"], "work");
+        assert_eq!(summary["user"], "a@contoso.com");
+        assert_eq!(summary["tenant_id"], "tenant-1");
+        assert_eq!(summary["auth_type"], "delegated");
+        assert_eq!(summary["expires_at"], "2030-01-02T03:04:05+00:00");
+    }
+
+    #[test]
+    fn summarize_profile_falls_back_to_upn_for_user() {
+        let token = token_with_payload(serde_json::json!({ "upn": "b@contoso.com" }));
+
+        assert_eq!(
+            summarize_profile("alt", Some(&token))["user"],
+            "b@contoso.com"
+        );
+    }
+
+    #[test]
+    fn summarize_profile_lists_profile_without_token_with_null_fields() {
+        let summary = summarize_profile("broken", None);
+
+        assert_eq!(summary["name"], "broken");
+        assert!(summary["user"].is_null());
+        assert!(summary["tenant_id"].is_null());
+        assert!(summary["auth_type"].is_null());
+        assert!(summary["expires_at"].is_null());
+    }
+
+    #[test]
+    fn summarize_profile_keeps_expiry_when_token_is_not_a_jwt() {
+        let mut token = token_with_payload(serde_json::json!({}));
+        token.access_token = "opaque-token".into();
+
+        let summary = summarize_profile("opaque", Some(&token));
+
+        assert!(summary["user"].is_null());
+        assert!(summary["tenant_id"].is_null());
+        assert!(summary["auth_type"].is_null());
+        assert_eq!(summary["expires_at"], "2030-01-02T03:04:05+00:00");
+    }
 
     #[test]
     fn annotate_consent_error_adds_guidance_with_requested_scopes() {
