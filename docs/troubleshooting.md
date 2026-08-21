@@ -156,7 +156,12 @@ Actions:
 
 - Use a normal user session, not a locked-down service desktop, for interactive login.
 - Run PowerShell as the same user that will run `teams`.
-- Check Windows Credential Manager for `teams-cli` entries.
+- Check Windows Credential Manager for `teams-cli` entries. A signed-in profile
+  has a `<profile>:token` header entry plus `<profile>:token:0`,
+  `<profile>:token:1`, ... entries holding the token itself, because Credential
+  Manager caps a single credential at 2560 bytes. Versions up to 0.4.0 wrote
+  one entry and failed with `KEYRING_ERROR ... longer than platform limit of
+  2560 chars` whenever the token bundle was larger than that.
 - In tests only, set `TEAMS_CLI_DISABLE_KEYRING=1`.
 
 PowerShell:

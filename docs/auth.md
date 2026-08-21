@@ -256,6 +256,8 @@ Tokens are stored in the operating system keyring:
 
 The config file stores profile settings, not access tokens.
 
+On macOS and Linux each profile's token is one keyring item named `<profile>:token`. Windows Credential Manager limits a credential to 2560 bytes, which is smaller than a typical Microsoft Graph token bundle, so on Windows the serialized token is split across several entries: `teams-cli` / `<profile>:token` holds a small header (`{"chunks": N}`) and `<profile>:token:0` through `<profile>:token:N-1` hold the pieces. `teams auth logout` removes all of them.
+
 The CLI automatically redeems the stored refresh token when an access token is expired or near expiry, then updates the keyring with the refreshed token. If no refresh token is stored, or the identity platform rejects the refresh request, commands return `AUTH_TOKEN_EXPIRED` and the user must run `teams auth login` again.
 
 ## Diagnostics
