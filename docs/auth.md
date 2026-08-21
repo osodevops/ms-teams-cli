@@ -72,7 +72,7 @@ Use a concrete tenant ID or verified tenant domain for customer onboarding. `org
 
 ## Current delegated permissions
 
-The OSO app registration currently asks for these delegated Microsoft Graph permissions:
+Default delegated login requests these Microsoft Graph permissions:
 
 ```text
 User.Read
@@ -85,9 +85,10 @@ ChatMessage.Send
 ChatMessage.Read
 User.ReadBasic.All
 Presence.Read.All
+Presence.ReadWrite
 ```
 
-These permissions cover the current chat read/write, channel-send, team/channel discovery, user lookup, and presence smoke tests. The default does not include `ChannelMessage.Read.All` because Microsoft marks that delegated Graph scope as admin-consent required. Add it explicitly when a workflow needs channel message reads:
+These permissions cover the current chat read/write, channel-send, team/channel discovery, user lookup, and presence reads and writes. `Presence.ReadWrite` is what `presence set`, `presence status` and `presence clear` require; Microsoft does not mark it admin-consent required. The default does not include `ChannelMessage.Read.All` because Microsoft marks that delegated Graph scope as admin-consent required. Add it explicitly when a workflow needs channel message reads:
 
 ```bash
 teams auth login --device-code --scopes "User.Read ChannelMessage.Read.All offline_access"

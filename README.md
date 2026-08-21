@@ -230,6 +230,10 @@ and presence scopes. It intentionally does not request
 admin-consent required. Use `--scopes` or a customer-owned app when a workflow
 needs channel message reads.
 
+A session created before a scope was added to this default set keeps the
+scopes it was granted. Run `teams auth login` again to consent to a newly
+added one.
+
 **Credential resolution order**: CLI flags > environment variables > config file profiles.
 
 Delegated scope resolution follows the same order: `--scopes` (or
