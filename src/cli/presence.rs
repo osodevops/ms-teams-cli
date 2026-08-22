@@ -4,7 +4,7 @@ use std::time::Instant;
 use crate::api::{self, GraphClient};
 use crate::auth;
 use crate::auth::token::TokenInfo;
-use crate::config::ConfigFile;
+use crate::config::{self, ConfigFile};
 use crate::error::{Result, TeamsError};
 use crate::models::presence::{
     ClearPresenceRequest, DateTimeTimeZone, SetPresenceRequest, SetStatusMessageBody,
@@ -129,7 +129,10 @@ pub async fn run(
         } => {
             let start = Instant::now();
             let req = SetPresenceRequest {
-                session_id: presence_session_id(&client.token)?,
+                session_id: presence_session_id(
+                    &client.token,
+                    config::resolve_client_id(None, profile, config),
+                )?,
                 availability,
                 activity,
                 expiration_duration: expiration,
@@ -163,7 +166,10 @@ pub async fn run(
         PresenceCommand::Clear => {
             let start = Instant::now();
             let req = ClearPresenceRequest {
-                session_id: presence_session_id(&client.token)?,
+                session_id: presence_session_id(
+                    &client.token,
+                    config::resolve_client_id(None, profile, config),
+                )?,
             };
             api::presence::clear_presence(&client, &req).await?;
             let result = serde_json::json!({"status": "presence_cleared"});
@@ -174,10 +180,19 @@ pub async fn run(
 }
 
 /// Graph identifies a presence session by the application that owns it and expects that
-/// application's ID as `sessionId`. Reading it from the token's own claims keeps `set` and
-/// `clear` on one session regardless of what the profile's configured client ID says now,
-/// and works for a token supplied through `TEAMS_CLI_ACCESS_TOKEN`.
-fn presence_session_id(token: &TokenInfo) -> Result<String> {
+/// application's ID as `sessionId`. A configured client ID names that application directly and
+/// wins, because Microsoft asks callers to treat access tokens as opaque and a Graph token is
+/// not guaranteed to be a readable JSON Web Token. Logins through the built-in application
+/// configure no client ID, so the token's own `azp` or `appid` claim stands in. `set` and
+/// `clear` agree either way, because both resolve the value the same way.
+fn presence_session_id(token: &TokenInfo, configured_client_id: Option<String>) -> Result<String> {
+    let configured = configured_client_id
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty());
+    if let Some(client_id) = configured {
+        return Ok(client_id);
+    }
+
     token
         .unverified_claims()
         .and_then(|claims| {
@@ -188,9 +203,11 @@ fn presence_session_id(token: &TokenInfo) -> Result<String> {
         })
         .ok_or_else(|| {
             TeamsError::AuthError(
-                "Access token carries no application ID claim (azp or appid), which Graph \
-                 requires as the presence sessionId. Sign in again with `teams auth login`, or \
-                 check the token in TEAMS_CLI_ACCESS_TOKEN if that is set."
+                "No application ID is available for the presence sessionId, which Graph \
+                 requires: the access token carries no readable azp or appid claim, and no \
+                 client ID is configured. Set TEAMS_CLI_CLIENT_ID or the profile's client_id \
+                 to the application the token was issued to, or sign in again with `teams auth \
+                 login`."
                     .to_string(),
             )
         })
@@ -216,18 +233,49 @@ mod tests {
     }
 
     #[test]
+    fn session_id_prefers_a_configured_client_id_over_the_token_claims() {
+        let token = token_with_claims(serde_json::json!({ "azp": "authorized-party" }));
+        assert_eq!(
+            presence_session_id(&token, Some("configured-client".to_string())).unwrap(),
+            "configured-client"
+        );
+    }
+
+    #[test]
+    fn session_id_falls_back_to_the_token_when_the_configured_client_id_is_blank() {
+        let token = token_with_claims(serde_json::json!({ "azp": "authorized-party" }));
+        assert_eq!(
+            presence_session_id(&token, Some("   ".to_string())).unwrap(),
+            "authorized-party"
+        );
+    }
+
+    #[test]
+    fn session_id_accepts_an_opaque_token_when_a_client_id_is_configured() {
+        let mut token = token_with_claims(serde_json::json!({ "azp": "authorized-party" }));
+        token.access_token = "opaque-token".to_string();
+        assert_eq!(
+            presence_session_id(&token, Some("configured-client".to_string())).unwrap(),
+            "configured-client"
+        );
+    }
+
+    #[test]
     fn session_id_prefers_the_authorized_party_claim() {
         let token = token_with_claims(serde_json::json!({
             "azp": "authorized-party",
             "appid": "application-id"
         }));
-        assert_eq!(presence_session_id(&token).unwrap(), "authorized-party");
+        assert_eq!(
+            presence_session_id(&token, None).unwrap(),
+            "authorized-party"
+        );
     }
 
     #[test]
     fn session_id_falls_back_to_the_application_id_claim() {
         let token = token_with_claims(serde_json::json!({ "appid": "application-id" }));
-        assert_eq!(presence_session_id(&token).unwrap(), "application-id");
+        assert_eq!(presence_session_id(&token, None).unwrap(), "application-id");
     }
 
     #[test]
@@ -236,14 +284,14 @@ mod tests {
             "azp": "",
             "appid": "application-id"
         }));
-        assert_eq!(presence_session_id(&token).unwrap(), "application-id");
+        assert_eq!(presence_session_id(&token, None).unwrap(), "application-id");
     }
 
     #[test]
     fn session_id_rejects_blank_application_claims() {
         let token = token_with_claims(serde_json::json!({ "azp": "", "appid": "   " }));
         assert!(matches!(
-            presence_session_id(&token),
+            presence_session_id(&token, None),
             Err(TeamsError::AuthError(_))
         ));
     }
@@ -252,7 +300,7 @@ mod tests {
     fn session_id_rejects_a_token_without_an_application_claim() {
         let token = token_with_claims(serde_json::json!({ "tid": "tenant-id" }));
         assert!(matches!(
-            presence_session_id(&token),
+            presence_session_id(&token, None),
             Err(TeamsError::AuthError(_))
         ));
     }
@@ -262,7 +310,7 @@ mod tests {
         let mut token = token_with_claims(serde_json::json!({ "appid": "application-id" }));
         token.access_token = "not-a-jwt".to_string();
         assert!(matches!(
-            presence_session_id(&token),
+            presence_session_id(&token, None),
             Err(TeamsError::AuthError(_))
         ));
     }
