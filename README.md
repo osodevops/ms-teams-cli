@@ -230,6 +230,14 @@ and presence scopes. It intentionally does not request
 admin-consent required. Use `--scopes` or a customer-owned app when a workflow
 needs channel message reads.
 
+A session created before a scope was added to this default set keeps the
+scopes it was granted. Run `teams auth login` again to consent to a newly
+added one. A login that names its own scopes replaces the default set rather
+than extending it, so `--scopes`, `TEAMS_CLI_SCOPES` and a profile's `scopes`
+field do not pick up additions on their own — restate the whole list with the
+new scope in it. `Presence.ReadWrite`, which the presence write commands need,
+joined the defaults in this way.
+
 **Credential resolution order**: CLI flags > environment variables > config file profiles.
 
 Delegated scope resolution follows the same order: `--scopes` (or
@@ -416,6 +424,15 @@ teams presence set --availability Available --activity Available
 teams presence clear
 teams presence status --message "In deep focus" [--expiry <datetime>]
 ```
+
+Graph keys a presence session to the application that opened it. `set` and
+`clear` send that application's ID as the session ID — a configured
+`client_id`, or the one the access token was issued to — and report it back, so
+a `clear` run under different configuration than the `set` is visible. `clear`
+succeeds either way and reports what Graph answered: `presence_cleared` when it
+closed a session, `no_presence_session` when it knew of none under that ID —
+which is also what a retry sees when the attempt before it succeeded but its
+response was lost.
 
 ### Search
 

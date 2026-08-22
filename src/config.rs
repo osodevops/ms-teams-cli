@@ -8,7 +8,7 @@ use crate::error::{Result, TeamsError};
 
 pub const OSO_PUBLIC_CLIENT_ID: &str = "fba1b5d0-fdd0-4fe2-9729-9ccdc38f9595";
 pub const DEFAULT_DELEGATED_TENANT_ID: &str = "organizations";
-pub const DEFAULT_DELEGATED_SCOPES: &str = "User.Read Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Send Chat.ReadWrite ChatMessage.Send ChatMessage.Read User.ReadBasic.All Presence.Read.All offline_access";
+pub const DEFAULT_DELEGATED_SCOPES: &str = "User.Read Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Send Chat.ReadWrite ChatMessage.Send ChatMessage.Read User.ReadBasic.All Presence.Read.All Presence.ReadWrite offline_access";
 pub const DEFAULT_REDIRECT_URI: &str = "http://localhost:8400/callback";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -487,6 +487,13 @@ scopes = "User.Read People.Read offline_access"
         assert!(DEFAULT_DELEGATED_SCOPES.contains("ChatMessage.Send"));
         assert!(DEFAULT_DELEGATED_SCOPES.contains("ChannelMessage.Send"));
         assert!(!DEFAULT_DELEGATED_SCOPES.contains("ChannelMessage.Read.All"));
+    }
+
+    #[test]
+    fn default_delegated_scopes_allow_presence_writes() {
+        let scopes: Vec<&str> = DEFAULT_DELEGATED_SCOPES.split_whitespace().collect();
+        assert!(scopes.contains(&"Presence.Read.All"));
+        assert!(scopes.contains(&"Presence.ReadWrite"));
     }
 
     fn config_with_profile_scopes(scopes: Option<&str>) -> ConfigFile {
