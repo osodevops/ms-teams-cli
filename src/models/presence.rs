@@ -20,7 +20,7 @@ pub struct PresenceStatusMessage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<StatusMessageContent>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub expiry_date_time: Option<String>,
+    pub expiry_date_time: Option<SetStatusExpiry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,7 +58,7 @@ pub struct SetStatusMessageBody {
     pub expiry_date_time: Option<SetStatusExpiry>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SetStatusExpiry {
     pub date_time: String,
@@ -74,6 +74,30 @@ pub struct GetPresenceBatchRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn presence_parses_an_object_valued_status_message_expiry() {
+        let json = r#"{
+            "id": "user-1",
+            "availability": "Available",
+            "activity": "Available",
+            "statusMessage": {
+                "message": { "content": "Back on Monday", "contentType": "text" },
+                "expiryDateTime": {
+                    "dateTime": "9999-12-31T00:00:00.0000000",
+                    "timeZone": "UTC"
+                }
+            }
+        }"#;
+        let p: Presence = serde_json::from_str(json).unwrap();
+        let expiry = p
+            .status_message
+            .expect("statusMessage")
+            .expiry_date_time
+            .expect("expiryDateTime");
+        assert_eq!(expiry.date_time, "9999-12-31T00:00:00.0000000");
+        assert_eq!(expiry.time_zone, "UTC");
+    }
 
     #[test]
     fn presence_serde_round_trip() {
