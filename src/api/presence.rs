@@ -1,4 +1,4 @@
-use crate::error::Result;
+use crate::error::{Result, TeamsError};
 use crate::models::common::PageResponse;
 use crate::models::presence::{
     ClearPresenceRequest, GetPresenceBatchRequest, Presence, SetPresenceRequest,
@@ -34,16 +34,27 @@ async fn set_presence_at(client: &GraphClient, url: &str, req: &SetPresenceReque
     client.post_no_content(url, req).await
 }
 
-pub async fn clear_presence(client: &GraphClient, req: &ClearPresenceRequest) -> Result<()> {
+pub async fn clear_presence(client: &GraphClient, req: &ClearPresenceRequest) -> Result<bool> {
     clear_presence_at(client, &endpoints::clear_presence(), req).await
 }
 
+/// Graph answers 404 when the application has no presence session to clear, which is the state
+/// `clear` exists to reach; reporting it as a miss would make a second clear, or a retry after
+/// an ambiguous response, fail against presence that is already automatic. It is not the same
+/// outcome as clearing a live session, though — a session opened under a different application
+/// ID answers the same way — so the caller is told which of the two Graph reported. `true` means
+/// Graph cleared a session; `false` that it knew of none under this `sessionId`, which is also
+/// what a retry sees when the attempt before it succeeded but its response was lost.
 async fn clear_presence_at(
     client: &GraphClient,
     url: &str,
     req: &ClearPresenceRequest,
-) -> Result<()> {
-    client.post_no_content(url, req).await
+) -> Result<bool> {
+    match client.post_no_content(url, req).await {
+        Ok(()) => Ok(true),
+        Err(TeamsError::NotFound(_)) => Ok(false),
+        Err(err) => Err(err),
+    }
 }
 
 pub async fn set_status_message(client: &GraphClient, req: &SetStatusMessageRequest) -> Result<()> {
@@ -141,7 +152,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        clear_presence_at(
+        let cleared = clear_presence_at(
             &test_client(),
             &format!("{}/me/presence/clearPresence", server.uri()),
             &ClearPresenceRequest {
@@ -150,6 +161,62 @@ mod tests {
         )
         .await
         .unwrap();
+        assert!(cleared);
+    }
+
+    #[tokio::test]
+    async fn clear_presence_treats_a_missing_session_as_already_cleared() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/me/presence/clearPresence"))
+            .respond_with(ResponseTemplate::new(404).set_body_string(
+                r#"{"error":{"code":"NotFound","message":"Presence session not found."}}"#,
+            ))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let cleared = clear_presence_at(
+            &test_client(),
+            &format!("{}/me/presence/clearPresence", server.uri()),
+            &ClearPresenceRequest {
+                session_id: "app-id".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        assert!(!cleared);
+    }
+
+    #[tokio::test]
+    async fn clear_presence_reports_no_session_when_a_retry_follows_a_lost_response() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/me/presence/clearPresence"))
+            .respond_with(ResponseTemplate::new(503))
+            .up_to_n_times(1)
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/me/presence/clearPresence"))
+            .respond_with(ResponseTemplate::new(404))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let mut client = test_client();
+        client.network.max_retries = 1;
+        let cleared = clear_presence_at(
+            &client,
+            &format!("{}/me/presence/clearPresence", server.uri()),
+            &ClearPresenceRequest {
+                session_id: "app-id".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        assert!(!cleared);
     }
 
     #[tokio::test]

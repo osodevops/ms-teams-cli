@@ -137,8 +137,12 @@ pub async fn run(
                 activity,
                 expiration_duration: expiration,
             };
+            let session_id = req.session_id.clone();
             api::presence::set_presence(&client, &req).await?;
-            let result = serde_json::json!({"status": "presence_set"});
+            let result = serde_json::json!({
+                "status": "presence_set",
+                "session_id": session_id,
+            });
             output::print_success(format, &result, start);
             Ok(())
         }
@@ -171,8 +175,16 @@ pub async fn run(
                     config::resolve_client_id(None, profile, config),
                 )?,
             };
-            api::presence::clear_presence(&client, &req).await?;
-            let result = serde_json::json!({"status": "presence_cleared"});
+            let session_id = req.session_id.clone();
+            let cleared = api::presence::clear_presence(&client, &req).await?;
+            let result = serde_json::json!({
+                "status": if cleared {
+                    "presence_cleared"
+                } else {
+                    "no_presence_session"
+                },
+                "session_id": session_id,
+            });
             output::print_success(format, &result, start);
             Ok(())
         }

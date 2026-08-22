@@ -425,6 +425,15 @@ teams presence clear
 teams presence status --message "In deep focus" [--expiry <datetime>]
 ```
 
+Graph keys a presence session to the application that opened it. `set` and
+`clear` send that application's ID as the session ID — a configured
+`client_id`, or the one the access token was issued to — and report it back, so
+a `clear` run under different configuration than the `set` is visible. `clear`
+succeeds either way and reports what Graph answered: `presence_cleared` when it
+closed a session, `no_presence_session` when it knew of none under that ID —
+which is also what a retry sees when the attempt before it succeeded but its
+response was lost.
+
 ### Search
 
 ```bash
