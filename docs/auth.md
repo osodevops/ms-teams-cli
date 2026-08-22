@@ -149,7 +149,9 @@ scopes = "User.Read Chat.ReadWrite ChatMessage.Send People.Read offline_access"
 
 The profile `scopes` value replaces the default delegated scope string (it is
 not additive); `offline_access` is appended when missing so refresh tokens
-keep working. Resolution order is `--scopes` or `TEAMS_CLI_SCOPES`, then the
+keep working. Because it is a replacement, a profile that pins its own scopes
+keeps requesting exactly those when a scope is added to the default set, and
+has to restate the list to pick the new one up. Resolution order is `--scopes` or `TEAMS_CLI_SCOPES`, then the
 profile `scopes` field, then the default scope set. `teams auth consent-url`
 and `teams auth doctor` reflect the profile's resolved scopes, so admin
 consent links match what login will request. The default scope set remains

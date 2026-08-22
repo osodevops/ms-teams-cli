@@ -232,7 +232,11 @@ needs channel message reads.
 
 A session created before a scope was added to this default set keeps the
 scopes it was granted. Run `teams auth login` again to consent to a newly
-added one.
+added one. A login that names its own scopes replaces the default set rather
+than extending it, so `--scopes`, `TEAMS_CLI_SCOPES` and a profile's `scopes`
+field do not pick up additions on their own — restate the whole list with the
+new scope in it. `Presence.ReadWrite`, which the presence write commands need,
+joined the defaults in this way.
 
 **Credential resolution order**: CLI flags > environment variables > config file profiles.
 
