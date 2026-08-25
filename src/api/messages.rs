@@ -241,7 +241,15 @@ pub async fn send_chat_message(
     chat_id: &str,
     req: &SendMessageRequest,
 ) -> Result<ChatMessage> {
-    client.post(&endpoints::chat_messages(chat_id), req).await
+    send_chat_message_at(client, &endpoints::chat_messages(chat_id), req).await
+}
+
+async fn send_chat_message_at(
+    client: &GraphClient,
+    url: &str,
+    req: &SendMessageRequest,
+) -> Result<ChatMessage> {
+    client.post(url, req).await
 }
 
 // --- Reactions ---
@@ -519,7 +527,86 @@ mod tests {
             },
             attachments: None,
             hosted_contents: None,
+            mentions: None,
         }
+    }
+
+    /// A chat send carrying mentions must post the body and the `mentions`
+    /// array in one request, with the ids Graph needs to keep them.
+    #[tokio::test]
+    async fn chat_send_posts_synchronized_mentions() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/chats/19:abc@thread.v2/messages"))
+            .and(body_json(serde_json::json!({
+                "body": {
+                    "contentType": "html",
+                    "content": "<at id=\"0\">Sophie Daniels</at> Please review"
+                },
+                "mentions": [{
+                    "id": 0,
+                    "mentionText": "Sophie Daniels",
+                    "mentioned": {
+                        "user": {
+                            "id": "32cbca05-dc05-454f-b0f3-072f331d4c97",
+                            "displayName": "Sophie Daniels",
+                            "userIdentityType": "aadUser"
+                        }
+                    }
+                }]
+            })))
+            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+                "id": "1700000000000",
+                "body": {
+                    "contentType": "html",
+                    "content": "<at id=\"0\">Sophie Daniels</at> Please review"
+                },
+                "mentions": [{
+                    "id": 0,
+                    "mentionText": "Sophie Daniels",
+                    "mentioned": {
+                        "user": {
+                            "id": "32cbca05-dc05-454f-b0f3-072f331d4c97",
+                            "displayName": "Sophie Daniels",
+                            "userIdentityType": "aadUser"
+                        }
+                    }
+                }]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let req = SendMessageRequest {
+            body: ItemBody {
+                content_type: Some("html".into()),
+                content: Some("<at id=\"0\">Sophie Daniels</at> Please review".into()),
+            },
+            attachments: None,
+            hosted_contents: None,
+            mentions: Some(vec![crate::models::message::ChatMessageMention {
+                id: 0,
+                mention_text: "Sophie Daniels".into(),
+                mentioned: crate::models::message::ChatMessageMentioned {
+                    user: Some(crate::models::message::ChatMessageUser {
+                        id: Some("32cbca05-dc05-454f-b0f3-072f331d4c97".into()),
+                        display_name: Some("Sophie Daniels".into()),
+                        user_identity_type: Some("aadUser".into()),
+                    }),
+                },
+            }]),
+        };
+
+        let msg = send_chat_message_at(
+            &test_client(),
+            &format!("{}/chats/19:abc@thread.v2/messages", server.uri()),
+            &req,
+        )
+        .await
+        .unwrap();
+        let mentions = msg.mentions.unwrap();
+        assert_eq!(mentions.len(), 1);
+        assert_eq!(mentions[0].mention_text, "Sophie Daniels");
     }
 
     #[test]

@@ -149,7 +149,7 @@ teams channel members remove TEAM_ID CHANNEL_ID MEMBER_ID
 .fi
 .SH MESSAGE COMMANDS
 .nf
-teams message send (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) [--body TEXT | --stdin] [--content-type text|html] [--adaptive-card PATH] [--image PATH]... [--attach PATH]...
+teams message send (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) [--body TEXT | --stdin] [--content-type text|html] [--adaptive-card PATH] [--image PATH]... [--attach PATH]... [--mention USER]...
 teams message list (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID)
 teams message get --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID) [--with-attachments]
 teams message attachments list (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID)
@@ -190,6 +190,16 @@ and
 .B fire.
 A user has one reaction per message, so reacting again replaces the previous
 one; unreacting a reaction that is not set succeeds without effect.
+.PP
+.B --mention USER
+(repeatable) tags a person as a real Teams @mention in a chat or channel send;
+USER may be an Entra object ID or UPN, and the display name is resolved
+through Microsoft Graph. Graph requires an HTML body plus a synchronized
+.B mentions
+array, so the CLI builds both: a plain-text body is converted to HTML (escaped,
+line breaks preserved), the <at> elements are prepended to the body in flag
+order, and a mention by itself counts as a body. Raw <at> markup typed into an
+HTML body is rejected before anything is sent.
 .SH CHAT COMMANDS
 .nf
 teams chat list

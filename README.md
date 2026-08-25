@@ -376,6 +376,8 @@ teams channel members remove <team-id> <channel-id> <member-id>
 teams message send --team <team-id> --channel <channel-id> --body "Hello"
 teams message send --chat <chat-id> --body "Hello"
 teams message send --team <team-id> --channel <channel-id> --body "<h1>Rich</h1>" --content-type html
+teams message send --chat <chat-id> --mention <user-id-or-upn> --body "Please review and send the drafts."
+teams message send --team <team-id> --channel <channel-id> --mention <user-id> --mention <user-id> --body "Deploy is going out now."
 echo "Build passed" | teams message send --team <team-id> --channel <channel-id> --stdin
 teams message list --team <team-id> --channel <channel-id>
 teams message list --chat <chat-id>
@@ -390,6 +392,25 @@ teams message react --chat <chat-id> --message <msg-id> --reaction eyes
 teams message unreact --chat <chat-id> --message <msg-id> --reaction 👀
 teams message pin --team <team-id> --channel <channel-id> --message <msg-id>
 teams message unpin --team <team-id> --channel <channel-id> --pinned-message-id <id>
+```
+
+`message send --mention USER` tags a person as a real Teams @mention — the kind that pings
+them, not literal `@Name` text. The flag is repeatable and `USER` may be an Entra object ID
+or UPN; the display name is resolved through Microsoft Graph. Works for chat sends and
+channel sends alike. Graph requires an HTML body plus a synchronized `mentions` array, so
+the CLI builds both: a plain-text body is safely converted to HTML (escaped, line breaks
+preserved), the `<at>` elements are prepended in flag order, and a mention by itself counts
+as a body (`--body` optional). Raw `<at>` markup typed into an HTML body is rejected with
+exit code 2 before anything is sent.
+
+```bash
+teams message send --chat <chat-id> \
+  --mention sophie@example.com \
+  --body "Please review and send the drafts." --output json
+
+teams message send --team <team-id> --channel <channel-id> \
+  --mention <user-id-1> --mention <user-id-2> \
+  --body "Deploy is going out now."
 ```
 
 Reactions accept either a channel (`--team` with `--channel`) or a chat (`--chat`), never both.
