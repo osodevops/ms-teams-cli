@@ -36,14 +36,14 @@ pub enum PresenceCommand {
     },
     /// Set your presence status
     Set {
-        /// Availability: Available, Busy, DoNotDisturb, Away, Offline, etc.
+        /// Availability, paired with --activity: Available, Busy, Away or DoNotDisturb
         #[arg(long)]
         availability: String,
-        /// Activity: Available, InACall, InAMeeting, Presenting, etc.
+        /// Activity: Available, InACall, InAConferenceCall, Away or Presenting
         #[arg(long)]
         activity: String,
-        /// Expiration duration in ISO 8601 format (e.g., PT1H)
-        #[arg(long)]
+        /// Expiration as an ISO 8601 duration, PT5M to PT4H (default PT5M)
+        #[arg(long, value_parser = parse_expiration)]
         expiration: Option<String>,
     },
     /// Set your status message
@@ -57,6 +57,86 @@ pub enum PresenceCommand {
     },
     /// Clear your presence (revert to automatic)
     Clear,
+}
+
+/// Graph accepts a presence expiration between five minutes and four hours, and applies a
+/// five-minute default when none is given, so a session set through this CLI always lapses on its
+/// own. What it does not do is say clearly why it rejected a value, and an unattended caller is
+/// exactly the one that cannot read a 400 and try again — hence checking the value here, before a
+/// write that would otherwise leave the caller to work out whether the presence took.
+fn parse_expiration(raw: &str) -> std::result::Result<String, String> {
+    let seconds = iso8601_duration_seconds(raw).ok_or_else(|| {
+        format!(
+            "`{raw}` is not an ISO 8601 duration in whole units; \
+             write it as PT30M, PT1H or PT1H30M"
+        )
+    })?;
+
+    if !(EXPIRATION_MIN_SECONDS..=EXPIRATION_MAX_SECONDS).contains(&seconds) {
+        return Err(format!(
+            "`{raw}` is {seconds} seconds; Microsoft Graph accepts an expiration \
+             from PT5M to PT4H"
+        ));
+    }
+
+    Ok(raw.to_string())
+}
+
+const EXPIRATION_MIN_SECONDS: u64 = 5 * 60;
+const EXPIRATION_MAX_SECONDS: u64 = 4 * 60 * 60;
+
+/// Total an ISO 8601 duration written in whole days, hours, minutes and seconds.
+///
+/// Weeks, months and years are outside Graph's five-minute to four-hour window in every case, so
+/// refusing them costs nothing. A fractional component is a different matter: `PT300.5S` is a
+/// well-formed duration inside the window, and this parser turns it away. That is deliberate —
+/// accepting it would mean carrying a decimal through the range arithmetic to express half a
+/// second of expiry — but it does make the check marginally stricter than Graph, so the error
+/// says which form to use rather than claiming the value is out of range.
+fn iso8601_duration_seconds(raw: &str) -> Option<u64> {
+    let rest = raw.strip_prefix('P')?;
+    let (date, time) = match rest.split_once('T') {
+        Some((date, time)) => (date, Some(time)),
+        None => (rest, None),
+    };
+
+    let mut total = 0u64;
+    let mut components = 0usize;
+    total = total.checked_add(sum_components(date, &[('D', 86_400)], &mut components)?)?;
+    if let Some(time) = time {
+        let units = [('H', 3_600), ('M', 60), ('S', 1)];
+        total = total.checked_add(sum_components(time, &units, &mut components)?)?;
+    }
+
+    (components > 0).then_some(total)
+}
+
+/// Accumulate `<digits><unit>` pairs, requiring the units to appear in the order ISO 8601 defines
+/// them so that a transposition such as `PT1M1H` is rejected rather than silently reinterpreted.
+fn sum_components(section: &str, units: &[(char, u64)], components: &mut usize) -> Option<u64> {
+    let mut total = 0u64;
+    let mut digits = String::new();
+    let mut next_unit = 0usize;
+
+    for ch in section.chars() {
+        if ch.is_ascii_digit() {
+            digits.push(ch);
+            continue;
+        }
+        let position = units[next_unit..]
+            .iter()
+            .position(|(unit, _)| *unit == ch)?;
+        if digits.is_empty() {
+            return None;
+        }
+        let (_, multiplier) = units[next_unit + position];
+        total = total.checked_add(digits.parse::<u64>().ok()?.checked_mul(multiplier)?)?;
+        digits.clear();
+        next_unit += position + 1;
+        *components += 1;
+    }
+
+    digits.is_empty().then_some(total)
 }
 
 pub async fn run(
@@ -328,5 +408,45 @@ mod tests {
             presence_session_id(&token, None),
             Err(TeamsError::AuthError(_))
         ));
+    }
+
+    #[test]
+    fn durations_inside_the_documented_range_are_accepted_unchanged() {
+        for raw in ["PT5M", "PT1H", "PT1H30M", "PT4H", "PT300S", "PT3H59M60S"] {
+            assert_eq!(parse_expiration(raw).as_deref(), Ok(raw), "{raw}");
+        }
+    }
+
+    #[test]
+    fn durations_outside_the_documented_range_are_rejected_with_the_bounds() {
+        for raw in ["PT4M", "PT299S", "PT4H1S", "P1D", "PT0S"] {
+            let err = parse_expiration(raw).unwrap_err();
+            assert!(err.contains("PT5M to PT4H"), "{raw}: {err}");
+        }
+    }
+
+    #[test]
+    fn values_that_are_not_durations_are_rejected_before_any_request() {
+        for raw in [
+            "", "1h", "P", "PT", "PTH", "PT1", "PT-1H", "PT1.5H", "1HPT", "PT1X",
+        ] {
+            let err = parse_expiration(raw).unwrap_err();
+            assert!(err.contains("not an ISO 8601 duration"), "{raw}: {err}");
+        }
+    }
+
+    /// ISO 8601 fixes the order of the components; accepting a transposition would mean guessing
+    /// at what the caller meant.
+    #[test]
+    fn transposed_components_are_rejected() {
+        assert!(parse_expiration("PT1M1H").is_err());
+        assert!(parse_expiration("PT30S5M").is_err());
+    }
+
+    #[test]
+    fn the_lower_bound_is_the_five_minutes_graph_documents() {
+        assert!(parse_expiration("PT4M59S").is_err());
+        assert!(parse_expiration("PT5M").is_ok());
+        assert!(parse_expiration("PT300S").is_ok());
     }
 }

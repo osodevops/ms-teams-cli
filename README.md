@@ -421,6 +421,7 @@ teams presence get                      # Your own presence
 teams presence get --user-id <user-id>  # Another user's presence
 teams presence get-batch --user-ids <id1>,<id2>
 teams presence set --availability Available --activity Available
+teams presence set --availability Busy --activity InACall --expiration PT1H
 teams presence clear
 teams presence status --message "In deep focus" [--expiry <datetime>]
 ```
@@ -433,6 +434,13 @@ succeeds either way and reports what Graph answered: `presence_cleared` when it
 closed a session, `no_presence_session` when it knew of none under that ID —
 which is also what a retry sees when the attempt before it succeeded but its
 response was lost.
+
+Graph accepts five `--availability`/`--activity` pairs: `Available`/`Available`,
+`Busy`/`InACall`, `Busy`/`InAConferenceCall`, `Away`/`Away` and
+`DoNotDisturb`/`Presenting`. `--expiration` takes an ISO 8601 duration between
+`PT5M` and `PT4H` and is checked before the request is sent; leaving it out
+applies Graph's own five-minute default, so a presence set this way lapses on
+its own either way.
 
 ### Search
 
