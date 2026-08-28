@@ -865,37 +865,35 @@ mod tests {
         assert!(message.contains("Presence.Read.All User.Read"), "{message}");
     }
 
-    /// `error_for_status` is the third copy, reached by the paginated reads.
+    /// `error_for_status` is the third copy, and it is reached only by the byte and location
+    /// paths — a paginated read routes through `request_with_retry` like any other GET, so a test
+    /// driving `get_paged` would leave this copy untouched.
     #[tokio::test]
-    async fn a_forbidden_on_a_paged_read_carries_the_same_hint() {
+    async fn a_forbidden_on_a_byte_download_carries_the_same_hint() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
-            .and(path("/teams/team-id/channels"))
+            .and(path("/drives/drive-id/items/item-id/content"))
             .respond_with(ResponseTemplate::new(403).set_body_string(""))
             .mount(&server)
             .await;
 
         let mut client = test_client();
         client.token.access_token = jwt_with(serde_json::json!({
-            "scp": "Team.ReadBasic.All"
+            "scp": "Files.Read.All"
         }));
 
         let err = client
-            .get_paged::<serde_json::Value>(
-                &format!("{}/teams/team-id/channels", server.uri()),
-                &[],
-                &PaginationOpts {
-                    page_size: 50,
-                    all_pages: false,
-                },
-            )
+            .get_bytes(&format!(
+                "{}/drives/drive-id/items/item-id/content",
+                server.uri()
+            ))
             .await
             .unwrap_err();
 
         let TeamsError::PermissionDenied(message) = err else {
             panic!("expected PermissionDenied");
         };
-        assert!(message.contains("Team.ReadBasic.All"), "{message}");
+        assert!(message.contains("Files.Read.All"), "{message}");
     }
 
     /// An opaque token yields no claims, and a hint invented without them would be a guess.
