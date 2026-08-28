@@ -180,6 +180,22 @@ identity platform rejects the whole request (AADSTS65001) rather than issuing
 a narrower token; the CLI then prints the exact `consent-url` command to
 grant it, or fall back to `teams auth login` for interactive consent.
 
+Re-login picks up a scope added to the default set only where consent for it
+can actually be given. The identity platform accepts scopes at authorize time
+that a registration does not list statically — dynamic consent — but a tenant
+that reserves consent to an administrator rejects the login instead, and
+re-running `teams auth login` will not change that. `teams auth consent-url`
+is the route in that case: it builds an admin-consent URL for the scopes the
+profile resolves to, dynamic ones included, so the permission does not have to
+be added to the registration first. Adding it statically is what portal
+consent and `.default` require, and it remains the tidier arrangement for a
+registration you own.
+
+The practical consequence for anyone authenticating through their own
+registration rather than the built-in one: a newly added default scope such as
+`Presence.ReadWrite` may need an administrator to grant it before any session
+carries it, however many times you log in.
+
 Customer-owned delegated app:
 
 ```bash
