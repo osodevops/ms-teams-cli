@@ -60,10 +60,12 @@ pub async fn authenticate(
         )));
     }
 
-    let dc: DeviceCodeResponse = resp
-        .json()
-        .await
-        .map_err(|e| TeamsError::AuthError(format!("Failed to parse device code response: {e}")))?;
+    let dc: DeviceCodeResponse = resp.json().await.map_err(|e| {
+        TeamsError::AuthError(format!(
+            "Failed to parse device code response: {}",
+            crate::error::describe_with_causes(&e)
+        ))
+    })?;
 
     // Display instructions to user
     eprintln!();
@@ -91,10 +93,12 @@ pub async fn authenticate(
             .await
             .map_err(TeamsError::NetworkError)?;
 
-        let poll: PollResponse = resp
-            .json()
-            .await
-            .map_err(|e| TeamsError::AuthError(format!("Failed to parse poll response: {e}")))?;
+        let poll: PollResponse = resp.json().await.map_err(|e| {
+            TeamsError::AuthError(format!(
+                "Failed to parse poll response: {}",
+                crate::error::describe_with_causes(&e)
+            ))
+        })?;
 
         match poll.error.as_deref() {
             Some("authorization_pending") => {

@@ -510,7 +510,10 @@ impl GraphClient {
                 if e.is_decode() {
                     TeamsError::ApiError {
                         status: 200,
-                        message: format!("Failed to parse API response: {e}"),
+                        message: format!(
+                            "Failed to parse API response: {}",
+                            crate::error::describe_with_causes(&e)
+                        ),
                     }
                 } else {
                     TeamsError::NetworkError(e)
@@ -646,6 +649,41 @@ mod tests {
                 retry_backoff_base: 2,
             },
         }
+    }
+
+    /// A response Graph considers successful but this crate cannot deserialize is the one failure
+    /// the user cannot investigate from the message alone, so the message has to carry serde's
+    /// account of it: which value was wrong, what was expected, and where it sat.
+    #[tokio::test]
+    async fn a_schema_mismatch_reports_what_serde_objected_to() {
+        #[derive(Debug, serde::Deserialize)]
+        struct Expiring {
+            #[allow(dead_code)]
+            expiry_date_time: String,
+        }
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/me/presence"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "expiry_date_time": { "dateTime": "2026-09-01T08:00:00Z", "timeZone": "UTC" }
+            })))
+            .mount(&server)
+            .await;
+
+        let err = test_client()
+            .get::<Expiring>(&format!("{}/me/presence", server.uri()), &[])
+            .await
+            .unwrap_err();
+
+        let TeamsError::ApiError { status, message } = err else {
+            panic!("expected an ApiError");
+        };
+        assert_eq!(status, 200);
+        assert!(
+            message.contains("invalid type: map, expected a string"),
+            "message lost serde's account of the mismatch: {message}"
+        );
     }
 
     #[tokio::test]

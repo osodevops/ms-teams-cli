@@ -88,11 +88,85 @@ impl TeamsError {
     }
 }
 
+/// Render an error together with everything that caused it.
+///
+/// `reqwest::Error` displays a failed deserialization as the bare phrase "error decoding response
+/// body", which names neither the offending value nor where in the body it sat; serde's own
+/// message, which names both, is one level down the source chain and `Display` never reaches it.
+/// A response that Graph considers successful but this crate cannot parse is otherwise
+/// indistinguishable from any other parse failure, and diagnosing one means capturing the body by
+/// hand.
+pub fn describe_with_causes(err: &dyn std::error::Error) -> String {
+    let mut message = err.to_string();
+    let mut source = err.source();
+    while let Some(cause) = source {
+        let text = cause.to_string();
+        if !text.is_empty() && !message.ends_with(&text) {
+            message.push_str(": ");
+            message.push_str(&text);
+        }
+        source = cause.source();
+    }
+    message
+}
+
 pub type Result<T> = std::result::Result<T, TeamsError>;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn describe_with_causes_flattens_the_whole_chain() {
+        #[derive(Debug)]
+        struct Layer(&'static str, Option<Box<Layer>>);
+        impl std::fmt::Display for Layer {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(self.0)
+            }
+        }
+        impl std::error::Error for Layer {
+            fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+                self.1
+                    .as_deref()
+                    .map(|l| l as &(dyn std::error::Error + 'static))
+            }
+        }
+
+        let err = Layer(
+            "error decoding response body",
+            Some(Box::new(Layer(
+                "invalid type: map, expected a string at line 1 column 66",
+                None,
+            ))),
+        );
+        assert_eq!(
+            describe_with_causes(&err),
+            "error decoding response body: invalid type: map, expected a string at line 1 column 66"
+        );
+    }
+
+    #[test]
+    fn describe_with_causes_does_not_repeat_a_cause_the_outer_error_already_quotes() {
+        #[derive(Debug)]
+        struct Wrapper(std::io::Error);
+        impl std::fmt::Display for Wrapper {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "reading config: {}", self.0)
+            }
+        }
+        impl std::error::Error for Wrapper {
+            fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+                Some(&self.0)
+            }
+        }
+
+        let err = Wrapper(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "no such file",
+        ));
+        assert_eq!(describe_with_causes(&err), "reading config: no such file");
+    }
 
     #[test]
     fn exit_codes_match_prd() {

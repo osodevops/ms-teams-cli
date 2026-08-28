@@ -35,7 +35,10 @@ pub async fn authenticate(
         )));
     }
 
-    resp.json::<MsTokenResponse>()
-        .await
-        .map_err(|e| TeamsError::AuthError(format!("Failed to parse token response: {e}")))
+    resp.json::<MsTokenResponse>().await.map_err(|e| {
+        TeamsError::AuthError(format!(
+            "Failed to parse token response: {}",
+            crate::error::describe_with_causes(&e)
+        ))
+    })
 }
