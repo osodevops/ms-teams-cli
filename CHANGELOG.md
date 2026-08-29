@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- `teams presence set`, `presence status` and `presence clear` now work with a default delegated login. All three Graph calls require `Presence.ReadWrite`, which the built-in scope set did not request, so every presence write returned 403. Microsoft does not mark that delegated scope admin-consent required, so it joins the defaults. An existing session keeps the scopes it was granted — run `teams auth login` again to consent to the new one. This resolves #70.
+- `teams presence clear` no longer fails with `The SessionId field is required`, and `presence set` no longer opens a presence session under a fresh random UUID that nothing could later clear. Graph keys a presence session to the application that owns it, so both commands now send that application's ID as `sessionId` — a configured `client_id` when there is one, otherwise the `azp`/`appid` claim of the token itself — and report it back. Graph's 404 for "no such session" is reported as `no_presence_session` rather than an error, so a second clear or a retry after a lost response succeeds. This resolves #71.
+- The presence write commands now reject an app-only token locally, as the message write commands already did, instead of sending a request that cannot succeed against `/me`.
 - `teams presence get` no longer fails with `API error (200): Failed to parse API response` when the target's Teams status message carries an expiry. Microsoft Graph sends `statusMessage.expiryDateTime` as a `dateTimeTimeZone` object, not a string, so both `GET /me/presence` and `GET /users/{id}/presence` failed to deserialize for any account with an expiring status message. This resolves #69.
 
 ### Added

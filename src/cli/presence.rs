@@ -127,6 +127,7 @@ pub async fn run(
             activity,
             expiration,
         } => {
+            auth::require_delegated_token(&client.token, "Setting your Teams presence")?;
             let start = Instant::now();
             let req = SetPresenceRequest {
                 session_id: presence_session_id(
@@ -148,6 +149,7 @@ pub async fn run(
         }
 
         PresenceCommand::Status { message, expiry } => {
+            auth::require_delegated_token(&client.token, "Setting your Teams status message")?;
             let start = Instant::now();
             let req = SetStatusMessageRequest {
                 status_message: SetStatusMessageBody {
@@ -168,6 +170,7 @@ pub async fn run(
         }
 
         PresenceCommand::Clear => {
+            auth::require_delegated_token(&client.token, "Clearing your Teams presence")?;
             let start = Instant::now();
             let req = ClearPresenceRequest {
                 session_id: presence_session_id(
