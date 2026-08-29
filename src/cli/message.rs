@@ -1195,6 +1195,38 @@ mod tests {
         );
     }
 
+    /// `--mention` and `--adaptive-card` both rewrite the body and the content
+    /// type, and the send path runs the card first. The card promotes a text
+    /// body to escaped HTML and appends its marker; the mention prefix then has
+    /// to go in front of that without escaping it a second time.
+    #[test]
+    fn a_mention_and_a_card_compose_without_re_escaping() {
+        let dir = std::env::temp_dir().join("teams-cli-card-mention");
+        std::fs::create_dir_all(&dir).unwrap();
+        let card = write_card(&dir);
+
+        let mut req = build_send_request("a < b".to_string(), "text", Some(&card)).unwrap();
+        apply_mentions(&mut req, &[identity("oid-1", "Sophie")]).unwrap();
+
+        let body = req.body.content.clone().unwrap();
+        let attachment_id = req.attachments.as_ref().unwrap()[0].id.clone().unwrap();
+
+        assert!(body.starts_with(r#"<at id="0">Sophie</at> "#), "{body}");
+        // the caller's text is escaped exactly once
+        assert!(body.contains("<p>a &lt; b</p>"), "{body}");
+        assert!(!body.contains("&amp;lt;"), "body was escaped twice: {body}");
+        // and both wire halves survive
+        assert!(
+            body.ends_with(&format!(
+                r#"<attachment id="{attachment_id}"></attachment>"#
+            )),
+            "{body}"
+        );
+        assert_eq!(req.body.content_type.as_deref(), Some("html"));
+        assert_eq!(req.mentions.as_ref().unwrap().len(), 1);
+        assert_eq!(req.mentions.as_ref().unwrap()[0].id, 0);
+    }
+
     /// Sends without mentions keep current behaviour byte for byte: no
     /// transformation, no `mentions` property in the wire payload.
     #[test]
