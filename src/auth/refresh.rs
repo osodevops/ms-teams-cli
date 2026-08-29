@@ -46,9 +46,12 @@ async fn refresh_access_token_at(
         )));
     }
 
-    resp.json::<MsTokenResponse>()
-        .await
-        .map_err(|e| TeamsError::AuthError(format!("Failed to parse refresh response: {e}")))
+    resp.json::<MsTokenResponse>().await.map_err(|e| {
+        TeamsError::AuthError(format!(
+            "Failed to parse refresh response: {}",
+            crate::error::describe_with_causes(&e)
+        ))
+    })
 }
 
 #[cfg(test)]
@@ -56,6 +59,40 @@ mod tests {
     use super::*;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    /// A token endpoint that answers 200 with a body this crate cannot read is the failure the
+    /// bare reqwest message describes least usefully, and it is the one an operator is least
+    /// placed to guess at.
+    #[tokio::test]
+    async fn a_malformed_token_response_reports_what_serde_objected_to() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "access_token": "new-access",
+                "token_type": "Bearer",
+                "expires_in": "3600"
+            })))
+            .mount(&server)
+            .await;
+
+        let err = refresh_access_token_at(
+            &format!("{}/token", server.uri()),
+            "client-id",
+            "old-refresh",
+            "User.Read offline_access",
+        )
+        .await
+        .unwrap_err();
+
+        let TeamsError::AuthError(message) = err else {
+            panic!("expected an AuthError");
+        };
+        assert!(
+            message.contains("invalid type: string \"3600\", expected u64"),
+            "message lost serde's account of the mismatch: {message}"
+        );
+    }
 
     #[tokio::test]
     async fn refresh_access_token_posts_refresh_grant_and_parses_response() {
