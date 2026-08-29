@@ -37,6 +37,63 @@ impl GraphClient {
         })
     }
 
+    /// Graph answers a request whose token lacks the necessary permission with 403 and, in the
+    /// case observed for the presence writes, an empty `message`, so the body says nothing about
+    /// what is missing and the failure is indistinguishable from a genuine authorization refusal.
+    /// The permissions the token actually carries are the one piece of evidence the CLI already
+    /// holds, and listing them turns "Forbidden" into something to check the operation against.
+    fn permission_denied_message(&self, body: &str) -> String {
+        let mut message = if body.trim().is_empty() {
+            "Microsoft Graph returned 403 with no message".to_string()
+        } else {
+            body.to_string()
+        };
+
+        let Some(claims) = self.token.unverified_claims() else {
+            return message;
+        };
+
+        // The remedy differs by token type and naming the wrong one sends the reader in a
+        // direction that cannot work: an application role is granted on the app registration and
+        // consented by an administrator, so no amount of interactive login will add one.
+        let hint = match claims.auth_type() {
+            "delegated" => claims
+                .scp
+                .clone()
+                .filter(|scp| !scp.trim().is_empty())
+                .map(|scp| {
+                    format!(
+                    "this token carries the delegated scopes: {scp}. If the one this operation \
+                     needs is not in that list, run `teams auth doctor` to see what the profile \
+                     resolves to, then `teams auth login` to consent to it — or, where the tenant \
+                     does not allow user consent, `teams auth consent-url` for an administrator \
+                     to grant."
+                )
+                }),
+            "app-only" => claims
+                .roles
+                .clone()
+                .filter(|roles| !roles.is_empty())
+                .map(|roles| {
+                    format!(
+                        "this token carries the application roles: {}. If the one this operation \
+                     needs is not in that list, add it to the app registration and have an \
+                     administrator grant consent; logging in again cannot add an application \
+                     role.",
+                        roles.join(" ")
+                    )
+                }),
+            _ => None,
+        };
+
+        if let Some(hint) = hint {
+            message.push_str("\nHint: ");
+            message.push_str(&hint);
+        }
+
+        message
+    }
+
     fn auth_error_message(&self, body: &str) -> String {
         let mut message = if body.trim().is_empty() {
             "Authentication failed (401)".to_string()
@@ -62,7 +119,9 @@ impl GraphClient {
     fn error_for_status(&self, status: StatusCode, body: String) -> TeamsError {
         match status {
             StatusCode::UNAUTHORIZED => TeamsError::AuthError(self.auth_error_message(&body)),
-            StatusCode::FORBIDDEN => TeamsError::PermissionDenied(body),
+            StatusCode::FORBIDDEN => {
+                TeamsError::PermissionDenied(self.permission_denied_message(&body))
+            }
             StatusCode::NOT_FOUND => TeamsError::NotFound(body),
             _ => TeamsError::ApiError {
                 status: status.as_u16(),
@@ -468,7 +527,9 @@ impl GraphClient {
             }
             if status == StatusCode::FORBIDDEN {
                 let body = resp.text().await.unwrap_or_default();
-                return Err(TeamsError::PermissionDenied(body));
+                return Err(TeamsError::PermissionDenied(
+                    self.permission_denied_message(&body),
+                ));
             }
 
             // Not found
@@ -581,7 +642,9 @@ impl GraphClient {
             }
             if status == StatusCode::FORBIDDEN {
                 let body = resp.text().await.unwrap_or_default();
-                return Err(TeamsError::PermissionDenied(body));
+                return Err(TeamsError::PermissionDenied(
+                    self.permission_denied_message(&body),
+                ));
             }
             if status == StatusCode::NOT_FOUND {
                 let body = resp.text().await.unwrap_or_default();
@@ -631,6 +694,14 @@ mod tests {
     use crate::config::NetworkConfig;
     use wiremock::matchers::{method, path, query_param, query_param_is_missing};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    /// `unverified_claims` decodes the token's own payload, so a hint test needs a token shaped
+    /// like a JWT rather than the opaque placeholder the other tests use.
+    fn jwt_with(claims: serde_json::Value) -> String {
+        use base64::Engine;
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(claims.to_string());
+        format!("header.{payload}.signature")
+    }
 
     fn test_client() -> GraphClient {
         GraphClient {
@@ -684,6 +755,170 @@ mod tests {
             message.contains("invalid type: map, expected a string"),
             "message lost serde's account of the mismatch: {message}"
         );
+    }
+
+    /// Graph answered the presence writes with 403 and an empty `message`, leaving nothing to act
+    /// on. The scopes the token carries are held locally, so the CLI can supply the list the user
+    /// would otherwise have to go and read.
+    #[tokio::test]
+    async fn a_forbidden_with_no_message_lists_the_scopes_the_token_carries() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/me/presence"))
+            .respond_with(
+                ResponseTemplate::new(403)
+                    .set_body_string(r#"{"error":{"code":"Forbidden","message":""}}"#),
+            )
+            .mount(&server)
+            .await;
+
+        let mut client = test_client();
+        client.token.access_token = jwt_with(serde_json::json!({
+            "scp": "Presence.Read.All User.Read"
+        }));
+
+        let err = client
+            .get::<serde_json::Value>(&format!("{}/me/presence", server.uri()), &[])
+            .await
+            .unwrap_err();
+
+        let TeamsError::PermissionDenied(message) = err else {
+            panic!("expected PermissionDenied");
+        };
+        assert!(message.contains("Presence.Read.All User.Read"), "{message}");
+        assert!(message.contains("teams auth login"), "{message}");
+        // A tenant that does not allow user consent needs the administrator route named too.
+        assert!(message.contains("teams auth consent-url"), "{message}");
+    }
+
+    /// An app-only token carries roles rather than scopes, and naming the wrong one would send the
+    /// reader looking for a delegated permission that cannot apply.
+    #[tokio::test]
+    async fn a_forbidden_on_an_app_only_token_lists_its_roles() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/me/presence"))
+            .respond_with(ResponseTemplate::new(403).set_body_string(""))
+            .mount(&server)
+            .await;
+
+        let mut client = test_client();
+        client.token.access_token = jwt_with(serde_json::json!({
+            "roles": ["Presence.Read.All"]
+        }));
+
+        let err = client
+            .get::<serde_json::Value>(&format!("{}/me/presence", server.uri()), &[])
+            .await
+            .unwrap_err();
+
+        let TeamsError::PermissionDenied(message) = err else {
+            panic!("expected PermissionDenied");
+        };
+        assert!(
+            message.contains("application roles: Presence.Read.All"),
+            "{message}"
+        );
+        assert!(
+            message.contains("Microsoft Graph returned 403 with no message"),
+            "{message}"
+        );
+        // The whole point of splitting the remedy: an interactive login cannot add an
+        // application role, so reintroducing that advice here has to fail.
+        assert!(
+            message.contains("cannot add an application role"),
+            "{message}"
+        );
+        assert!(!message.contains("teams auth login"), "{message}");
+    }
+
+    /// `post_no_content` reaches its own copy of the 403 handling, which a test driving `get`
+    /// would never touch.
+    #[tokio::test]
+    async fn a_forbidden_on_a_no_content_write_carries_the_same_hint() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/me/presence/setPresence"))
+            .respond_with(
+                ResponseTemplate::new(403)
+                    .set_body_string(r#"{"error":{"code":"Forbidden","message":""}}"#),
+            )
+            .mount(&server)
+            .await;
+
+        let mut client = test_client();
+        client.token.access_token = jwt_with(serde_json::json!({
+            "scp": "Presence.Read.All User.Read"
+        }));
+
+        let err = client
+            .post_no_content(
+                &format!("{}/me/presence/setPresence", server.uri()),
+                &serde_json::json!({}),
+            )
+            .await
+            .unwrap_err();
+
+        let TeamsError::PermissionDenied(message) = err else {
+            panic!("expected PermissionDenied");
+        };
+        assert!(message.contains("Presence.Read.All User.Read"), "{message}");
+    }
+
+    /// `error_for_status` is the third copy, and it is reached only by the byte and location
+    /// paths — a paginated read routes through `request_with_retry` like any other GET, so a test
+    /// driving `get_paged` would leave this copy untouched.
+    #[tokio::test]
+    async fn a_forbidden_on_a_byte_download_carries_the_same_hint() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/drives/drive-id/items/item-id/content"))
+            .respond_with(ResponseTemplate::new(403).set_body_string(""))
+            .mount(&server)
+            .await;
+
+        let mut client = test_client();
+        client.token.access_token = jwt_with(serde_json::json!({
+            "scp": "Files.Read.All"
+        }));
+
+        let err = client
+            .get_bytes(&format!(
+                "{}/drives/drive-id/items/item-id/content",
+                server.uri()
+            ))
+            .await
+            .unwrap_err();
+
+        let TeamsError::PermissionDenied(message) = err else {
+            panic!("expected PermissionDenied");
+        };
+        assert!(message.contains("Files.Read.All"), "{message}");
+    }
+
+    /// An opaque token yields no claims, and a hint invented without them would be a guess.
+    #[tokio::test]
+    async fn a_forbidden_on_an_opaque_token_adds_no_hint() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/me/presence"))
+            .respond_with(
+                ResponseTemplate::new(403)
+                    .set_body_string(r#"{"error":{"code":"Forbidden","message":"Access denied"}}"#),
+            )
+            .mount(&server)
+            .await;
+
+        let err = test_client()
+            .get::<serde_json::Value>(&format!("{}/me/presence", server.uri()), &[])
+            .await
+            .unwrap_err();
+
+        let TeamsError::PermissionDenied(message) = err else {
+            panic!("expected PermissionDenied");
+        };
+        assert!(!message.contains("Hint:"), "{message}");
+        assert!(message.contains("Access denied"), "{message}");
     }
 
     #[tokio::test]

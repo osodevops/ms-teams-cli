@@ -54,6 +54,12 @@ Common causes:
 - A Teams policy blocks the action.
 - Client credentials were used for a delegated-only operation.
 
+A `PERMISSION_DENIED` now carries a `Hint:` naming the permissions the token
+actually holds — its delegated scopes, or its application roles when the token
+is app-only. Graph often answers 403 with an empty message, so this is
+frequently the only thing to go on: compare the list against the permission the
+operation needs. An opaque (non-JWT) token yields no claims and gets no hint.
+
 Check token type:
 
 ```bash
