@@ -49,6 +49,7 @@ ChatMessage.Send
 ChatMessage.Read
 User.ReadBasic.All
 Presence.Read.All
+Presence.ReadWrite
 ```
 
 The default avoids `ChannelMessage.Read.All` because Microsoft marks that delegated Graph scope as admin-consent required. Customers that need channel message reads should grant it explicitly with `--scopes` or through a customer-owned app. Future features may require additional permissions.

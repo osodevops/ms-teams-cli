@@ -46,6 +46,13 @@ pub struct SetPresenceRequest {
     pub expiration_duration: Option<String>,
 }
 
+/// Request body for POST /me/presence/clearPresence
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearPresenceRequest {
+    pub session_id: String,
+}
+
 /// Request body for POST /me/presence/setStatusMessage
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -198,5 +205,16 @@ mod tests {
         assert_eq!(p.availability.as_deref(), Some("Available"));
         let serialized = serde_json::to_string(&p).unwrap();
         assert!(serialized.contains("Available"));
+    }
+
+    #[test]
+    fn clear_presence_request_sends_camel_case_session_id() {
+        let req = ClearPresenceRequest {
+            session_id: "app-id".to_string(),
+        };
+        assert_eq!(
+            serde_json::to_value(&req).unwrap(),
+            serde_json::json!({"sessionId": "app-id"})
+        );
     }
 }

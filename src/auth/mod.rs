@@ -183,7 +183,7 @@ pub fn require_delegated_token(token: &TokenInfo, operation: &str) -> Result<()>
     if let Some(claims) = token.unverified_claims() {
         if claims.auth_type() == "app-only" {
             return Err(TeamsError::PermissionDenied(format!(
-                "{operation} requires delegated Microsoft Graph auth. App-only/client-credentials tokens cannot send normal live Teams chat or channel messages; use `teams auth login --device-code` or future bot mode."
+                "{operation} requires delegated Microsoft Graph auth. App-only/client-credentials tokens act without a signed-in user, so they cannot carry out an action Teams attributes to one; use `teams auth login --device-code` or future bot mode."
             )));
         }
     }
@@ -208,6 +208,42 @@ mod tests {
             refresh_token: refresh_token.map(|s| s.to_string()),
             profile: "default".into(),
         }
+    }
+
+    #[test]
+    fn delegated_guard_rejects_an_app_only_token() {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        let mut token = token_with(None, None, None);
+        token.access_token = format!(
+            "header.{}.signature",
+            URL_SAFE_NO_PAD
+                .encode(serde_json::json!({ "roles": ["Presence.ReadWrite.All"] }).to_string())
+        );
+        let err = require_delegated_token(&token, "Setting your Teams presence").unwrap_err();
+        assert!(matches!(err, TeamsError::PermissionDenied(_)));
+        let message = err.to_string();
+        assert!(message.contains("Setting your Teams presence"));
+        // the shared message is reached by presence as well as messages, so it must not
+        // claim the caller was trying to send a chat message
+        assert!(!message.contains("chat or channel messages"));
+    }
+
+    #[test]
+    fn delegated_guard_admits_a_delegated_token() {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        let mut token = token_with(None, None, None);
+        token.access_token = format!(
+            "header.{}.signature",
+            URL_SAFE_NO_PAD.encode(serde_json::json!({ "scp": "Presence.ReadWrite" }).to_string())
+        );
+        assert!(require_delegated_token(&token, "Setting your Teams presence").is_ok());
+    }
+
+    #[test]
+    fn delegated_guard_admits_an_opaque_token() {
+        // an opaque token yields no claims; the guard must not block on a guess
+        let token = token_with(None, None, None);
+        assert!(require_delegated_token(&token, "Setting your Teams presence").is_ok());
     }
 
     #[test]

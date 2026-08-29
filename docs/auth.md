@@ -72,7 +72,7 @@ Use a concrete tenant ID or verified tenant domain for customer onboarding. `org
 
 ## Current delegated permissions
 
-The OSO app registration currently asks for these delegated Microsoft Graph permissions:
+Default delegated login requests these Microsoft Graph permissions:
 
 ```text
 User.Read
@@ -85,9 +85,10 @@ ChatMessage.Send
 ChatMessage.Read
 User.ReadBasic.All
 Presence.Read.All
+Presence.ReadWrite
 ```
 
-These permissions cover the current chat read/write, channel-send, team/channel discovery, user lookup, and presence smoke tests. The default does not include `ChannelMessage.Read.All` because Microsoft marks that delegated Graph scope as admin-consent required. Add it explicitly when a workflow needs channel message reads:
+These permissions cover the current chat read/write, channel-send, team/channel discovery, user lookup, and presence reads and writes. `Presence.ReadWrite` is what `presence set`, `presence status` and `presence clear` require; Microsoft does not mark it admin-consent required. The default does not include `ChannelMessage.Read.All` because Microsoft marks that delegated Graph scope as admin-consent required. Add it explicitly when a workflow needs channel message reads:
 
 ```bash
 teams auth login --device-code --scopes "User.Read ChannelMessage.Read.All offline_access"
@@ -148,7 +149,9 @@ scopes = "User.Read Chat.ReadWrite ChatMessage.Send People.Read offline_access"
 
 The profile `scopes` value replaces the default delegated scope string (it is
 not additive); `offline_access` is appended when missing so refresh tokens
-keep working. Resolution order is `--scopes` or `TEAMS_CLI_SCOPES`, then the
+keep working. Because it is a replacement, a profile that pins its own scopes
+keeps requesting exactly those when a scope is added to the default set, and
+has to restate the list to pick the new one up. Resolution order is `--scopes` or `TEAMS_CLI_SCOPES`, then the
 profile `scopes` field, then the default scope set. `teams auth consent-url`
 and `teams auth doctor` reflect the profile's resolved scopes, so admin
 consent links match what login will request. The default scope set remains
@@ -176,6 +179,22 @@ an existing session. If a requested scope has not been consented, the
 identity platform rejects the whole request (AADSTS65001) rather than issuing
 a narrower token; the CLI then prints the exact `consent-url` command to
 grant it, or fall back to `teams auth login` for interactive consent.
+
+Re-login picks up a scope added to the default set only where consent for it
+can actually be given. The identity platform accepts scopes at authorize time
+that a registration does not list statically — dynamic consent — but a tenant
+that reserves consent to an administrator rejects the login instead, and
+re-running `teams auth login` will not change that. `teams auth consent-url`
+is the route in that case: it builds an admin-consent URL for the scopes the
+profile resolves to, dynamic ones included, so the permission does not have to
+be added to the registration first. Adding it statically is what portal
+consent and `.default` require, and it remains the tidier arrangement for a
+registration you own.
+
+The practical consequence for anyone authenticating through their own
+registration rather than the built-in one: a newly added default scope such as
+`Presence.ReadWrite` may need an administrator to grant it before any session
+carries it, however many times you log in.
 
 Customer-owned delegated app:
 

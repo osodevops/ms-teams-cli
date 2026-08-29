@@ -3,11 +3,12 @@ use std::time::Instant;
 
 use crate::api::{self, GraphClient};
 use crate::auth;
-use crate::config::ConfigFile;
-use crate::error::Result;
+use crate::auth::token::TokenInfo;
+use crate::config::{self, ConfigFile};
+use crate::error::{Result, TeamsError};
 use crate::models::presence::{
-    DateTimeTimeZone, SetPresenceRequest, SetStatusMessageBody, SetStatusMessageRequest,
-    StatusMessageContent,
+    ClearPresenceRequest, DateTimeTimeZone, SetPresenceRequest, SetStatusMessageBody,
+    SetStatusMessageRequest, StatusMessageContent,
 };
 use crate::output::{self, OutputFormat};
 
@@ -126,20 +127,29 @@ pub async fn run(
             activity,
             expiration,
         } => {
+            auth::require_delegated_token(&client.token, "Setting your Teams presence")?;
             let start = Instant::now();
             let req = SetPresenceRequest {
-                session_id: uuid::Uuid::new_v4().to_string(),
+                session_id: presence_session_id(
+                    &client.token,
+                    config::resolve_client_id(None, profile, config),
+                )?,
                 availability,
                 activity,
                 expiration_duration: expiration,
             };
+            let session_id = req.session_id.clone();
             api::presence::set_presence(&client, &req).await?;
-            let result = serde_json::json!({"status": "presence_set"});
+            let result = serde_json::json!({
+                "status": "presence_set",
+                "session_id": session_id,
+            });
             output::print_success(format, &result, start);
             Ok(())
         }
 
         PresenceCommand::Status { message, expiry } => {
+            auth::require_delegated_token(&client.token, "Setting your Teams status message")?;
             let start = Instant::now();
             let req = SetStatusMessageRequest {
                 status_message: SetStatusMessageBody {
@@ -160,11 +170,163 @@ pub async fn run(
         }
 
         PresenceCommand::Clear => {
+            auth::require_delegated_token(&client.token, "Clearing your Teams presence")?;
             let start = Instant::now();
-            api::presence::clear_presence(&client).await?;
-            let result = serde_json::json!({"status": "presence_cleared"});
+            let req = ClearPresenceRequest {
+                session_id: presence_session_id(
+                    &client.token,
+                    config::resolve_client_id(None, profile, config),
+                )?,
+            };
+            let session_id = req.session_id.clone();
+            let cleared = api::presence::clear_presence(&client, &req).await?;
+            let result = serde_json::json!({
+                "status": if cleared {
+                    "presence_cleared"
+                } else {
+                    "no_presence_session"
+                },
+                "session_id": session_id,
+            });
             output::print_success(format, &result, start);
             Ok(())
         }
+    }
+}
+
+/// Graph identifies a presence session by the application that owns it and expects that
+/// application's ID as `sessionId`. A configured client ID names that application directly and
+/// wins, because Microsoft asks callers to treat access tokens as opaque and a Graph token is
+/// not guaranteed to be a readable JSON Web Token. Logins through the built-in application
+/// configure no client ID, so the token's own `azp` or `appid` claim stands in. `set` and
+/// `clear` agree either way, because both resolve the value the same way.
+fn presence_session_id(token: &TokenInfo, configured_client_id: Option<String>) -> Result<String> {
+    let configured = configured_client_id
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty());
+    if let Some(client_id) = configured {
+        return Ok(client_id);
+    }
+
+    token
+        .unverified_claims()
+        .and_then(|claims| {
+            [claims.azp, claims.appid]
+                .into_iter()
+                .flatten()
+                .find(|id| !id.trim().is_empty())
+        })
+        .ok_or_else(|| {
+            TeamsError::AuthError(
+                "No application ID is available for the presence sessionId, which Graph \
+                 requires: the access token carries no readable azp or appid claim, and no \
+                 client ID is configured. Set TEAMS_CLI_CLIENT_ID or the profile's client_id \
+                 to the application the token was issued to, or sign in again with `teams auth \
+                 login`."
+                    .to_string(),
+            )
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+
+    fn token_with_claims(claims: serde_json::Value) -> TokenInfo {
+        TokenInfo {
+            access_token: format!(
+                "header.{}.signature",
+                URL_SAFE_NO_PAD.encode(claims.to_string())
+            ),
+            expires_at: None,
+            token_type: "Bearer".into(),
+            scope: None,
+            refresh_token: None,
+            profile: "default".into(),
+        }
+    }
+
+    #[test]
+    fn session_id_prefers_a_configured_client_id_over_the_token_claims() {
+        let token = token_with_claims(serde_json::json!({ "azp": "authorized-party" }));
+        assert_eq!(
+            presence_session_id(&token, Some("configured-client".to_string())).unwrap(),
+            "configured-client"
+        );
+    }
+
+    #[test]
+    fn session_id_falls_back_to_the_token_when_the_configured_client_id_is_blank() {
+        let token = token_with_claims(serde_json::json!({ "azp": "authorized-party" }));
+        assert_eq!(
+            presence_session_id(&token, Some("   ".to_string())).unwrap(),
+            "authorized-party"
+        );
+    }
+
+    #[test]
+    fn session_id_accepts_an_opaque_token_when_a_client_id_is_configured() {
+        let mut token = token_with_claims(serde_json::json!({ "azp": "authorized-party" }));
+        token.access_token = "opaque-token".to_string();
+        assert_eq!(
+            presence_session_id(&token, Some("configured-client".to_string())).unwrap(),
+            "configured-client"
+        );
+    }
+
+    #[test]
+    fn session_id_prefers_the_authorized_party_claim() {
+        let token = token_with_claims(serde_json::json!({
+            "azp": "authorized-party",
+            "appid": "application-id"
+        }));
+        assert_eq!(
+            presence_session_id(&token, None).unwrap(),
+            "authorized-party"
+        );
+    }
+
+    #[test]
+    fn session_id_falls_back_to_the_application_id_claim() {
+        let token = token_with_claims(serde_json::json!({ "appid": "application-id" }));
+        assert_eq!(presence_session_id(&token, None).unwrap(), "application-id");
+    }
+
+    #[test]
+    fn session_id_skips_an_empty_authorized_party_claim() {
+        let token = token_with_claims(serde_json::json!({
+            "azp": "",
+            "appid": "application-id"
+        }));
+        assert_eq!(presence_session_id(&token, None).unwrap(), "application-id");
+    }
+
+    #[test]
+    fn session_id_rejects_blank_application_claims() {
+        let token = token_with_claims(serde_json::json!({ "azp": "", "appid": "   " }));
+        assert!(matches!(
+            presence_session_id(&token, None),
+            Err(TeamsError::AuthError(_))
+        ));
+    }
+
+    #[test]
+    fn session_id_rejects_a_token_without_an_application_claim() {
+        let token = token_with_claims(serde_json::json!({ "tid": "tenant-id" }));
+        assert!(matches!(
+            presence_session_id(&token, None),
+            Err(TeamsError::AuthError(_))
+        ));
+    }
+
+    #[test]
+    fn session_id_rejects_an_undecodable_token() {
+        let mut token = token_with_claims(serde_json::json!({ "appid": "application-id" }));
+        token.access_token = "not-a-jwt".to_string();
+        assert!(matches!(
+            presence_session_id(&token, None),
+            Err(TeamsError::AuthError(_))
+        ));
     }
 }
