@@ -291,7 +291,9 @@ pub async fn run(
             let start = Instant::now();
             auth::require_delegated_token(&client.token, "Sending Teams messages")?;
 
-            let has_media = !image.is_empty() || !attach.is_empty();
+            // An adaptive card counts as media: the body only has to carry the
+            // attachment marker, so requiring --body alongside it is noise.
+            let has_media = !image.is_empty() || !attach.is_empty() || adaptive_card.is_some();
             let content = resolve_body_or_media(body, stdin, has_media)?;
             let mut req = build_send_request(content, &content_type, adaptive_card.as_deref())?;
 
@@ -704,6 +706,9 @@ fn build_send_request(
     content_type: &str,
     adaptive_card_path: Option<&str>,
 ) -> Result<SendMessageRequest> {
+    let mut content = content;
+    let mut content_type = content_type.to_string();
+
     let attachments = if let Some(path) = adaptive_card_path {
         let card_json = std::fs::read_to_string(path).map_err(|e| {
             TeamsError::InvalidInput(format!("Failed to read adaptive card file: {e}"))
@@ -711,8 +716,20 @@ fn build_send_request(
         // Validate JSON
         serde_json::from_str::<serde_json::Value>(&card_json)
             .map_err(|e| TeamsError::InvalidInput(format!("Invalid adaptive card JSON: {e}")))?;
+
+        // Graph requires the body to reference each attachment by id, or it
+        // rejects the whole message with "Body does not contain marker for
+        // attachment with Id ...". The id is generated here, so the caller
+        // cannot add the marker themselves.
+        let id = uuid::Uuid::new_v4().to_string();
+        content.push_str(&super::message_media::attachment_tag(&id));
+
+        // The marker is markup, so the body has to be html regardless of what
+        // was asked for — a text body would send the tag as literal characters.
+        content_type = "html".to_string();
+
         Some(vec![ChatMessageAttachment {
-            id: Some(uuid::Uuid::new_v4().to_string()),
+            id: Some(id),
             content_type: Some("application/vnd.microsoft.card.adaptive".to_string()),
             content: Some(card_json),
             content_url: None,
@@ -726,7 +743,7 @@ fn build_send_request(
 
     Ok(SendMessageRequest {
         body: ItemBody {
-            content_type: Some(content_type.to_string()),
+            content_type: Some(content_type),
             content: Some(content),
         },
         attachments,
@@ -737,6 +754,52 @@ fn build_send_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn write_card(dir: &std::path::Path) -> String {
+        let path = dir.join("card.json");
+        std::fs::write(
+            &path,
+            r#"{"type":"AdaptiveCard","version":"1.5","body":[]}"#,
+        )
+        .unwrap();
+        path.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn adaptive_card_body_carries_the_attachment_marker() {
+        let dir = std::env::temp_dir().join("teams-cli-card-marker");
+        std::fs::create_dir_all(&dir).unwrap();
+        let card = write_card(&dir);
+
+        let req = build_send_request("hello".to_string(), "text", Some(&card)).unwrap();
+
+        let id = req.attachments.as_ref().unwrap()[0]
+            .id
+            .clone()
+            .expect("attachment id");
+        let body = req.body.content.unwrap();
+
+        // Graph rejects the message unless the body references the attachment.
+        assert!(
+            body.contains(&format!(r#"<attachment id="{id}"></attachment>"#)),
+            "body did not reference attachment {id}: {body}"
+        );
+        assert!(
+            body.starts_with("hello"),
+            "caller's body was dropped: {body}"
+        );
+
+        // The marker is markup, so the body must be html even when text was asked for.
+        assert_eq!(req.body.content_type.as_deref(), Some("html"));
+    }
+
+    #[test]
+    fn without_a_card_the_body_and_content_type_are_untouched() {
+        let req = build_send_request("plain".to_string(), "text", None).unwrap();
+        assert_eq!(req.body.content.as_deref(), Some("plain"));
+        assert_eq!(req.body.content_type.as_deref(), Some("text"));
+        assert!(req.attachments.is_none());
+    }
 
     #[test]
     fn named_reaction_becomes_unicode() {

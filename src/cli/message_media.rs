@@ -139,7 +139,9 @@ fn img_html(temporary_id: &str) -> String {
     format!(r#"<p><img src="../hostedContents/{temporary_id}/$value"></p>"#)
 }
 
-fn attachment_tag(attachment_id: &str) -> String {
+/// The marker Graph requires in the message body for every attachment it is
+/// sent alongside — used for uploaded files and for adaptive cards.
+pub(super) fn attachment_tag(attachment_id: &str) -> String {
     format!(r#"<attachment id="{attachment_id}"></attachment>"#)
 }
 
