@@ -6,7 +6,7 @@ use crate::auth;
 use crate::config::ConfigFile;
 use crate::error::Result;
 use crate::models::presence::{
-    SetPresenceRequest, SetStatusExpiry, SetStatusMessageBody, SetStatusMessageRequest,
+    DateTimeTimeZone, SetPresenceRequest, SetStatusMessageBody, SetStatusMessageRequest,
     StatusMessageContent,
 };
 use crate::output::{self, OutputFormat};
@@ -147,9 +147,9 @@ pub async fn run(
                         content: Some(message),
                         content_type: Some("text".to_string()),
                     },
-                    expiry_date_time: expiry.map(|e| SetStatusExpiry {
-                        date_time: e,
-                        time_zone: "UTC".to_string(),
+                    expiry_date_time: expiry.map(|e| DateTimeTimeZone {
+                        date_time: Some(e),
+                        time_zone: Some("UTC".to_string()),
                     }),
                 },
             };
