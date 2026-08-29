@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- `teams presence set --expiration` is now checked before the request is sent. Microsoft Graph accepts an ISO 8601 duration from `PT5M` to `PT4H`; a malformed or out-of-range value now fails as invalid input (exit 2) with the bounds in the message, instead of costing a round trip and returning a 400 to interpret. The `--availability` and `--activity` help text now names the five pairs `setPresence` actually accepts, rather than `Offline` and `InAMeeting`, which only occur when reading a presence. This resolves #81.
+
 ### Fixed
 
 - `teams presence set`, `presence status` and `presence clear` now work with a default delegated login. All three Graph calls require `Presence.ReadWrite`, which the built-in scope set did not request, so every presence write returned 403. Microsoft does not mark that delegated scope admin-consent required, so it joins the defaults. An existing session keeps the scopes it was granted — run `teams auth login` again to consent to the new one. This resolves #70.

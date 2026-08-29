@@ -27,6 +27,42 @@ fn teams() -> Command {
     Command::from_std(teams_process())
 }
 
+/// The expiration check is a clap `value_parser`, so it has to reject the value before anything
+/// resolves a token or opens a connection. Testing the parser alone would not notice the
+/// attribute being dropped.
+#[test]
+fn presence_set_rejects_a_bad_expiration_before_it_needs_credentials() {
+    teams()
+        .args([
+            "presence",
+            "set",
+            "--availability",
+            "Available",
+            "--activity",
+            "Available",
+            "--expiration",
+            "1h",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("is not an ISO 8601 duration"));
+
+    teams()
+        .args([
+            "presence",
+            "set",
+            "--availability",
+            "Available",
+            "--activity",
+            "Available",
+            "--expiration",
+            "PT10H",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("PT5M to PT4H"));
+}
+
 #[test]
 fn help_flag_works() {
     teams().arg("--help").assert().success().stdout(
