@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+
+- `teams presence get` no longer fails with `API error (200): Failed to parse API response` when the target's Teams status message carries an expiry. Microsoft Graph sends `statusMessage.expiryDateTime` as a `dateTimeTimeZone` object, not a string, so both `GET /me/presence` and `GET /users/{id}/presence` failed to deserialize for any account with an expiring status message. This resolves #69.
+
+### Added
+
+- `presence get` output now includes `statusMessage.publishedDateTime`, a documented Graph property that was previously discarded during deserialization.
+
 ## v0.4.0 - 2026-08-19
 
 ### Added

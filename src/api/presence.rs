@@ -114,7 +114,10 @@ mod expiry_tests {
             .expect("statusMessage")
             .expiry_date_time
             .expect("expiryDateTime");
-        assert_eq!(expiry.date_time, "2026-09-01T08:00:00.0000000");
-        assert_eq!(expiry.time_zone, "UTC");
+        assert_eq!(
+            expiry.date_time.as_deref(),
+            Some("2026-09-01T08:00:00.0000000")
+        );
+        assert_eq!(expiry.time_zone.as_deref(), Some("UTC"));
     }
 }
