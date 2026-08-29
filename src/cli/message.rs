@@ -6,7 +6,11 @@ use crate::api::{self, GraphClient, PaginationOpts};
 use crate::auth;
 use crate::config::ConfigFile;
 use crate::error::{Result, TeamsError};
-use crate::models::message::{ChatMessageAttachment, ItemBody, SendMessageRequest};
+use crate::models::message::{
+    ChatMessageAttachment, ChatMessageMention, ChatMessageMentioned, ChatMessageUser, ItemBody,
+    SendMessageRequest,
+};
+use crate::models::user::User;
 use crate::output::{self, OutputFormat};
 
 #[derive(Debug, Subcommand)]
@@ -40,6 +44,9 @@ pub enum MessageCommand {
         /// File to upload and attach (repeatable; needs a Files.ReadWrite scope)
         #[arg(long)]
         attach: Vec<String>,
+        /// User to @mention (repeatable): an Entra object ID or UPN
+        #[arg(long, value_name = "USER")]
+        mention: Vec<String>,
     },
     /// List messages in a channel or chat
     List {
@@ -287,6 +294,7 @@ pub async fn run(
             adaptive_card,
             image,
             attach,
+            mention,
         } => {
             let start = Instant::now();
             auth::require_delegated_token(&client.token, "Sending Teams messages")?;
@@ -294,8 +302,13 @@ pub async fn run(
             // An adaptive card counts as media: the body only has to carry the
             // attachment marker, so requiring --body alongside it is noise.
             let has_media = !image.is_empty() || !attach.is_empty() || adaptive_card.is_some();
-            let content = resolve_body_or_media(body, stdin, has_media)?;
+            // A mention alone is a valid non-empty body, so it lifts the
+            // media-only exception the same way --image/--attach do.
+            let content = resolve_body_or_media(body, stdin, has_media || !mention.is_empty())?;
+            let identities = resolve_mentions(&client, &mention).await?;
+            ensure_no_raw_at_markup(&content_type, &content)?;
             let mut req = build_send_request(content, &content_type, adaptive_card.as_deref())?;
+            apply_mentions(&mut req, &identities)?;
 
             let msg = if let Some(chat_id) = chat {
                 super::message_media::apply_media(
@@ -713,6 +726,7 @@ fn build_send_request(
         },
         attachments: None,
         hosted_contents: None,
+        mentions: None,
     };
 
     if let Some(path) = adaptive_card_path {
@@ -749,6 +763,168 @@ fn build_send_request(
     }
 
     Ok(req)
+}
+
+/// A user resolved from Graph and validated for use in a `--mention`.
+#[derive(Debug, Clone, PartialEq)]
+struct MentionIdentity {
+    id: String,
+    display_name: String,
+}
+
+/// Resolve each `--mention` value (object ID or UPN) through Graph, require a
+/// canonical id and display name for each, and de-duplicate by object ID
+/// keeping the first occurrence.
+async fn resolve_mentions(
+    client: &GraphClient,
+    mentions: &[String],
+) -> Result<Vec<MentionIdentity>> {
+    let mut resolved = Vec::with_capacity(mentions.len());
+    for value in mentions {
+        let user = api::users::get_user(client, value).await?;
+        resolved.push(validate_mention_user(&user, value)?);
+    }
+    Ok(dedup_mentions(resolved))
+}
+
+/// A mention needs both the canonical object ID (for the JSON identity) and
+/// the display name (for the HTML element); without either Graph would strip
+/// or misrender it.
+fn validate_mention_user(user: &User, requested: &str) -> Result<MentionIdentity> {
+    match (&user.id, &user.display_name) {
+        (Some(id), Some(name)) if !id.is_empty() && !name.is_empty() => Ok(MentionIdentity {
+            id: id.clone(),
+            display_name: name.clone(),
+        }),
+        _ => Err(TeamsError::InvalidInput(format!(
+            "--mention '{requested}' resolved to a user with no canonical object ID or \
+             display name; a Teams mention needs both"
+        ))),
+    }
+}
+
+/// Two different inputs (say, a UPN and an object ID) can resolve to the same
+/// person; one mention per canonical object ID, first flag wins.
+fn dedup_mentions(identities: Vec<MentionIdentity>) -> Vec<MentionIdentity> {
+    let mut seen = std::collections::HashSet::new();
+    identities
+        .into_iter()
+        .filter(|identity| seen.insert(identity.id.clone()))
+        .collect()
+}
+
+/// The `<at id="N">Display Name</at>` prefix, in flag order, with IDs
+/// assigned contiguously from zero. Display names are HTML-escaped here but
+/// stored unescaped in the JSON `mentions` array.
+fn mention_html_prefix(identities: &[MentionIdentity]) -> String {
+    identities
+        .iter()
+        .enumerate()
+        .map(|(i, identity)| {
+            format!(
+                r#"<at id="{}">{}</at>"#,
+                i,
+                escape_html_text(&identity.display_name)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Synchronize the request's body and `mentions` array so each `<at id="N">`
+/// element has a matching entry — both halves are required for Graph to keep
+/// the mention. A plain-text body is safely promoted to HTML (escaped, line
+/// breaks preserved as `<br>`); an explicit HTML body is kept as supplied,
+/// with only the mention prefix prepended.
+fn apply_mentions(req: &mut SendMessageRequest, identities: &[MentionIdentity]) -> Result<()> {
+    if identities.is_empty() {
+        return Ok(());
+    }
+    let content_type = req.body.content_type.as_deref().unwrap_or_default();
+    if !matches!(content_type, "text" | "html") {
+        return Err(TeamsError::InvalidInput(format!(
+            "--mention requires a text or html body, not '{content_type}'"
+        )));
+    }
+
+    let prefix = mention_html_prefix(identities);
+    let existing = req.body.content.take().unwrap_or_default();
+    let promoted = content_type == "text";
+    if promoted {
+        req.body.content_type = Some("html".to_string());
+    }
+    req.body.content = Some(if existing.is_empty() {
+        prefix
+    } else {
+        format!(
+            "{prefix} {}",
+            if promoted {
+                escape_body_text(&existing)
+            } else {
+                existing
+            }
+        )
+    });
+
+    req.mentions = Some(
+        identities
+            .iter()
+            .enumerate()
+            .map(|(i, identity)| ChatMessageMention {
+                id: i as i32,
+                mention_text: identity.display_name.clone(),
+                mentioned: ChatMessageMentioned {
+                    user: Some(ChatMessageUser {
+                        id: Some(identity.id.clone()),
+                        display_name: Some(identity.display_name.clone()),
+                        user_identity_type: Some("aadUser".to_string()),
+                    }),
+                },
+            })
+            .collect(),
+    );
+    Ok(())
+}
+
+/// Raw `<at>` markup in an explicit HTML body is not a real mention — Graph
+/// renders or strips it as ordinary text. Fail before posting anything rather
+/// than send a message that only looks like it tagged someone.
+fn ensure_no_raw_at_markup(content_type: &str, content: &str) -> Result<()> {
+    if content_type.eq_ignore_ascii_case("html") && contains_at_element(content) {
+        return Err(TeamsError::InvalidInput(
+            "The HTML body contains raw <at> markup, which is not a real Teams mention. \
+             Remove it and tag people with --mention USER instead."
+                .into(),
+        ));
+    }
+    Ok(())
+}
+
+/// True when the markup contains an actual `<at ...>` / `<at>` opening tag.
+/// `<attachment>` shares the three-letter prefix but its next character is a
+/// letter, which rules it out.
+fn contains_at_element(html: &str) -> bool {
+    let lower = html.to_lowercase();
+    let mut from = 0;
+    while let Some(pos) = lower[from..].find("<at") {
+        let idx = from + pos;
+        match lower[idx + 3..].chars().next() {
+            Some(c) if c.is_ascii_alphanumeric() => from = idx + 3,
+            _ => return true,
+        }
+    }
+    false
+}
+
+fn escape_html_text(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+fn escape_body_text(text: &str) -> String {
+    escape_html_text(text).replace('\n', "<br>")
 }
 
 #[cfg(test)]
@@ -859,6 +1035,314 @@ mod tests {
     #[test]
     fn named_reaction_becomes_unicode() {
         assert_eq!(reaction_type_for("eyes"), "👀");
+    }
+
+    fn identity(id: &str, name: &str) -> MentionIdentity {
+        MentionIdentity {
+            id: id.into(),
+            display_name: name.into(),
+        }
+    }
+
+    fn html_request(body: &str) -> SendMessageRequest {
+        SendMessageRequest {
+            body: ItemBody {
+                content_type: Some("html".into()),
+                content: Some(body.into()),
+            },
+            attachments: None,
+            hosted_contents: None,
+            mentions: None,
+        }
+    }
+
+    /// One `--mention` produces HTML element `<at id="0">` matched by JSON
+    /// mention id 0 — both halves must agree or Graph drops the mention.
+    #[test]
+    fn one_mention_matches_html_and_json_ids() {
+        let mut req = html_request("<p>Please review</p>");
+        apply_mentions(&mut req, &[identity("oid-1", "Sophie Daniels")]).unwrap();
+
+        assert_eq!(
+            req.body.content.as_deref(),
+            Some(r#"<at id="0">Sophie Daniels</at> <p>Please review</p>"#)
+        );
+        let mentions = req.mentions.as_ref().unwrap();
+        assert_eq!(mentions.len(), 1);
+        assert_eq!(mentions[0].id, 0);
+        assert_eq!(mentions[0].mention_text, "Sophie Daniels");
+        let user = mentions[0].mentioned.user.as_ref().unwrap();
+        assert_eq!(user.id.as_deref(), Some("oid-1"));
+        assert_eq!(user.display_name.as_deref(), Some("Sophie Daniels"));
+        assert_eq!(user.user_identity_type.as_deref(), Some("aadUser"));
+    }
+
+    #[test]
+    fn multiple_mentions_keep_flag_order_with_contiguous_ids() {
+        let mut req = html_request("Existing body");
+        apply_mentions(
+            &mut req,
+            &[
+                identity("oid-a", "Sophie Daniels"),
+                identity("oid-b", "Abraham Ingersoll"),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(
+            req.body.content.as_deref(),
+            Some(
+                r#"<at id="0">Sophie Daniels</at> <at id="1">Abraham Ingersoll</at> Existing body"#
+            )
+        );
+        let mentions = req.mentions.as_ref().unwrap();
+        assert_eq!(mentions.len(), 2);
+        assert_eq!(mentions[0].id, 0);
+        assert_eq!(
+            mentions[0].mentioned.user.as_ref().unwrap().id.as_deref(),
+            Some("oid-a")
+        );
+        assert_eq!(mentions[1].id, 1);
+        assert_eq!(
+            mentions[1].mentioned.user.as_ref().unwrap().id.as_deref(),
+            Some("oid-b")
+        );
+    }
+
+    #[test]
+    fn duplicate_object_ids_collapse_to_one_mention() {
+        let deduped = dedup_mentions(vec![
+            identity("same-oid", "First Name"),
+            identity("other-oid", "Other Person"),
+            identity("same-oid", "Second Name"),
+        ]);
+        assert_eq!(deduped.len(), 2);
+        assert_eq!(deduped[0].display_name, "First Name");
+        assert_eq!(deduped[1].display_name, "Other Person");
+    }
+
+    #[test]
+    fn display_names_are_escaped_in_html_only() {
+        let mut req = html_request("body");
+        apply_mentions(&mut req, &[identity("oid-1", "R&D <Lead>")]).unwrap();
+
+        assert_eq!(
+            req.body.content.as_deref(),
+            Some(r#"<at id="0">R&amp;D &lt;Lead&gt;</at> body"#)
+        );
+        let user = req.mentions.as_ref().unwrap()[0]
+            .mentioned
+            .user
+            .as_ref()
+            .unwrap();
+        assert_eq!(req.mentions.as_ref().unwrap()[0].mention_text, "R&D <Lead>");
+        assert_eq!(user.display_name.as_deref(), Some("R&D <Lead>"));
+    }
+
+    /// The default text experience: the caller never learns Graph needs HTML;
+    /// their text is escaped, line breaks become `<br>`, and the body is sent
+    /// as html.
+    #[test]
+    fn text_body_is_promoted_to_html_with_line_breaks_intact() {
+        let mut req = SendMessageRequest {
+            body: ItemBody {
+                content_type: Some("text".into()),
+                content: Some("line one\nline <two> & three".into()),
+            },
+            attachments: None,
+            hosted_contents: None,
+            mentions: None,
+        };
+        apply_mentions(&mut req, &[identity("oid-1", "Sophie")]).unwrap();
+
+        assert_eq!(req.body.content_type.as_deref(), Some("html"));
+        assert_eq!(
+            req.body.content.as_deref(),
+            Some(r#"<at id="0">Sophie</at> line one<br>line &lt;two&gt; &amp; three"#)
+        );
+        assert_eq!(req.mentions.as_ref().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn explicit_html_body_is_preserved_apart_from_the_prefix() {
+        let mut req = html_request("<p><b>bold</b> &amp; more</p>");
+        apply_mentions(&mut req, &[identity("oid-1", "Sophie")]).unwrap();
+
+        assert_eq!(req.body.content_type.as_deref(), Some("html"));
+        assert_eq!(
+            req.body.content.as_deref(),
+            Some(r#"<at id="0">Sophie</at> <p><b>bold</b> &amp; more</p>"#)
+        );
+    }
+
+    /// A mention by itself is a valid non-empty body.
+    #[test]
+    fn mention_alone_becomes_the_whole_body() {
+        let mut req = SendMessageRequest {
+            body: ItemBody {
+                content_type: Some("text".into()),
+                content: Some(String::new()),
+            },
+            attachments: None,
+            hosted_contents: None,
+            mentions: None,
+        };
+        apply_mentions(&mut req, &[identity("oid-1", "Sophie")]).unwrap();
+
+        assert_eq!(
+            req.body.content.as_deref(),
+            Some(r#"<at id="0">Sophie</at>"#)
+        );
+    }
+
+    /// `--mention` and `--adaptive-card` both rewrite the body and the content
+    /// type, and the send path runs the card first. The card promotes a text
+    /// body to escaped HTML and appends its marker; the mention prefix then has
+    /// to go in front of that without escaping it a second time.
+    #[test]
+    fn a_mention_and_a_card_compose_without_re_escaping() {
+        let dir = std::env::temp_dir().join("teams-cli-card-mention");
+        std::fs::create_dir_all(&dir).unwrap();
+        let card = write_card(&dir);
+
+        let mut req = build_send_request("a < b".to_string(), "text", Some(&card)).unwrap();
+        apply_mentions(&mut req, &[identity("oid-1", "Sophie")]).unwrap();
+
+        let body = req.body.content.clone().unwrap();
+        let attachment_id = req.attachments.as_ref().unwrap()[0].id.clone().unwrap();
+
+        assert!(body.starts_with(r#"<at id="0">Sophie</at> "#), "{body}");
+        // the caller's text is escaped exactly once
+        assert!(body.contains("<p>a &lt; b</p>"), "{body}");
+        assert!(!body.contains("&amp;lt;"), "body was escaped twice: {body}");
+        // and both wire halves survive
+        assert!(
+            body.ends_with(&format!(
+                r#"<attachment id="{attachment_id}"></attachment>"#
+            )),
+            "{body}"
+        );
+        assert_eq!(req.body.content_type.as_deref(), Some("html"));
+        assert_eq!(req.mentions.as_ref().unwrap().len(), 1);
+        assert_eq!(req.mentions.as_ref().unwrap()[0].id, 0);
+    }
+
+    /// Sends without mentions keep current behaviour byte for byte: no
+    /// transformation, no `mentions` property in the wire payload.
+    #[test]
+    fn no_mentions_leaves_the_request_untouched() {
+        let mut text_req = SendMessageRequest {
+            body: ItemBody {
+                content_type: Some("text".into()),
+                content: Some("plain & simple\nbody".into()),
+            },
+            attachments: None,
+            hosted_contents: None,
+            mentions: None,
+        };
+        apply_mentions(&mut text_req, &[]).unwrap();
+        assert_eq!(text_req.body.content_type.as_deref(), Some("text"));
+        assert_eq!(
+            text_req.body.content.as_deref(),
+            Some("plain & simple\nbody")
+        );
+        assert!(text_req.mentions.is_none());
+        assert!(serde_json::to_value(&text_req)
+            .unwrap()
+            .get("mentions")
+            .is_none());
+    }
+
+    #[test]
+    fn raw_at_markup_without_mention_flag_is_rejected() {
+        let err = ensure_no_raw_at_markup("html", r#"<p><at id="0">Sophie</at> please review</p>"#)
+            .unwrap_err();
+        assert!(matches!(err, TeamsError::InvalidInput(_)), "{err:?}");
+        assert!(err.to_string().contains("--mention"), "{err}");
+
+        // Uppercase markup is caught too.
+        assert!(ensure_no_raw_at_markup("HTML", "<AT>Sophie</AT>").is_err());
+    }
+
+    /// `<attachment>` shares the `<at` prefix but is legitimate media markup,
+    /// not a pseudo-mention.
+    #[test]
+    fn at_detection_ignores_attachment_tags_and_text_bodies() {
+        assert!(!contains_at_element(
+            r#"<attachment id="ABC"></attachment>"#
+        ));
+        assert!(!contains_at_element("<p>chat about @at &lt;at&gt;</p>"));
+        // A bare "<at" with no closing shape is still treated as a mention
+        // attempt; failing closed beats posting a pseudo-mention.
+        assert!(contains_at_element("plain text mentioning <at"));
+        assert!(contains_at_element(r#"<at id="0">x</at>"#));
+        assert!(contains_at_element("<at>"));
+    }
+
+    #[test]
+    fn mention_rejects_non_text_content_types() {
+        let mut req = html_request("body");
+        req.body.content_type = Some("unknown".into());
+        let err = apply_mentions(&mut req, &[identity("oid-1", "Sophie")]).unwrap_err();
+        assert!(matches!(err, TeamsError::InvalidInput(_)), "{err:?}");
+    }
+
+    /// A resolved user without an object ID or display name cannot be turned
+    /// into a mention, so the command fails before posting anything.
+    #[test]
+    fn incomplete_resolved_user_is_invalid_input() {
+        fn graph_user(id: &str, name: &str) -> User {
+            serde_json::from_value(serde_json::json!({ "id": id, "displayName": name })).unwrap()
+        }
+
+        let requested = "sophie@example.com";
+        for (id, name) in [
+            (serde_json::Value::Null, serde_json::json!("Sophie")),
+            (serde_json::json!(""), serde_json::json!("Sophie")),
+            (serde_json::json!("oid"), serde_json::Value::Null),
+            (serde_json::json!("oid"), serde_json::json!("")),
+        ] {
+            let user: User = serde_json::from_value(serde_json::json!({
+                "id": id,
+                "displayName": name
+            }))
+            .unwrap();
+            let err = validate_mention_user(&user, requested).unwrap_err();
+            assert!(matches!(err, TeamsError::InvalidInput(_)), "{err:?}");
+            assert!(err.to_string().contains(requested), "{err}");
+        }
+
+        let ok = validate_mention_user(&graph_user("oid", "Sophie"), requested).unwrap();
+        assert_eq!(ok.id, "oid");
+        assert_eq!(ok.display_name, "Sophie");
+    }
+
+    /// Resolution goes through the existing `api::users::get_user` wrapper
+    /// (`GET /users/{id-or-upn}`); the pure halves it feeds — validation and
+    /// de-duplication — are covered by the tests above.
+    #[test]
+    fn resolved_identities_flow_through_validation_and_dedup() {
+        let resolved = dedup_mentions(vec![
+            validate_mention_user(
+                &serde_json::from_value::<User>(serde_json::json!({
+                    "id": "oid-a",
+                    "displayName": "Sophie Daniels"
+                }))
+                .unwrap(),
+                "sophie@contoso.com",
+            )
+            .unwrap(),
+            validate_mention_user(
+                &serde_json::from_value::<User>(serde_json::json!({
+                    "id": "oid-a",
+                    "displayName": "Sophie Daniels"
+                }))
+                .unwrap(),
+                "32cbca05-dc05-454f-b0f3-072f331d4c97",
+            )
+            .unwrap(),
+        ]);
+        assert_eq!(resolved, vec![identity("oid-a", "Sophie Daniels")]);
     }
 
     #[test]

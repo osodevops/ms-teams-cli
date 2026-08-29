@@ -11,8 +11,12 @@ pub fn user(id: &str) -> String {
     user_at(GRAPH_V1, id)
 }
 
+/// The `/users/{id}` lookup accepts an object ID or UPN. Guest UPNs contain
+/// `#` (for example `name_domain#EXT#@tenant.onmicrosoft.com`), which would
+/// otherwise be read as a URL fragment and truncate the lookup, so the value
+/// is encoded as a single path segment.
 pub fn user_at(base: &str, id: &str) -> String {
-    format!("{base}/users/{id}")
+    format!("{base}/users/{}", urlencoding::encode(id))
 }
 
 pub fn users() -> String {
@@ -431,6 +435,20 @@ mod tests {
         assert!(url.ends_with("/hostedContents/aWQ9%2Bx%2Fz%3D%3D/$value"));
         assert!(
             url.starts_with("https://graph.microsoft.com/v1.0/teams/t1/channels/c1/messages/m1/")
+        );
+    }
+
+    /// Guest UPNs carry `#` and `@`; unencoded, reqwest would treat the `#`
+    /// as a fragment and Graph would see a truncated identifier.
+    #[test]
+    fn user_lookup_encodes_guest_upn_reserved_characters() {
+        assert_eq!(
+            user("alice_gmail.com#EXT#@tenant.onmicrosoft.com"),
+            "https://graph.microsoft.com/v1.0/users/alice_gmail.com%23EXT%23%40tenant.onmicrosoft.com"
+        );
+        assert_eq!(
+            user("32cbca05-dc05-454f-b0f3-072f331d4c97"),
+            "https://graph.microsoft.com/v1.0/users/32cbca05-dc05-454f-b0f3-072f331d4c97"
         );
     }
 

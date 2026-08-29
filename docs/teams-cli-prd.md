@@ -335,9 +335,10 @@ teams message send --chat <chat-id> --body "Hello"
 teams message send --team <team-id> --channel <channel-id> \
   --body "<h1>Title</h1><p>Content</p>" --content-type html
 
-# Send with @mention
+# Send with @mention (repeatable; user ID or UPN — the CLI builds the
+# required HTML body and mentions array, and resolves the display name)
 teams message send --team <team-id> --channel <channel-id> \
-  --body "Please review" --mention <user-id>
+  --body "Please review" --mention <user-id-or-upn>
 
 # Send with importance
 teams message send --chat <chat-id> --body "Urgent!" --importance urgent

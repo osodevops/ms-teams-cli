@@ -236,6 +236,7 @@ mod tests {
             },
             attachments: None,
             hosted_contents: None,
+            mentions: None,
         }
     }
 
