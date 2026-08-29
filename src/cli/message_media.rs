@@ -114,7 +114,11 @@ fn inline_images(images: &[String]) -> Result<(String, Vec<HostedContentUpload>)
 }
 
 /// Media requires an HTML body; escape and wrap a plain-text one.
-fn ensure_html_body(req: &mut SendMessageRequest) {
+///
+/// Shared with the adaptive-card path, which needs the same promotion: the
+/// attachment marker is markup, so a plain-text body has to be escaped rather
+/// than concatenated raw.
+pub(super) fn ensure_html_body(req: &mut SendMessageRequest) {
     if req.body.content_type.as_deref() == Some("html") {
         return;
     }
@@ -139,7 +143,9 @@ fn img_html(temporary_id: &str) -> String {
     format!(r#"<p><img src="../hostedContents/{temporary_id}/$value"></p>"#)
 }
 
-fn attachment_tag(attachment_id: &str) -> String {
+/// The marker Graph requires in the message body for every attachment it is
+/// sent alongside — used for uploaded files and for adaptive cards.
+pub(super) fn attachment_tag(attachment_id: &str) -> String {
     format!(r#"<attachment id="{attachment_id}"></attachment>"#)
 }
 
