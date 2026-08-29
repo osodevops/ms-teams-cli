@@ -336,6 +336,42 @@ mod tests {
         }
     }
 
+    /// The chunking arithmetic is exercised against an in-memory store on every platform, which
+    /// proves the splitting and the sweep but not that Credential Manager accepts what it is
+    /// handed. Only a real store shows that, and Windows is the only platform whose limit makes
+    /// it matter, so this runs there alone — CI has a Credential Manager, and a developer on
+    /// macOS keeps their keychain untouched.
+    #[cfg(windows)]
+    #[test]
+    fn a_token_too_large_for_one_credential_round_trips_through_credential_manager() {
+        let profile = format!("teams-cli-test-{}", uuid::Uuid::new_v4());
+        let original = token(&"a".repeat(6000));
+        let json = serde_json::to_string(&original).unwrap();
+        assert!(
+            json.len() > 2560,
+            "token must exceed one blob to be the case at hand"
+        );
+
+        // what issue #67 hit: the whole bundle in a single entry
+        let single = OsKeyring.set_password(&entry_key(&profile), &json);
+
+        let stored = store_token_in(&OsKeyring, &profile, &original, CHUNK_BYTES);
+        let loaded = stored.and_then(|()| get_token_from(&OsKeyring, &profile));
+        let swept = delete_token_from(&OsKeyring, &profile, CHUNK_BYTES.is_some());
+        let after = get_token_from(&OsKeyring, &profile);
+
+        assert!(
+            single.is_err(),
+            "Credential Manager accepted an oversized blob; the premise of chunking is gone"
+        );
+        let loaded = loaded.expect("chunked store and load");
+        assert_eq!(loaded.access_token, original.access_token);
+        assert_eq!(loaded.refresh_token, original.refresh_token);
+        assert_eq!(loaded.scope, original.scope);
+        swept.expect("logout sweep");
+        assert!(after.is_err(), "logout left the token readable");
+    }
+
     fn token(access_token: &str) -> TokenInfo {
         TokenInfo {
             access_token: access_token.to_string(),
