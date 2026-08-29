@@ -183,6 +183,26 @@ fn summarize_profile(name: &str, token: Option<&auth::token::TokenInfo>) -> serd
     })
 }
 
+/// One `auth list` table row. Telling which profile is the active one is half of
+/// what the command is for, so the active name carries a marker; a field the token
+/// did not yield is left blank rather than printed as the word "null".
+fn profile_row(summary: &serde_json::Value, active: &str) -> Vec<String> {
+    let field = |key: &str| summary[key].as_str().unwrap_or_default().to_string();
+    let name = field("name");
+    let marked = if name == active {
+        format!("* {name}")
+    } else {
+        format!("  {name}")
+    };
+    vec![
+        marked,
+        field("user"),
+        field("tenant_id"),
+        field("auth_type"),
+        field("expires_at"),
+    ]
+}
+
 fn delegated_admin_consent_url(client_id: &str, tenant_id: &str, delegated_scopes: &str) -> String {
     let scopes = graph_admin_consent_scopes(delegated_scopes);
     format!(
@@ -394,7 +414,14 @@ pub async fn run(
                 "profiles": profiles,
                 "active": profile,
             });
-            output::print_success(format, &msg, start);
+            if format == OutputFormat::Human {
+                let headers = vec!["Profile", "User", "Tenant ID", "Auth", "Expires"];
+                let rows: Vec<Vec<String>> =
+                    profiles.iter().map(|p| profile_row(p, profile)).collect();
+                output::table::print_table(headers, rows);
+            } else {
+                output::print_success(format, &msg, start);
+            }
             Ok(())
         }
 
@@ -541,6 +568,42 @@ mod tests {
         assert!(summary["tenant_id"].is_null());
         assert!(summary["auth_type"].is_null());
         assert!(summary["expires_at"].is_null());
+    }
+
+    #[test]
+    fn profile_row_marks_the_active_profile_and_blanks_missing_fields() {
+        let token = token_with_payload(serde_json::json!({
+            "preferred_username": "a@contoso.com",
+            "tid": "tenant-1",
+            "scp": "User.Read",
+        }));
+        let active = summarize_profile("work", Some(&token));
+        assert_eq!(
+            profile_row(&active, "work"),
+            vec![
+                "* work".to_string(),
+                "a@contoso.com".to_string(),
+                "tenant-1".to_string(),
+                "delegated".to_string(),
+                "2030-01-02T03:04:05+00:00".to_string(),
+            ]
+        );
+
+        // a profile that is not the active one is indented to the same width
+        assert_eq!(profile_row(&active, "other")[0], "  work");
+
+        // a profile whose token could not be read prints blanks, not the word "null"
+        let broken = summarize_profile("broken", None);
+        assert_eq!(
+            profile_row(&broken, "work"),
+            vec![
+                "  broken".to_string(),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+            ]
+        );
     }
 
     #[test]

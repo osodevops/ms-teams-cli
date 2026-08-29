@@ -319,6 +319,18 @@ profile has no `user`.
 }
 ```
 
+On a terminal the same information is printed as a table, with the active
+profile marked `*`:
+
+```text
+  Profile   User             Tenant ID   Auth        Expires
+* default   a@contoso.com    ...         delegated   ...
+  alt       b@contoso.com    ...         delegated   ...
+```
+
+Note that `profiles` is an array of objects; a consumer that read it as an
+array of names needs `.data.profiles[].name`.
+
 On macOS this reads one keychain item per profile, so the first run of a new
 binary may prompt once per profile.
 
