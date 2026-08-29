@@ -4,6 +4,7 @@
 
 ### Changed
 
+- `teams auth list` now emits `profiles` as an array of objects rather than an array of profile-name strings. A consumer reading `.data.profiles[]` as a string needs `.data.profiles[].name` instead. On a terminal the command prints a table, with the active profile marked `*`, in place of the raw JSON it used to show.
 - `teams presence set --expiration` is now checked before the request is sent. Microsoft Graph accepts an ISO 8601 duration from `PT5M` to `PT4H`; a malformed or out-of-range value now fails as invalid input (exit 2) with the bounds in the message, instead of costing a round trip and returning a 400 to interpret. The `--availability` and `--activity` help text now names the five pairs `setPresence` actually accepts, rather than `Offline` and `InAMeeting`, which only occur when reading a presence. This resolves #81.
 
 ### Fixed
@@ -17,6 +18,7 @@
 ### Added
 
 - `presence get` output now includes `statusMessage.publishedDateTime`, a documented Graph property that was previously discarded during deserialization.
+- `teams auth list` reports, for each profile, the signed-in `user`, `tenant_id`, and `auth_type` (`delegated`, `app-only`, or `unknown`) decoded from the stored token's claims, plus the stored token's `expires_at`, without any network call. A profile whose token cannot be read or decoded is still listed with those fields `null`. This resolves #54.
 
 ## v0.4.0 - 2026-08-19
 

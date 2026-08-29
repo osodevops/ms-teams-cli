@@ -66,7 +66,7 @@ pub enum AuthCommand {
         #[arg(long, env = "TEAMS_CLI_TENANT_ID")]
         tenant_id: Option<String>,
     },
-    /// List all authenticated profiles
+    /// List stored profiles and the account each one holds
     List,
     /// Switch active profile
     Switch {
@@ -164,6 +164,43 @@ fn annotate_consent_error(
         }
         other => other,
     }
+}
+
+/// Describe one stored profile for `auth list` without touching the network.
+///
+/// The identity comes from the access token's unverified claims, the same
+/// source `auth status` and `auth doctor` use. A profile whose token cannot be
+/// read or decoded is still listed, with every field but `name` null, so a
+/// broken keyring entry does not hide the profile.
+fn summarize_profile(name: &str, token: Option<&auth::token::TokenInfo>) -> serde_json::Value {
+    let decoded = token.and_then(|t| t.unverified_claims().map(|claims| (t, claims)));
+    serde_json::json!({
+        "name": name,
+        "user": decoded.as_ref().and_then(|(_, c)| c.user()),
+        "tenant_id": decoded.as_ref().and_then(|(_, c)| c.tid.as_deref()),
+        "auth_type": decoded.as_ref().map(|(_, c)| c.auth_type()),
+        "expires_at": decoded.as_ref().and_then(|(t, _)| t.expires_at.map(|e| e.to_rfc3339())),
+    })
+}
+
+/// One `auth list` table row. Telling which profile is the active one is half of
+/// what the command is for, so the active name carries a marker; a field the token
+/// did not yield is left blank rather than printed as the word "null".
+fn profile_row(summary: &serde_json::Value, active: &str) -> Vec<String> {
+    let field = |key: &str| summary[key].as_str().unwrap_or_default().to_string();
+    let name = field("name");
+    let marked = if name == active {
+        format!("* {name}")
+    } else {
+        format!("  {name}")
+    };
+    vec![
+        marked,
+        field("user"),
+        field("tenant_id"),
+        field("auth_type"),
+        field("expires_at"),
+    ]
 }
 
 fn delegated_admin_consent_url(client_id: &str, tenant_id: &str, delegated_scopes: &str) -> String {
@@ -333,7 +370,7 @@ pub async fn run(
                     "is_graph_audience": claims.as_ref().and_then(|c| c.is_graph_audience()),
                     "tenant_id": claims.as_ref().and_then(|c| c.tid.clone()),
                     "app_id": claims.as_ref().and_then(|c| c.appid.clone()).or_else(|| claims.as_ref().and_then(|c| c.azp.clone())),
-                    "user": claims.as_ref().and_then(|c| c.preferred_username.clone()).or_else(|| claims.as_ref().and_then(|c| c.upn.clone())),
+                    "user": claims.as_ref().and_then(|c| c.user()),
                 })),
             });
             output::print_success(format, &msg, start);
@@ -369,12 +406,22 @@ pub async fn run(
 
         AuthCommand::List => {
             let start = Instant::now();
-            let profiles = auth::keyring::list_profiles();
+            let profiles: Vec<serde_json::Value> = auth::keyring::list_profiles()
+                .iter()
+                .map(|name| summarize_profile(name, auth::keyring::get_token(name).ok().as_ref()))
+                .collect();
             let msg = serde_json::json!({
                 "profiles": profiles,
                 "active": profile,
             });
-            output::print_success(format, &msg, start);
+            if format == OutputFormat::Human {
+                let headers = vec!["Profile", "User", "Tenant ID", "Auth", "Expires"];
+                let rows: Vec<Vec<String>> =
+                    profiles.iter().map(|p| profile_row(p, profile)).collect();
+                output::table::print_table(headers, rows);
+            } else {
+                output::print_success(format, &msg, start);
+            }
             Ok(())
         }
 
@@ -454,6 +501,110 @@ pub async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    use chrono::{TimeZone, Utc};
+
+    fn token_with_payload(payload: serde_json::Value) -> auth::token::TokenInfo {
+        auth::token::TokenInfo {
+            access_token: format!(
+                "header.{}.signature",
+                URL_SAFE_NO_PAD.encode(payload.to_string())
+            ),
+            expires_at: Some(Utc.with_ymd_and_hms(2030, 1, 2, 3, 4, 5).unwrap()),
+            token_type: "Bearer".into(),
+            scope: None,
+            refresh_token: None,
+            profile: "work".into(),
+        }
+    }
+
+    #[test]
+    fn summarize_profile_reports_identity_from_token_claims() {
+        let token = token_with_payload(serde_json::json!({
+            "preferred_username": "a@contoso.com",
+            "tid": "tenant-1",
+            "scp": "User.Read",
+        }));
+
+        let summary = summarize_profile("work", Some(&token));
+
+        assert_eq!(summary["name"], "work");
+        assert_eq!(summary["user"], "a@contoso.com");
+        assert_eq!(summary["tenant_id"], "tenant-1");
+        assert_eq!(summary["auth_type"], "delegated");
+        assert_eq!(summary["expires_at"], "2030-01-02T03:04:05+00:00");
+    }
+
+    #[test]
+    fn summarize_profile_falls_back_to_upn_for_user() {
+        let token = token_with_payload(serde_json::json!({ "upn": "b@contoso.com" }));
+
+        assert_eq!(
+            summarize_profile("alt", Some(&token))["user"],
+            "b@contoso.com"
+        );
+    }
+
+    #[test]
+    fn summarize_profile_lists_profile_without_token_with_null_fields() {
+        let summary = summarize_profile("broken", None);
+
+        assert_eq!(summary["name"], "broken");
+        assert!(summary["user"].is_null());
+        assert!(summary["tenant_id"].is_null());
+        assert!(summary["auth_type"].is_null());
+        assert!(summary["expires_at"].is_null());
+    }
+
+    #[test]
+    fn summarize_profile_nulls_every_field_when_token_is_not_a_jwt() {
+        let mut token = token_with_payload(serde_json::json!({}));
+        token.access_token = "opaque-token".into();
+
+        let summary = summarize_profile("opaque", Some(&token));
+
+        assert_eq!(summary["name"], "opaque");
+        assert!(summary["user"].is_null());
+        assert!(summary["tenant_id"].is_null());
+        assert!(summary["auth_type"].is_null());
+        assert!(summary["expires_at"].is_null());
+    }
+
+    #[test]
+    fn profile_row_marks_the_active_profile_and_blanks_missing_fields() {
+        let token = token_with_payload(serde_json::json!({
+            "preferred_username": "a@contoso.com",
+            "tid": "tenant-1",
+            "scp": "User.Read",
+        }));
+        let active = summarize_profile("work", Some(&token));
+        assert_eq!(
+            profile_row(&active, "work"),
+            vec![
+                "* work".to_string(),
+                "a@contoso.com".to_string(),
+                "tenant-1".to_string(),
+                "delegated".to_string(),
+                "2030-01-02T03:04:05+00:00".to_string(),
+            ]
+        );
+
+        // a profile that is not the active one is indented to the same width
+        assert_eq!(profile_row(&active, "other")[0], "  work");
+
+        // a profile whose token could not be read prints blanks, not the word "null"
+        let broken = summarize_profile("broken", None);
+        assert_eq!(
+            profile_row(&broken, "work"),
+            vec![
+                "  broken".to_string(),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+            ]
+        );
+    }
 
     #[test]
     fn annotate_consent_error_adds_guidance_with_requested_scopes() {
