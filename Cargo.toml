@@ -35,7 +35,7 @@ webbrowser = "1"
 url = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-comfy-table = "7"
+comfy-table = "8"
 indicatif = "0.18"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
