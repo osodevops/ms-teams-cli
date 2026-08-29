@@ -120,6 +120,12 @@ teams message pin --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message ME
 teams message unpin --team TEAM_ID --channel CHANNEL_ID (PINNED_MESSAGE_ID | --pinned-message-id PINNED_MESSAGE_ID)
 ```
 
+`--adaptive-card` may be used without `--body`: Graph requires the body to
+reference the card, and the CLI writes that reference itself. A card always
+sends an HTML body, so a `--content-type text` body is escaped when it is
+promoted.
+
+
 Normal message mutation requires delegated auth. App-only/client-credentials tokens are rejected for these commands.
 
 `REACTION` is an emoji character or one of the names the CLI translates for you (`like`, `heart`, `laugh`, `surprised`, `sad`, `angry`, `thumbsup`, `thumbsdown`, `eyes`, `tada`, `rocket`, `fire`). Graph only accepts the emoji character on writes.
