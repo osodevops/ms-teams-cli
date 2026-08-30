@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v0.5.0 - 2026-08-30
+
+### Added
+
+- `teams message send --mention USER` (repeatable) tags a person with a real Teams @mention, in chats and channels. Graph only keeps a mention when the body's `<at id="N">` elements are synchronized with a top-level `mentions` array, so the CLI builds both: each value (Entra object ID or UPN) is resolved through Graph, display names are HTML-escaped into the `<at>` prefix in flag order, duplicates collapse to one mention, and a plain-text body is promoted to HTML safely. A mention on its own counts as a body. Raw `<at>` markup in an HTML body without `--mention` is rejected before anything is sent, and `message list`/`get` retain any mentions Graph returns.
+- `presence get` output now includes `statusMessage.publishedDateTime`, a documented Graph property that was previously discarded during deserialization.
+- `teams auth list` reports, for each profile, the signed-in `user`, `tenant_id`, and `auth_type` (`delegated`, `app-only`, or `unknown`) decoded from the stored token's claims, plus the stored token's `expires_at`, without any network call. A profile whose token cannot be read or decoded is still listed with those fields `null`. This resolves #54.
+
 ### Changed
 
 - Refreshed the Rust dependencies: the rust-minor group (clap, clap_complete and others), `base64` 0.22 → 0.23, `toml` 0.8 → 1.1, and `comfy-table` 7.2 → 8.0. comfy-table 8 turns the presets into `TableStyle` constants and replaces `Table::load_preset` with `Table::load_style`; table rendering is unchanged.
@@ -20,14 +28,6 @@
 - `teams presence get` no longer fails with `API error (200): Failed to parse API response` when the target's Teams status message carries an expiry. Microsoft Graph sends `statusMessage.expiryDateTime` as a `dateTimeTimeZone` object, not a string, so both `GET /me/presence` and `GET /users/{id}/presence` failed to deserialize for any account with an expiring status message. This resolves #69.
 - On Windows, `teams auth login` no longer fails with `KEYRING_ERROR: ... longer than platform limit of 2560 chars` after a successful sign-in. Credential Manager caps a credential at 2560 bytes and a Microsoft Graph token bundle is routinely larger, so the serialized token is now split across `<profile>:token:<n>` entries with a `<profile>:token` header; `auth logout` removes every piece. macOS and Linux keep a single keychain item as before. This resolves #67.
 - `teams auth logout` now reports a failure to delete the stored token instead of silently succeeding and leaving it in the keyring. A profile with no stored token still logs out cleanly.
-
-### Added
-
-- `teams message send --mention USER` (repeatable) tags a person with a real Teams @mention, in chats and channels. Graph only keeps a mention when the body's `<at id="N">` elements are synchronized with a top-level `mentions` array, so the CLI builds both: each value (Entra object ID or UPN) is resolved through Graph, display names are HTML-escaped into the `<at>` prefix in flag order, duplicates collapse to one mention, and a plain-text body is promoted to HTML safely. A mention on its own counts as a body. Raw `<at>` markup in an HTML body without `--mention` is rejected before anything is sent, and `message list`/`get` retain any mentions Graph returns.
-
-- `presence get` output now includes `statusMessage.publishedDateTime`, a documented Graph property that was previously discarded during deserialization.
-- `teams auth list` reports, for each profile, the signed-in `user`, `tenant_id`, and `auth_type` (`delegated`, `app-only`, or `unknown`) decoded from the stored token's claims, plus the stored token's `expires_at`, without any network call. A profile whose token cannot be read or decoded is still listed with those fields `null`. This resolves #54.
-
 ## v0.4.0 - 2026-08-19
 
 ### Added
