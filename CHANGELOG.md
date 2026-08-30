@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## v0.6.0 - 2026-08-30
+
+### Added
+
+- `teams --help-json` emits the whole command tree as JSON: every command's path, summary, usage, and command-specific flags with their value names, defaults, environment variables, and whether they are required. This is what the documentation site consumes to regenerate its command reference on each release. Global options and clap's synthesised `help` subcommands are excluded, since the reference documents globals once and the `help` entries are not part of the command surface.
+
+### Fixed
+
+- The documentation site's command reference can regenerate again. Its workflow has always called `teams --help-json`, which did not exist, so every scheduled run since at least 2026-07-06 failed and `reference/command/**` stayed frozen at v0.3.0. A release now also notifies the docs repository, which previously received no `cli-released` event at all, so the reference and the site's version badge both refresh on release.
+
 ## v0.5.0 - 2026-08-30
 
 ### Added

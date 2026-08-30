@@ -3,11 +3,12 @@ mod auth;
 mod cli;
 mod config;
 mod error;
+mod help_json;
 mod listen;
 mod models;
 mod output;
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use tracing_subscriber::EnvFilter;
 
 use crate::cli::Cli;
@@ -15,6 +16,21 @@ use crate::output::OutputFormat;
 
 #[tokio::main]
 async fn main() {
+    // Handled before clap parses, because the root requires a subcommand and
+    // `teams --help-json` deliberately has none. The docs site calls this on the
+    // released binary to regenerate its command reference.
+    if std::env::args_os().any(|arg| arg == "--help-json") {
+        let dump = help_json::build(Cli::command());
+        match serde_json::to_string_pretty(&dump) {
+            Ok(json) => output::write_stdout_line(&json),
+            Err(e) => {
+                eprintln!("Failed to render help JSON: {e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
     let cli = Cli::parse();
 
     let output_format_flag = cli.output.clone();
