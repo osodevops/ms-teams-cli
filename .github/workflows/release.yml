@@ -225,3 +225,27 @@ jobs:
           repository: osodevops/scoop-bucket
           event-type: update-teams-manifest
           client-payload: '{"ref": "${{ github.ref }}", "sha": "${{ github.sha }}", "tag": "${{ github.ref_name }}"}'
+
+  notify-docs:
+    name: Notify Documentation Site
+    needs: release
+    runs-on: ubuntu-latest
+    permissions: {}
+    # Never fail a published release over a docs notification. The docs repo also
+    # regenerates on a weekly schedule, so a missed dispatch delays the reference
+    # rather than losing it.
+    continue-on-error: true
+    steps:
+      # ms-teams-cli-docs regenerates reference/command/** from `teams --help-json`
+      # on the released binary, and its sidebar version badge is resolved at build
+      # time. Without this dispatch neither ever fires on a release: the docs repo
+      # listens for `cli-released` and nothing was sending it.
+      - name: Trigger docs regeneration and redeploy
+        uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+        with:
+          # Prefers a purpose-scoped secret; falls back to the token already used
+          # to dispatch across org repositories so this works before one is added.
+          token: ${{ secrets.DOCS_DISPATCH_TOKEN || secrets.HOMEBREW_TAP_TOKEN }}
+          repository: osodevops/ms-teams-cli-docs
+          event-type: cli-released
+          client-payload: '{"tag": "${{ github.ref_name }}", "repo": "${{ github.repository }}"}'
