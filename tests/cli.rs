@@ -589,6 +589,49 @@ fn message_send_help_advertises_repeatable_mention_flag() {
 }
 
 #[test]
+fn message_send_help_advertises_subject_flag() {
+    teams()
+        .args(["message", "send", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--subject <SUBJECT>"));
+}
+
+#[test]
+fn message_send_rejects_subject_on_chat_messages() {
+    teams()
+        .args([
+            "message",
+            "send",
+            "--chat",
+            "19:chat@thread.v2",
+            "--subject",
+            "Release plan",
+            "--body",
+            "hi",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("--subject"));
+}
+
+#[test]
+fn message_send_rejects_subject_without_a_channel() {
+    teams()
+        .args([
+            "message",
+            "send",
+            "--subject",
+            "Release plan",
+            "--body",
+            "hi",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("--subject"));
+}
+
+#[test]
 fn message_documented_flags_are_available() {
     teams()
         .args(["message", "get", "--help"])
