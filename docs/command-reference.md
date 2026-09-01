@@ -106,7 +106,7 @@ teams channel members remove TEAM_ID CHANNEL_ID MEMBER_ID
 ## Messages
 
 ```bash
-teams message send (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) [--body TEXT | --stdin] [--content-type text|html] [--adaptive-card PATH] [--image PATH]... [--attach PATH]... [--mention USER]...
+teams message send (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) [--body TEXT | --stdin] [--content-type text|html] [--adaptive-card PATH] [--image PATH]... [--attach PATH]... [--mention USER]... [--subject TEXT]
 teams message list (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID)
 teams message get --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID) [--with-attachments]
 teams message attachments list (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID)
@@ -144,6 +144,14 @@ teams message send --chat 19:abc@thread.v2 \
 # Tag two people in a channel post (repeat --mention)
 teams message send --team TEAM_ID --channel CHANNEL_ID \
   --mention <object-id-1> --mention <object-id-2> --body "Deploy is going out now."
+```
+
+`--subject TEXT` sets the subject line on a channel root message — the bold title Teams renders above the body, the same field the client offers behind "Add a subject". Channel sends only: chat messages have no subject, so `--subject` with `--chat` (or without `--channel`) is rejected with exit code 2 before anything is sent. The stored subject comes back on `message list` and `message get`.
+
+```bash
+# Post a channel message with a subject line
+teams message send --team TEAM_ID --channel CHANNEL_ID \
+  --subject "Release plan" --body "Details inside."
 ```
 
 `message attachments` unifies the two ways Teams stores message media: inline images pasted into the compose box (Graph "hosted contents") and files attached via SharePoint/OneDrive (`reference` attachments). `list` returns an indexed inventory; `download` fetches everything downloadable by default, or one item with `--index` (add `--path FILE` for an exact destination, or `--path -` to stream to stdout). Inline images and code snippets need no scopes beyond message reads; file attachments additionally require the `Files.Read.All` delegated scope. `message get --with-attachments` embeds the same inventory under `attachment_items` in the message output.

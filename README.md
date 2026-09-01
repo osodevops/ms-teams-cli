@@ -378,6 +378,7 @@ teams message send --chat <chat-id> --body "Hello"
 teams message send --team <team-id> --channel <channel-id> --body "<h1>Rich</h1>" --content-type html
 teams message send --chat <chat-id> --mention <user-id-or-upn> --body "Please review and send the drafts."
 teams message send --team <team-id> --channel <channel-id> --mention <user-id> --mention <user-id> --body "Deploy is going out now."
+teams message send --team <team-id> --channel <channel-id> --subject "Release plan" --body "Details inside."
 echo "Build passed" | teams message send --team <team-id> --channel <channel-id> --stdin
 teams message list --team <team-id> --channel <channel-id>
 teams message list --chat <chat-id>
@@ -402,6 +403,12 @@ the CLI builds both: a plain-text body is safely converted to HTML (escaped, lin
 preserved), the `<at>` elements are prepended in flag order, and a mention by itself counts
 as a body (`--body` optional). Raw `<at>` markup typed into an HTML body is rejected with
 exit code 2 before anything is sent.
+
+`message send --subject TEXT` sets the subject line on a channel root message — the bold
+title Teams shows above the body, the same field the Teams client offers behind "Add a
+subject". Channel messages only: chat messages have no subject, so `--subject` with
+`--chat` is rejected as invalid input. `message list` and `message get` return the
+subject Graph stores, so a posted subject survives a read-back.
 
 ```bash
 teams message send --chat <chat-id> \

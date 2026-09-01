@@ -9,6 +9,8 @@ pub struct ChatMessage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_date_time: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub subject: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub from: Option<ChatMessageFrom>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub body: Option<ItemBody>,
@@ -93,6 +95,8 @@ pub struct ChatMessageMentioned {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SendMessageRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subject: Option<String>,
     pub body: ItemBody,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attachments: Option<Vec<ChatMessageAttachment>>,
@@ -184,6 +188,7 @@ mod tests {
         let msg = ChatMessage {
             id: Some("msg1".into()),
             created_date_time: Some("2024-01-01T00:00:00Z".into()),
+            subject: None,
             from: Some(ChatMessageFrom {
                 user: Some(ChatMessageUser {
                     id: Some("u1".into()),
@@ -208,6 +213,7 @@ mod tests {
     #[test]
     fn send_request_serializes_hosted_contents_with_temporary_id() {
         let req = SendMessageRequest {
+            subject: None,
             body: ItemBody {
                 content_type: Some("html".into()),
                 content: Some(r#"<p><img src="../hostedContents/1/$value"></p>"#.into()),
@@ -233,6 +239,7 @@ mod tests {
     #[test]
     fn send_request_serializes_the_exact_mention_shape() {
         let req = SendMessageRequest {
+            subject: None,
             body: ItemBody {
                 content_type: Some("html".into()),
                 content: Some(r#"<at id="0">Sophie Daniels</at> Please review"#.into()),
@@ -320,6 +327,54 @@ mod tests {
             re["mentions"][0]["mentioned"]["user"]["userIdentityType"],
             "aadUser"
         );
+    }
+
+    /// Graph returns `subject` on channel root messages; it must survive a
+    /// parse/print round trip instead of being dropped from JSON output.
+    #[test]
+    fn chat_message_keeps_returned_subject() {
+        let json = serde_json::json!({
+            "id": "1700000000000",
+            "subject": "Release plan",
+            "body": { "contentType": "html", "content": "Team, details inside." }
+        });
+        let msg: ChatMessage = serde_json::from_value(json).unwrap();
+        assert_eq!(msg.subject.as_deref(), Some("Release plan"));
+
+        let re = serde_json::to_value(&msg).unwrap();
+        assert_eq!(re["subject"], "Release plan");
+    }
+
+    /// Messages without a subject (every chat message, most replies) must not
+    /// gain a `"subject": null` field on output.
+    #[test]
+    fn chat_message_without_subject_omits_the_field() {
+        let json = serde_json::json!({
+            "id": "1700000000001",
+            "body": { "contentType": "text", "content": "hi" }
+        });
+        let msg: ChatMessage = serde_json::from_value(json).unwrap();
+        assert!(msg.subject.is_none());
+
+        let re = serde_json::to_value(&msg).unwrap();
+        assert!(re.get("subject").is_none());
+    }
+
+    #[test]
+    fn send_request_serializes_subject_at_top_level() {
+        let req = SendMessageRequest {
+            subject: Some("Release plan".into()),
+            body: ItemBody {
+                content_type: Some("text".into()),
+                content: Some("Team, details inside.".into()),
+            },
+            attachments: None,
+            hosted_contents: None,
+            mentions: None,
+        };
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["subject"], "Release plan");
+        assert_eq!(json["body"]["content"], "Team, details inside.");
     }
 
     #[test]

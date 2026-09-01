@@ -2,9 +2,15 @@
 
 ## Unreleased
 
+### Added
+
+- `teams message send --subject TEXT` sets the subject line on a channel root message — the bold title Teams renders above the body, the same field the client offers behind "Add a subject". Channel sends only: chat messages have no subject, so `--subject` with `--chat` (or without `--channel`) is rejected as invalid input before anything is sent.
+
 ### Fixed
 
 - Windows builds reserve an 8 MiB main-thread stack, matching Linux and macOS. Windows gives the main thread 1 MiB by default, and building clap's command tree for this many subcommands needs almost all of it in an unoptimized build, so any addition to the `message` command made every debug and test invocation of `teams` on Windows — `--help` included — fail with `thread 'main' has overflowed its stack`, and `cargo test` failed on `windows-latest` while passing on Linux and macOS. A build script now passes `/STACK:8388608` to the MSVC linker (`--stack` on the GNU toolchain). The reservation is address space rather than committed memory, so an idle process costs nothing extra.
+- `message list` and `message get` no longer drop the `subject` of a message. The `ChatMessage` model had no `subject` field, so a channel root message's subject — returned by Graph on both reads — silently vanished from every output: a message posted with a subject read back without one. Messages without a subject are unchanged and gain no `"subject": null` noise.
+
 
 ## v0.6.0 - 2026-08-30
 

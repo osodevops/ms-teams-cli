@@ -149,7 +149,7 @@ teams channel members remove TEAM_ID CHANNEL_ID MEMBER_ID
 .fi
 .SH MESSAGE COMMANDS
 .nf
-teams message send (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) [--body TEXT | --stdin] [--content-type text|html] [--adaptive-card PATH] [--image PATH]... [--attach PATH]... [--mention USER]...
+teams message send (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) [--body TEXT | --stdin] [--content-type text|html] [--adaptive-card PATH] [--image PATH]... [--attach PATH]... [--mention USER]... [--subject TEXT]
 teams message list (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID)
 teams message get --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID) [--with-attachments]
 teams message attachments list (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID)
@@ -200,6 +200,17 @@ array, so the CLI builds both: a plain-text body is converted to HTML (escaped,
 line breaks preserved), the <at> elements are prepended to the body in flag
 order, and a mention by itself counts as a body. Raw <at> markup typed into an
 HTML body is rejected before anything is sent.
+.PP
+.B --subject TEXT
+sets the subject line on a channel root message, the bold title Teams shows
+above the body. Channel sends only: chat messages have no subject, so
+.B --subject
+with
+.B --chat
+is rejected as invalid input. The subject Graph stores is returned by
+.B message list
+and
+.B message get.
 .SH CHAT COMMANDS
 .nf
 teams chat list

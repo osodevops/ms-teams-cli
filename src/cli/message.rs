@@ -47,6 +47,9 @@ pub enum MessageCommand {
         /// User to @mention (repeatable): an Entra object ID or UPN
         #[arg(long, value_name = "USER")]
         mention: Vec<String>,
+        /// Subject line for a channel root message
+        #[arg(long, requires = "channel", conflicts_with = "chat")]
+        subject: Option<String>,
     },
     /// List messages in a channel or chat
     List {
@@ -295,6 +298,7 @@ pub async fn run(
             image,
             attach,
             mention,
+            subject,
         } => {
             let start = Instant::now();
             auth::require_delegated_token(&client.token, "Sending Teams messages")?;
@@ -308,6 +312,7 @@ pub async fn run(
             let identities = resolve_mentions(&client, &mention).await?;
             ensure_no_raw_at_markup(&content_type, &content)?;
             let mut req = build_send_request(content, &content_type, adaptive_card.as_deref())?;
+            req.subject = subject;
             apply_mentions(&mut req, &identities)?;
 
             let msg = if let Some(chat_id) = chat {
@@ -720,6 +725,7 @@ fn build_send_request(
     adaptive_card_path: Option<&str>,
 ) -> Result<SendMessageRequest> {
     let mut req = SendMessageRequest {
+        subject: None,
         body: ItemBody {
             content_type: Some(content_type.to_string()),
             content: Some(content),
@@ -1046,6 +1052,7 @@ mod tests {
 
     fn html_request(body: &str) -> SendMessageRequest {
         SendMessageRequest {
+            subject: None,
             body: ItemBody {
                 content_type: Some("html".into()),
                 content: Some(body.into()),
@@ -1145,6 +1152,7 @@ mod tests {
     #[test]
     fn text_body_is_promoted_to_html_with_line_breaks_intact() {
         let mut req = SendMessageRequest {
+            subject: None,
             body: ItemBody {
                 content_type: Some("text".into()),
                 content: Some("line one\nline <two> & three".into()),
@@ -1179,6 +1187,7 @@ mod tests {
     #[test]
     fn mention_alone_becomes_the_whole_body() {
         let mut req = SendMessageRequest {
+            subject: None,
             body: ItemBody {
                 content_type: Some("text".into()),
                 content: Some(String::new()),
@@ -1232,6 +1241,7 @@ mod tests {
     #[test]
     fn no_mentions_leaves_the_request_untouched() {
         let mut text_req = SendMessageRequest {
+            subject: None,
             body: ItemBody {
                 content_type: Some("text".into()),
                 content: Some("plain & simple\nbody".into()),

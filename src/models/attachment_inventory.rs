@@ -258,6 +258,7 @@ mod tests {
         ChatMessage {
             id: Some("1783503421261".into()),
             created_date_time: None,
+            subject: None,
             from: None,
             body: Some(ItemBody {
                 content_type: Some("html".into()),

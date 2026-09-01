@@ -230,6 +230,7 @@ mod tests {
 
     fn text_request(body: &str) -> SendMessageRequest {
         SendMessageRequest {
+            subject: None,
             body: ItemBody {
                 content_type: Some("text".into()),
                 content: Some(body.into()),
