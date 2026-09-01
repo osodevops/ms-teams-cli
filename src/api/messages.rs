@@ -521,6 +521,7 @@ mod tests {
 
     fn edit_request() -> SendMessageRequest {
         SendMessageRequest {
+            subject: None,
             body: ItemBody {
                 content_type: Some("text".to_string()),
                 content: Some("corrected text".to_string()),
@@ -578,6 +579,7 @@ mod tests {
             .await;
 
         let req = SendMessageRequest {
+            subject: None,
             body: ItemBody {
                 content_type: Some("html".into()),
                 content: Some("<at id=\"0\">Sophie Daniels</at> Please review".into()),
