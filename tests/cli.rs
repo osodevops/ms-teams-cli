@@ -63,6 +63,32 @@ fn presence_set_rejects_a_bad_expiration_before_it_needs_credentials() {
         .stderr(predicate::str::contains("PT5M to PT4H"));
 }
 
+/// The activity is derived from the availability, so the only way to send a pair Graph rejects
+/// is for the value parser to be dropped from the attribute; the checks below would notice.
+#[test]
+fn presence_set_preferred_rejects_bad_values_before_it_needs_credentials() {
+    teams()
+        .args(["presence", "set-preferred", "--availability", "InACall"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains(
+            "Available, Busy, DoNotDisturb, BeRightBack, Away, Offline",
+        ));
+
+    teams()
+        .args([
+            "presence",
+            "set-preferred",
+            "--availability",
+            "Away",
+            "--expiration",
+            "8h",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("is not an ISO 8601 duration"));
+}
+
 #[test]
 fn help_flag_works() {
     teams().arg("--help").assert().success().stdout(
@@ -717,7 +743,9 @@ fn presence_help_shows_subcommands() {
         .stdout(
             predicate::str::contains("get")
                 .and(predicate::str::contains("set"))
+                .and(predicate::str::contains("set-preferred"))
                 .and(predicate::str::contains("clear"))
+                .and(predicate::str::contains("clear-preferred"))
                 .and(predicate::str::contains("status")),
         );
 }

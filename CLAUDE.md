@@ -26,7 +26,7 @@ Single-crate Rust binary. Key modules:
   - `channel.rs` — list, get, create, update, delete, members
   - `message.rs` — send, list, get, reply, delete, react, unreact, pin, unpin
   - `chat.rs` — list, get, create, hide, unhide, members
-  - `presence.rs` — get, set, clear, status, get-batch
+  - `presence.rs` — get, set, set-preferred, clear, clear-preferred, status, get-batch
   - `search.rs` — messages, users, teams
   - `tag.rs` — list, get, create, delete, add-member, remove-member
   - `meeting.rs` — list, get, create, delete, join-url, attendance

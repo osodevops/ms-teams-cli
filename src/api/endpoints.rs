@@ -188,6 +188,14 @@ pub fn set_status_message() -> String {
     format!("{GRAPH_V1}/me/presence/setStatusMessage")
 }
 
+pub fn set_user_preferred_presence() -> String {
+    format!("{GRAPH_V1}/me/presence/setUserPreferredPresence")
+}
+
+pub fn clear_user_preferred_presence() -> String {
+    format!("{GRAPH_V1}/me/presence/clearUserPreferredPresence")
+}
+
 // --- Search ---
 pub fn search_query() -> String {
     format!("{GRAPH_V1}/search/query")

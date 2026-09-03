@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- `teams presence set-preferred --availability A [--expiration D]` and `teams presence clear-preferred` manage the user-preferred presence, the layer Microsoft Graph ranks above every presence session while one exists. The Teams client's "Appear offline" lives there as `Offline`/`OffWork`, and until now nothing in the CLI could reach it: `presence set` returned success and the account stayed offline. Each of the six availabilities Graph accepts here has exactly one activity, so the command derives it and reports both back. The expiration is checked as a positive ISO 8601 duration but not bounded, because Graph documents defaults of one day for `Busy` and `DoNotDisturb` and seven days otherwise, rather than a range.
+
 ## v0.6.0 - 2026-08-30
 
 ### Added

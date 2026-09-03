@@ -444,6 +444,9 @@ teams presence get-batch --user-ids <id1>,<id2>
 teams presence set --availability Available --activity Available
 teams presence set --availability Busy --activity InACall --expiration PT1H
 teams presence clear
+teams presence set-preferred --availability Offline     # "Appear offline"
+teams presence set-preferred --availability Busy --expiration PT8H
+teams presence clear-preferred
 teams presence status --message "In deep focus" [--expiry <datetime>]
 ```
 
@@ -462,6 +465,20 @@ Graph accepts five `--availability`/`--activity` pairs: `Available`/`Available`,
 `PT5M` and `PT4H` and is checked before the request is sent; leaving it out
 applies Graph's own five-minute default, so a presence set this way lapses on
 its own either way.
+
+A preferred presence is a second layer above the sessions. Graph ranks it over
+every session's state for as long as at least one session exists, which is how
+the Teams client's "Appear offline" works: it is the preferred pair
+`Offline`/`OffWork`, and it hides whatever `set` or a signed-in client reports
+underneath. `set-preferred` takes one of the six availabilities Graph accepts,
+`Available`, `Busy`, `DoNotDisturb`, `BeRightBack`, `Away` or `Offline`, and
+sends the one activity Graph pairs with it, reporting both back. Its
+`--expiration` is any positive ISO 8601 duration, `P1D` included; left out,
+Graph applies one day for `Busy` and `DoNotDisturb` and seven days for the
+rest. `clear-preferred` removes the override so the sessions show through
+again. With no session at all the user reads `Offline` whatever the preferred
+presence says, so an account that is never signed into a Teams client needs
+`set` as well as `set-preferred` to appear available.
 
 ### Search
 

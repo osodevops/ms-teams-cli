@@ -8,7 +8,7 @@ use crate::config::{self, ConfigFile};
 use crate::error::{Result, TeamsError};
 use crate::models::presence::{
     ClearPresenceRequest, DateTimeTimeZone, SetPresenceRequest, SetStatusMessageBody,
-    SetStatusMessageRequest, StatusMessageContent,
+    SetStatusMessageRequest, SetUserPreferredPresenceRequest, StatusMessageContent,
 };
 use crate::output::{self, OutputFormat};
 
@@ -46,6 +46,17 @@ pub enum PresenceCommand {
         #[arg(long, value_parser = parse_expiration)]
         expiration: Option<String>,
     },
+    /// Set your preferred presence, which overrides every session's status while one exists
+    SetPreferred {
+        /// Availability: Available, Busy, DoNotDisturb, BeRightBack, Away or Offline. Graph
+        /// pairs each with one activity, which is sent alongside it
+        #[arg(long, value_parser = parse_preferred_availability)]
+        availability: PreferredPresence,
+        /// Expiration as an ISO 8601 duration such as PT8H or P1D. Graph's default is P1D for
+        /// Busy and DoNotDisturb and P7D for the rest
+        #[arg(long, value_parser = parse_preferred_expiration)]
+        expiration: Option<String>,
+    },
     /// Set your status message
     Status {
         /// Status message text
@@ -57,6 +68,60 @@ pub enum PresenceCommand {
     },
     /// Clear your presence (revert to automatic)
     Clear,
+    /// Clear your preferred presence, so the sessions' status shows again
+    ClearPreferred,
+}
+
+/// A preferred presence is set on the user rather than on an application's session, and Graph
+/// ranks it above every session while at least one exists. It accepts six availabilities, each
+/// paired with exactly one activity, so the activity is derived here rather than asked for: a
+/// caller cannot then send a pair Graph rejects, and the derived value is reported back so the
+/// request stays visible in full.
+#[derive(Debug, Clone)]
+pub struct PreferredPresence {
+    availability: &'static str,
+    activity: &'static str,
+}
+
+const PREFERRED_PRESENCE_PAIRS: [(&str, &str); 6] = [
+    ("Available", "Available"),
+    ("Busy", "Busy"),
+    ("DoNotDisturb", "DoNotDisturb"),
+    ("BeRightBack", "BeRightBack"),
+    ("Away", "Away"),
+    ("Offline", "OffWork"),
+];
+
+fn parse_preferred_availability(raw: &str) -> std::result::Result<PreferredPresence, String> {
+    PREFERRED_PRESENCE_PAIRS
+        .iter()
+        .find(|(availability, _)| availability.eq_ignore_ascii_case(raw.trim()))
+        .map(|&(availability, activity)| PreferredPresence {
+            availability,
+            activity,
+        })
+        .ok_or_else(|| {
+            let accepted: Vec<&str> = PREFERRED_PRESENCE_PAIRS
+                .iter()
+                .map(|(availability, _)| *availability)
+                .collect();
+            format!(
+                "`{raw}` is not a preferred availability; Microsoft Graph accepts {}",
+                accepted.join(", ")
+            )
+        })
+}
+
+/// Graph documents no bounds for a preferred presence expiration, only the defaults it applies
+/// when none is sent, so the check here is that the value is a positive duration at all. Unlike a
+/// session expiration it may run to days, which is why `parse_expiration` is not reused.
+fn parse_preferred_expiration(raw: &str) -> std::result::Result<String, String> {
+    match iso8601_duration_seconds(raw) {
+        Some(seconds) if seconds > 0 => Ok(raw.to_string()),
+        _ => Err(format!(
+            "`{raw}` is not an ISO 8601 duration in whole units; write it as PT8H, P1D or P7D"
+        )),
+    }
 }
 
 /// Graph accepts a presence expiration between five minutes and four hours, and applies a
@@ -271,6 +336,37 @@ pub async fn run(
             output::print_success(format, &result, start);
             Ok(())
         }
+
+        PresenceCommand::SetPreferred {
+            availability,
+            expiration,
+        } => {
+            auth::require_delegated_token(&client.token, "Setting your preferred Teams presence")?;
+            let start = Instant::now();
+            let req = SetUserPreferredPresenceRequest {
+                availability: availability.availability.to_string(),
+                activity: availability.activity.to_string(),
+                expiration_duration: expiration,
+            };
+            api::presence::set_user_preferred_presence(&client, &req).await?;
+            let result = serde_json::json!({
+                "status": "preferred_presence_set",
+                "availability": req.availability,
+                "activity": req.activity,
+                "expiration_duration": req.expiration_duration,
+            });
+            output::print_success(format, &result, start);
+            Ok(())
+        }
+
+        PresenceCommand::ClearPreferred => {
+            auth::require_delegated_token(&client.token, "Clearing your preferred Teams presence")?;
+            let start = Instant::now();
+            api::presence::clear_user_preferred_presence(&client).await?;
+            let result = serde_json::json!({ "status": "preferred_presence_cleared" });
+            output::print_success(format, &result, start);
+            Ok(())
+        }
     }
 }
 
@@ -448,5 +544,53 @@ mod tests {
         assert!(parse_expiration("PT4M59S").is_err());
         assert!(parse_expiration("PT5M").is_ok());
         assert!(parse_expiration("PT300S").is_ok());
+    }
+
+    #[test]
+    fn a_preferred_availability_derives_the_activity_graph_pairs_with_it() {
+        for (availability, activity) in PREFERRED_PRESENCE_PAIRS {
+            let pair = parse_preferred_availability(availability).unwrap();
+            assert_eq!(pair.availability, availability);
+            assert_eq!(pair.activity, activity);
+        }
+        assert_eq!(
+            parse_preferred_availability("Offline").unwrap().activity,
+            "OffWork"
+        );
+    }
+
+    #[test]
+    fn a_preferred_availability_is_matched_without_regard_to_case() {
+        let pair = parse_preferred_availability(" donotdisturb ").unwrap();
+        assert_eq!(pair.availability, "DoNotDisturb");
+        assert_eq!(pair.activity, "DoNotDisturb");
+    }
+
+    /// `set` accepts activities such as `InACall` that a preferred presence does not, so the
+    /// error names the six values rather than leaving the caller to try the other command's.
+    #[test]
+    fn a_value_that_is_not_a_preferred_availability_is_rejected_with_the_accepted_names() {
+        for raw in ["OffWork", "InACall", "Presenting", "", "banana"] {
+            let err = parse_preferred_availability(raw).unwrap_err();
+            assert!(
+                err.contains("Available, Busy, DoNotDisturb, BeRightBack, Away, Offline"),
+                "{raw}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_preferred_expiration_may_run_to_days() {
+        for raw in ["PT5M", "PT8H", "P1D", "P7D", "P1DT12H"] {
+            assert_eq!(parse_preferred_expiration(raw).as_deref(), Ok(raw), "{raw}");
+        }
+    }
+
+    #[test]
+    fn a_preferred_expiration_that_is_not_a_positive_duration_is_rejected() {
+        for raw in ["", "8h", "PT0S", "P0D", "PT1.5H", "PT1M1H"] {
+            let err = parse_preferred_expiration(raw).unwrap_err();
+            assert!(err.contains("not an ISO 8601 duration"), "{raw}: {err}");
+        }
     }
 }
