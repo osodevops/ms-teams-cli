@@ -420,6 +420,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn preferred_presence_write_urls_target_the_signed_in_user() {
+        assert_eq!(
+            set_user_preferred_presence(),
+            "https://graph.microsoft.com/v1.0/me/presence/setUserPreferredPresence"
+        );
+        assert_eq!(
+            clear_user_preferred_presence(),
+            "https://graph.microsoft.com/v1.0/me/presence/clearUserPreferredPresence"
+        );
+    }
+
+    #[test]
     fn sharing_url_token_matches_graph_convention() {
         // Expected value computed with: printf '%s' "$URL" | base64 | tr '+/' '-_' | tr -d '='
         let url = "https://tenant-my.sharepoint.com/personal/user/Documents/Microsoft%20Teams%20Chat%20Files/NetskopeLogs.zip";

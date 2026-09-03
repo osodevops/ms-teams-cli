@@ -174,7 +174,7 @@ teams presence get --user USER_ID
 teams presence get --users USER_ID,USER_ID
 teams presence get-batch --user-ids USER_ID,USER_ID
 teams presence set --availability AVAILABILITY --activity ACTIVITY [--expiration PT5M..PT4H]
-teams presence set-preferred --availability Available|Busy|DoNotDisturb|BeRightBack|Away|Offline [--expiration ISO8601_DURATION]
+teams presence set-preferred --availability Available|Busy|DoNotDisturb|BeRightBack|Away|Offline [--expiration WHOLE_UNIT_ISO8601_DURATION]
 teams presence status --message TEXT [--expiry ISO8601_DATETIME]
 teams presence clear
 teams presence clear-preferred

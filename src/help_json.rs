@@ -269,6 +269,23 @@ mod tests {
             "{}",
             availability.description
         );
+
+        let set_preferred = find(&commands, &["presence", "set-preferred"]);
+        let preferred_availability = set_preferred
+            .flags
+            .iter()
+            .find(|f| f.name == "--availability")
+            .expect("--availability");
+        assert!(
+            preferred_availability.required,
+            "preferred availability is a required option"
+        );
+        assert!(
+            preferred_availability.description.contains("Offline"),
+            "{}",
+            preferred_availability.description
+        );
+        find(&commands, &["presence", "clear-preferred"]);
     }
 
     #[test]

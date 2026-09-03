@@ -52,8 +52,8 @@ pub enum PresenceCommand {
         /// pairs each with one activity, which is sent alongside it
         #[arg(long, value_parser = parse_preferred_availability)]
         availability: PreferredPresence,
-        /// Expiration as an ISO 8601 duration such as PT8H or P1D. Graph's default is P1D for
-        /// Busy and DoNotDisturb and P7D for the rest
+        /// Positive ISO 8601 duration in whole units, such as PT8H or P1D. Graph's default is
+        /// P1D for Busy and DoNotDisturb and P7D for the rest
         #[arg(long, value_parser = parse_preferred_expiration)]
         expiration: Option<String>,
     },
@@ -113,8 +113,9 @@ fn parse_preferred_availability(raw: &str) -> std::result::Result<PreferredPrese
 }
 
 /// Graph documents no bounds for a preferred presence expiration, only the defaults it applies
-/// when none is sent, so the check here is that the value is a positive duration at all. Unlike a
-/// session expiration it may run to days, which is why `parse_expiration` is not reused.
+/// when none is sent, so the check here is that the value is a positive duration in the same
+/// whole-unit form the CLI accepts for a session. Unlike a session expiration it may run to days,
+/// which is why `parse_expiration` is not reused.
 fn parse_preferred_expiration(raw: &str) -> std::result::Result<String, String> {
     match iso8601_duration_seconds(raw) {
         Some(seconds) if seconds > 0 => Ok(raw.to_string()),
@@ -161,6 +162,7 @@ const EXPIRATION_MAX_SECONDS: u64 = 4 * 60 * 60;
 fn iso8601_duration_seconds(raw: &str) -> Option<u64> {
     let rest = raw.strip_prefix('P')?;
     let (date, time) = match rest.split_once('T') {
+        Some((_, "")) => return None,
         Some((date, time)) => (date, Some(time)),
         None => (rest, None),
     };
@@ -524,7 +526,7 @@ mod tests {
     #[test]
     fn values_that_are_not_durations_are_rejected_before_any_request() {
         for raw in [
-            "", "1h", "P", "PT", "PTH", "PT1", "PT-1H", "PT1.5H", "1HPT", "PT1X",
+            "", "1h", "P", "PT", "P1DT", "PTH", "PT1", "PT-1H", "PT1.5H", "1HPT", "PT1X",
         ] {
             let err = parse_expiration(raw).unwrap_err();
             assert!(err.contains("not an ISO 8601 duration"), "{raw}: {err}");
@@ -588,7 +590,7 @@ mod tests {
 
     #[test]
     fn a_preferred_expiration_that_is_not_a_positive_duration_is_rejected() {
-        for raw in ["", "8h", "PT0S", "P0D", "PT1.5H", "PT1M1H"] {
+        for raw in ["", "8h", "PT0S", "P0D", "P1DT", "PT1.5H", "PT1M1H"] {
             let err = parse_preferred_expiration(raw).unwrap_err();
             assert!(err.contains("not an ISO 8601 duration"), "{raw}: {err}");
         }

@@ -473,7 +473,8 @@ the Teams client's "Appear offline" works: it is the preferred pair
 underneath. `set-preferred` takes one of the six availabilities Graph accepts,
 `Available`, `Busy`, `DoNotDisturb`, `BeRightBack`, `Away` or `Offline`, and
 sends the one activity Graph pairs with it, reporting both back. Its
-`--expiration` is any positive ISO 8601 duration, `P1D` included; left out,
+`--expiration` is a positive ISO 8601 duration written in whole day, hour,
+minute and second units, `P1D` included; left out,
 Graph applies one day for `Busy` and `DoNotDisturb` and seven days for the
 rest. `clear-preferred` removes the override so the sessions show through
 again. With no session at all the user reads `Offline` whatever the preferred
