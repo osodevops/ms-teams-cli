@@ -60,7 +60,12 @@ pub enum MessageCommand {
         #[arg(long)]
         chat: Option<String>,
         /// List the replies in this channel thread instead of the thread roots
-        #[arg(long = "message-id", visible_alias = "message", requires = "channel")]
+        #[arg(
+            long = "message-id",
+            visible_alias = "message",
+            requires = "channel",
+            conflicts_with = "chat"
+        )]
         message_id: Option<String>,
     },
     /// Get a specific message

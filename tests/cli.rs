@@ -589,6 +589,58 @@ fn message_send_help_advertises_repeatable_mention_flag() {
 }
 
 #[test]
+fn message_reply_help_advertises_repeatable_mention_flag() {
+    teams()
+        .args(["message", "reply", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--mention <USER>"));
+}
+
+#[test]
+fn message_list_help_advertises_thread_replies_flag() {
+    teams()
+        .args(["message", "list", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--message-id <MESSAGE_ID>"));
+}
+
+#[test]
+fn message_list_message_id_requires_channel() {
+    teams()
+        .args([
+            "message",
+            "list",
+            "--team",
+            "team-id",
+            "--message-id",
+            "1234",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--channel"));
+}
+
+#[test]
+fn message_list_rejects_message_id_with_chat() {
+    teams()
+        .args([
+            "message",
+            "list",
+            "--chat",
+            "19:abc@thread.v2",
+            "--channel",
+            "channel-id",
+            "--message-id",
+            "1234",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot be used with"));
+}
+
+#[test]
 fn message_documented_flags_are_available() {
     teams()
         .args(["message", "get", "--help"])
