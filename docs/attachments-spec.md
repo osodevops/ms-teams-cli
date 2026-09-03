@@ -411,6 +411,17 @@ delegated auth for all message mutation, so nothing changes.
    `"reference"`, `contentUrl` = the driveItem's `webUrl`, `name` = its `name` — plus
    an `<attachment id="{guid}"></attachment>` tag in the body HTML, which is what makes
    the attachment card render in clients.
+3. **Chats only: share the file with the members.** The upload sits in the sender's own
+   OneDrive, where nobody else has access, and the message merely links to it. The Teams
+   client grants every chat member read permission when it attaches a file; the CLI does
+   the same via `POST /me/drive/items/{id}/invite` with `roles: ["read"]`,
+   `requireSignIn: true` and `sendInvitation: false`, addressing each member of
+   `GET /chats/{id}/members` (minus the sender) by Entra object ID, or by email when the
+   membership carries no ID. Without this step recipients get "you don't have
+   permission" when they open the attachment (observed live, 2026-09-03). The grant is
+   best-effort: if it fails the message is still sent and a warning on stderr says to
+   share the file from OneDrive by hand. Channel uploads need none of this — they live in
+   the team's SharePoint library, which channel members already read.
 
 Simple upload caps at 4&nbsp;MB (the existing `MAX_UPLOAD_SIZE`); larger files need the
 upload-session API, which is out of scope here — the CLI errors clearly instead.
