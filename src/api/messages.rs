@@ -226,6 +226,26 @@ pub async fn delete_message(
 
 // --- Chat Messages ---
 
+/// List the replies in one channel thread, newest first.
+///
+/// `list_channel_messages` returns thread roots only, so without this a
+/// caller cannot see whether a question has already been answered.
+pub async fn list_channel_message_replies(
+    client: &GraphClient,
+    team_id: &str,
+    channel_id: &str,
+    message_id: &str,
+    pagination: &PaginationOpts,
+) -> Result<Vec<ChatMessage>> {
+    client
+        .get_paged(
+            &endpoints::channel_message_replies(team_id, channel_id, message_id),
+            &[],
+            pagination,
+        )
+        .await
+}
+
 pub async fn list_chat_messages(
     client: &GraphClient,
     chat_id: &str,

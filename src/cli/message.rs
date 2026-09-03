@@ -59,6 +59,9 @@ pub enum MessageCommand {
         /// Chat ID (for chat messages)
         #[arg(long)]
         chat: Option<String>,
+        /// List the replies in this channel thread instead of the thread roots
+        #[arg(long = "message-id", visible_alias = "message", requires = "channel")]
+        message_id: Option<String>,
     },
     /// Get a specific message
     Get {
@@ -114,6 +117,9 @@ pub enum MessageCommand {
         /// File to upload and attach (repeatable; needs a Files.ReadWrite scope)
         #[arg(long)]
         attach: Vec<String>,
+        /// User to @mention (repeatable): an Entra object ID or UPN
+        #[arg(long, value_name = "USER")]
+        mention: Vec<String>,
     },
     /// Add a reaction to a channel or chat message
     #[command(
@@ -351,6 +357,7 @@ pub async fn run(
             team,
             channel,
             chat,
+            message_id,
         } => {
             let start = Instant::now();
 
@@ -362,8 +369,27 @@ pub async fn run(
                 })?;
                 let channel_id = channel
                     .ok_or_else(|| TeamsError::InvalidInput("--channel is required".into()))?;
-                api::messages::list_channel_messages(&client, &team_id, &channel_id, pagination)
-                    .await?
+                match message_id {
+                    Some(root_id) => {
+                        api::messages::list_channel_message_replies(
+                            &client,
+                            &team_id,
+                            &channel_id,
+                            &root_id,
+                            pagination,
+                        )
+                        .await?
+                    }
+                    None => {
+                        api::messages::list_channel_messages(
+                            &client,
+                            &team_id,
+                            &channel_id,
+                            pagination,
+                        )
+                        .await?
+                    }
+                }
             };
 
             if format == OutputFormat::Human {
@@ -445,12 +471,17 @@ pub async fn run(
             content_type,
             image,
             attach,
+            mention,
         } => {
             let start = Instant::now();
             auth::require_delegated_token(&client.token, "Replying to Teams messages")?;
             let has_media = !image.is_empty() || !attach.is_empty();
-            let content = resolve_body_or_media(body, stdin, has_media)?;
+            // A mention alone is a valid non-empty body, so it lifts the
+            // requirement for --body or --stdin, exactly as it does on send.
+            let content = resolve_body_or_media(body, stdin, has_media || !mention.is_empty())?;
+            let identities = resolve_mentions(&client, &mention).await?;
             let mut req = build_send_request(content, &content_type, None)?;
+            apply_mentions(&mut req, &identities)?;
             super::message_media::apply_media(
                 &client,
                 &mut req,
