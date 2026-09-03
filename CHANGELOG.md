@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- `teams message list --team T --channel C --message-id ROOT` lists the replies under one channel thread root, paged like any other listing. Without it a caller could not tell from the existing channel-list output whether a question had already been answered, because that listing returns thread roots only.
+- `teams message reply --mention USER` (repeatable) tags a person in a threaded reply the same way `message send --mention` does, so a name in a reply notifies rather than merely appears.
+
 ## v0.6.0 - 2026-08-30
 
 ### Added

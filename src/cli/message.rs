@@ -59,6 +59,14 @@ pub enum MessageCommand {
         /// Chat ID (for chat messages)
         #[arg(long)]
         chat: Option<String>,
+        /// List the replies in this channel thread instead of the thread roots
+        #[arg(
+            long = "message-id",
+            visible_alias = "message",
+            requires = "channel",
+            conflicts_with = "chat"
+        )]
+        message_id: Option<String>,
     },
     /// Get a specific message
     Get {
@@ -114,6 +122,9 @@ pub enum MessageCommand {
         /// File to upload and attach (repeatable; needs a Files.ReadWrite scope)
         #[arg(long)]
         attach: Vec<String>,
+        /// User to @mention (repeatable): an Entra object ID or UPN
+        #[arg(long, value_name = "USER")]
+        mention: Vec<String>,
     },
     /// Add a reaction to a channel or chat message
     #[command(
@@ -306,9 +317,12 @@ pub async fn run(
             // media-only exception the same way --image/--attach do.
             let content = resolve_body_or_media(body, stdin, has_media || !mention.is_empty())?;
             let identities = resolve_mentions(&client, &mention).await?;
-            ensure_no_raw_at_markup(&content_type, &content)?;
-            let mut req = build_send_request(content, &content_type, adaptive_card.as_deref())?;
-            apply_mentions(&mut req, &identities)?;
+            let mut req = build_send_request_with_mentions(
+                content,
+                &content_type,
+                adaptive_card.as_deref(),
+                &identities,
+            )?;
 
             let msg = if let Some(chat_id) = chat {
                 super::message_media::apply_media(
@@ -351,6 +365,7 @@ pub async fn run(
             team,
             channel,
             chat,
+            message_id,
         } => {
             let start = Instant::now();
 
@@ -362,8 +377,27 @@ pub async fn run(
                 })?;
                 let channel_id = channel
                     .ok_or_else(|| TeamsError::InvalidInput("--channel is required".into()))?;
-                api::messages::list_channel_messages(&client, &team_id, &channel_id, pagination)
-                    .await?
+                match message_id {
+                    Some(root_id) => {
+                        api::messages::list_channel_message_replies(
+                            &client,
+                            &team_id,
+                            &channel_id,
+                            &root_id,
+                            pagination,
+                        )
+                        .await?
+                    }
+                    None => {
+                        api::messages::list_channel_messages(
+                            &client,
+                            &team_id,
+                            &channel_id,
+                            pagination,
+                        )
+                        .await?
+                    }
+                }
             };
 
             if format == OutputFormat::Human {
@@ -445,12 +479,17 @@ pub async fn run(
             content_type,
             image,
             attach,
+            mention,
         } => {
             let start = Instant::now();
             auth::require_delegated_token(&client.token, "Replying to Teams messages")?;
             let has_media = !image.is_empty() || !attach.is_empty();
-            let content = resolve_body_or_media(body, stdin, has_media)?;
-            let mut req = build_send_request(content, &content_type, None)?;
+            // A mention alone is a valid non-empty body, so it lifts the
+            // requirement for --body or --stdin, exactly as it does on send.
+            let content = resolve_body_or_media(body, stdin, has_media || !mention.is_empty())?;
+            let identities = resolve_mentions(&client, &mention).await?;
+            let mut req =
+                build_send_request_with_mentions(content, &content_type, None, &identities)?;
             super::message_media::apply_media(
                 &client,
                 &mut req,
@@ -886,6 +925,21 @@ fn apply_mentions(req: &mut SendMessageRequest, identities: &[MentionIdentity]) 
     Ok(())
 }
 
+/// Build a message body and synchronize any resolved mentions after rejecting
+/// raw `<at>` markup. Both new messages and replies use this path so neither can
+/// post ambiguous mention IDs or markup that only looks like a notification.
+fn build_send_request_with_mentions(
+    content: String,
+    content_type: &str,
+    adaptive_card_path: Option<&str>,
+    identities: &[MentionIdentity],
+) -> Result<SendMessageRequest> {
+    ensure_no_raw_at_markup(content_type, &content)?;
+    let mut req = build_send_request(content, content_type, adaptive_card_path)?;
+    apply_mentions(&mut req, identities)?;
+    Ok(req)
+}
+
 /// Raw `<at>` markup in an explicit HTML body is not a real mention — Graph
 /// renders or strips it as ordinary text. Fail before posting anything rather
 /// than send a message that only looks like it tagged someone.
@@ -1205,8 +1259,13 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let card = write_card(&dir);
 
-        let mut req = build_send_request("a < b".to_string(), "text", Some(&card)).unwrap();
-        apply_mentions(&mut req, &[identity("oid-1", "Sophie")]).unwrap();
+        let req = build_send_request_with_mentions(
+            "a < b".to_string(),
+            "text",
+            Some(&card),
+            &[identity("oid-1", "Sophie")],
+        )
+        .unwrap();
 
         let body = req.body.content.clone().unwrap();
         let attachment_id = req.attachments.as_ref().unwrap()[0].id.clone().unwrap();
@@ -1254,14 +1313,21 @@ mod tests {
     }
 
     #[test]
-    fn raw_at_markup_without_mention_flag_is_rejected() {
-        let err = ensure_no_raw_at_markup("html", r#"<p><at id="0">Sophie</at> please review</p>"#)
-            .unwrap_err();
+    fn message_build_rejects_raw_at_markup_before_applying_mentions() {
+        let err = build_send_request_with_mentions(
+            r#"<p><at id="0">Sophie</at> please review</p>"#.into(),
+            "html",
+            None,
+            &[identity("oid-1", "Alex")],
+        )
+        .unwrap_err();
         assert!(matches!(err, TeamsError::InvalidInput(_)), "{err:?}");
         assert!(err.to_string().contains("--mention"), "{err}");
 
         // Uppercase markup is caught too.
-        assert!(ensure_no_raw_at_markup("HTML", "<AT>Sophie</AT>").is_err());
+        assert!(
+            build_send_request_with_mentions("<AT>Sophie</AT>".into(), "HTML", None, &[]).is_err()
+        );
     }
 
     /// `<attachment>` shares the `<at` prefix but is legitimate media markup,

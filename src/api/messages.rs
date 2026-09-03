@@ -226,6 +226,33 @@ pub async fn delete_message(
 
 // --- Chat Messages ---
 
+/// List the replies in one channel thread in the order Graph returns them.
+///
+/// `list_channel_messages` returns thread roots only, so without this a
+/// caller cannot see whether a question has already been answered.
+pub async fn list_channel_message_replies(
+    client: &GraphClient,
+    team_id: &str,
+    channel_id: &str,
+    message_id: &str,
+    pagination: &PaginationOpts,
+) -> Result<Vec<ChatMessage>> {
+    list_channel_message_replies_at(
+        client,
+        &endpoints::channel_message_replies(team_id, channel_id, message_id),
+        pagination,
+    )
+    .await
+}
+
+async fn list_channel_message_replies_at(
+    client: &GraphClient,
+    url: &str,
+    pagination: &PaginationOpts,
+) -> Result<Vec<ChatMessage>> {
+    client.get_paged(url, &[], pagination).await
+}
+
 pub async fn list_chat_messages(
     client: &GraphClient,
     chat_id: &str,
@@ -370,7 +397,7 @@ mod tests {
     use crate::error::TeamsError;
     use crate::models::message::ItemBody;
     use reqwest::Client;
-    use wiremock::matchers::{body_json, header, method, path};
+    use wiremock::matchers::{body_json, header, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn test_client() -> GraphClient {
@@ -734,5 +761,68 @@ mod tests {
         .unwrap_err();
 
         assert!(matches!(err, TeamsError::NotFound(_)), "{err:?}");
+    }
+
+    #[test]
+    fn channel_message_replies_endpoint_targets_the_replies_collection() {
+        assert_eq!(
+            endpoints::channel_message_replies("team-id", "channel-id", "1700000000000"),
+            "https://graph.microsoft.com/v1.0/teams/team-id/channels/channel-id/messages/1700000000000/replies"
+        );
+    }
+
+    /// The replies collection pages like any other listing: `$top` carries
+    /// the page size and the rows come back as full messages in Graph's order.
+    #[tokio::test]
+    async fn list_channel_message_replies_reads_the_replies_collection() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(
+                "/teams/team-id/channels/channel-id/messages/1700000000000/replies",
+            ))
+            .and(query_param("$top", "2"))
+            .and(header("authorization", "Bearer test-token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "value": [
+                    {
+                        "id": "1700000000002",
+                        "createdDateTime": "2026-09-03T08:00:02Z",
+                        "body": { "contentType": "text", "content": "second" }
+                    },
+                    {
+                        "id": "1700000000001",
+                        "createdDateTime": "2026-09-03T08:00:01Z",
+                        "body": { "contentType": "text", "content": "first" }
+                    }
+                ]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let replies = list_channel_message_replies_at(
+            &test_client(),
+            &format!(
+                "{}/teams/team-id/channels/channel-id/messages/1700000000000/replies",
+                server.uri()
+            ),
+            &PaginationOpts {
+                page_size: 2,
+                all_pages: false,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(replies.len(), 2);
+        assert_eq!(replies[0].id.as_deref(), Some("1700000000002"));
+        assert_eq!(replies[1].id.as_deref(), Some("1700000000001"));
+        assert_eq!(
+            replies[1]
+                .body
+                .as_ref()
+                .and_then(|body| body.content.as_deref()),
+            Some("first")
+        );
     }
 }

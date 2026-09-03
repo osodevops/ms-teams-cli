@@ -107,11 +107,11 @@ teams channel members remove TEAM_ID CHANNEL_ID MEMBER_ID
 
 ```bash
 teams message send (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) [--body TEXT | --stdin] [--content-type text|html] [--adaptive-card PATH] [--image PATH]... [--attach PATH]... [--mention USER]...
-teams message list (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID)
+teams message list (--team TEAM_ID --channel CHANNEL_ID [--message-id ROOT_MESSAGE_ID] | --chat CHAT_ID)
 teams message get --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID) [--with-attachments]
 teams message attachments list (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID)
 teams message attachments download (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID) [--index N] [--dir DIR | --path FILE]
-teams message reply --team TEAM_ID --channel CHANNEL_ID --message-id MESSAGE_ID [--body TEXT | --stdin] [--content-type text|html] [--image PATH]... [--attach PATH]...
+teams message reply --team TEAM_ID --channel CHANNEL_ID --message-id MESSAGE_ID [--body TEXT | --stdin] [--content-type text|html] [--image PATH]... [--attach PATH]... [--mention USER]...
 teams message update (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID) --body TEXT [--content-type text|html]
 teams message delete --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID)
 teams message react (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) --message-id MESSAGE_ID (REACTION | --reaction REACTION)
@@ -128,13 +128,15 @@ promoted.
 
 Normal message mutation requires delegated auth. App-only/client-credentials tokens are rejected for these commands.
 
+`message list --team TEAM_ID --channel CHANNEL_ID --message-id ROOT_MESSAGE_ID` lists the replies under that channel thread root. `--page-size` controls the first page and `--all-pages` follows the complete replies collection.
+
 `REACTION` is an emoji character or one of the names the CLI translates for you (`like`, `heart`, `laugh`, `surprised`, `sad`, `angry`, `thumbsup`, `thumbsdown`, `eyes`, `tada`, `rocket`, `fire`). Graph only accepts the emoji character on writes.
 
 `message update` edits your own message in place (Graph lets a delegated caller change any property except `policyViolation`); channel edits need the `ChannelMessage.ReadWrite` delegated scope, chat edits need `Chat.ReadWrite`. Graph returns no content on success, so the command reads the message back and prints it; if that read fails the edit has still been applied and the output is `{"id": ..., "updated": true, "readBackError": ...}`.
 
 `--image` sends a picture the way pasting a screenshot does — the bytes travel inside the message itself (a Graph "hosted content"), so it needs no scopes beyond sending messages. `--attach` uploads the file to real storage first (your OneDrive's `Microsoft Teams Chat Files` for chats, the team's SharePoint library for channels) and links it from the message; that upload needs `Files.ReadWrite` (chats) or `Files.ReadWrite.All` (channels). Both flags repeat for multiple files, and `--body` becomes optional when either is present. Inline images are capped at 3MB each; attachments use Graph's 250MB simple-upload limit.
 
-`--mention USER` tags a person as a real Teams @mention (the kind that pings them), in chat sends and channel sends alike. It is repeatable, and `USER` may be an Entra object ID or a UPN — the CLI resolves the display name through Microsoft Graph. A mention needs an HTML body plus a synchronized `mentions` array; the CLI builds both for you: a plain-text body is safely converted to HTML (escaped, line breaks preserved as `<br>`) and the `<at>` elements are prepended to your body in flag order. A mention by itself counts as a body, so `--mention USER` without `--body` works. Raw `<at>` markup typed directly into an HTML body is rejected with exit code 2 before anything is sent, because Graph does not turn it into a real mention.
+`--mention USER` tags a person as a real Teams @mention (the kind that pings them) in chat sends, channel sends, and channel replies. It is repeatable, and `USER` may be an Entra object ID or a UPN — the CLI resolves the display name through Microsoft Graph. A mention needs an HTML body plus a synchronized `mentions` array; the CLI builds both for you: a plain-text body is safely converted to HTML (escaped, line breaks preserved as `<br>`) and the `<at>` elements are prepended to your body in flag order. A mention by itself counts as a body, so `--mention USER` without `--body` works. Raw `<at>` markup typed directly into an HTML body is rejected with exit code 2 before anything is sent, because Graph does not turn it into a real mention.
 
 ```bash
 # Tag someone in a chat
@@ -144,6 +146,10 @@ teams message send --chat 19:abc@thread.v2 \
 # Tag two people in a channel post (repeat --mention)
 teams message send --team TEAM_ID --channel CHANNEL_ID \
   --mention <object-id-1> --mention <object-id-2> --body "Deploy is going out now."
+
+# Tag someone in a channel reply
+teams message reply --team TEAM_ID --channel CHANNEL_ID --message-id ROOT_MESSAGE_ID \
+  --mention sophie@example.com --body "I have picked this up."
 ```
 
 `message attachments` unifies the two ways Teams stores message media: inline images pasted into the compose box (Graph "hosted contents") and files attached via SharePoint/OneDrive (`reference` attachments). `list` returns an indexed inventory; `download` fetches everything downloadable by default, or one item with `--index` (add `--path FILE` for an exact destination, or `--path -` to stream to stdout). Inline images and code snippets need no scopes beyond message reads; file attachments additionally require the `Files.Read.All` delegated scope. `message get --with-attachments` embeds the same inventory under `attachment_items` in the message output.
