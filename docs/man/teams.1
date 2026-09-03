@@ -150,11 +150,11 @@ teams channel members remove TEAM_ID CHANNEL_ID MEMBER_ID
 .SH MESSAGE COMMANDS
 .nf
 teams message send (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) [--body TEXT | --stdin] [--content-type text|html] [--adaptive-card PATH] [--image PATH]... [--attach PATH]... [--mention USER]...
-teams message list (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID)
+teams message list (--team TEAM_ID --channel CHANNEL_ID [--message-id ROOT_MESSAGE_ID] | --chat CHAT_ID)
 teams message get --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID) [--with-attachments]
 teams message attachments list (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID)
 teams message attachments download (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID) [--index N] [--dir DIR | --path FILE]
-teams message reply --team TEAM_ID --channel CHANNEL_ID --message-id MESSAGE_ID [--body TEXT | --stdin] [--content-type text|html] [--image PATH]... [--attach PATH]...
+teams message reply --team TEAM_ID --channel CHANNEL_ID --message-id MESSAGE_ID [--body TEXT | --stdin] [--content-type text|html] [--image PATH]... [--attach PATH]... [--mention USER]...
 teams message reply --team TEAM_ID --channel CHANNEL_ID --message MESSAGE_ID --body TEXT
 teams message update (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID) --body TEXT [--content-type text|html]
 teams message delete --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID)
@@ -191,8 +191,16 @@ and
 A user has one reaction per message, so reacting again replaces the previous
 one; unreacting a reaction that is not set succeeds without effect.
 .PP
+.B message list --message-id ROOT_MESSAGE_ID
+lists the replies under that channel thread root. The global
+.B --page-size
+option controls the first page and
+.B --all-pages
+follows the complete replies collection.
+.PP
 .B --mention USER
-(repeatable) tags a person as a real Teams @mention in a chat or channel send;
+(repeatable) tags a person as a real Teams @mention in a chat send, channel
+send, or channel reply;
 USER may be an Entra object ID or UPN, and the display name is resolved
 through Microsoft Graph. Graph requires an HTML body plus a synchronized
 .B mentions

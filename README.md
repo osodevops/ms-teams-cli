@@ -380,9 +380,10 @@ teams message send --chat <chat-id> --mention <user-id-or-upn> --body "Please re
 teams message send --team <team-id> --channel <channel-id> --mention <user-id> --mention <user-id> --body "Deploy is going out now."
 echo "Build passed" | teams message send --team <team-id> --channel <channel-id> --stdin
 teams message list --team <team-id> --channel <channel-id>
+teams message list --team <team-id> --channel <channel-id> --message-id <root-message-id> --all-pages
 teams message list --chat <chat-id>
 teams message get --team <team-id> --channel <channel-id> --message <msg-id>
-teams message reply --team <team-id> --channel <channel-id> --message <msg-id> --body "Thanks!"
+teams message reply --team <team-id> --channel <channel-id> --message <msg-id> --mention <user-id-or-upn> --body "Thanks!"
 teams message update --team <team-id> --channel <channel-id> --message <msg-id> --body "Corrected"
 teams message update --chat <chat-id> --message <msg-id> --body "Corrected"
 teams message delete --team <team-id> --channel <channel-id> --message <msg-id>
@@ -394,11 +395,13 @@ teams message pin --team <team-id> --channel <channel-id> --message <msg-id>
 teams message unpin --team <team-id> --channel <channel-id> --pinned-message-id <id>
 ```
 
-`message send --mention USER` tags a person as a real Teams @mention — the kind that pings
+`message list --message-id ROOT_MESSAGE_ID` lists the replies under that channel thread root. The global `--page-size` and `--all-pages` options apply to the replies collection.
+
+The `--mention USER` flag on `message send` and `message reply` tags a person as a real Teams @mention — the kind that pings
 them, not literal `@Name` text. The flag is repeatable and `USER` may be an Entra object ID
-or UPN; the display name is resolved through Microsoft Graph. Works for chat sends and
-channel sends alike. Graph requires an HTML body plus a synchronized `mentions` array, so
-the CLI builds both: a plain-text body is safely converted to HTML (escaped, line breaks
+or UPN; the display name is resolved through Microsoft Graph. It works for chat sends,
+channel sends, and channel replies. Graph requires an HTML body plus a synchronized
+`mentions` array, so the CLI builds both: a plain-text body is safely converted to HTML (escaped, line breaks
 preserved), the `<at>` elements are prepended in flag order, and a mention by itself counts
 as a body (`--body` optional). Raw `<at>` markup typed into an HTML body is rejected with
 exit code 2 before anything is sent.
@@ -411,6 +414,10 @@ teams message send --chat <chat-id> \
 teams message send --team <team-id> --channel <channel-id> \
   --mention <user-id-1> --mention <user-id-2> \
   --body "Deploy is going out now."
+
+teams message reply --team <team-id> --channel <channel-id> \
+  --message-id <root-message-id> --mention sophie@example.com \
+  --body "I have picked this up."
 ```
 
 Reactions accept either a channel (`--team` with `--channel`) or a chat (`--chat`), never both.

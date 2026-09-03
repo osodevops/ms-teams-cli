@@ -89,6 +89,13 @@ teams message reply \
   --channel "$CHANNEL_ID" \
   --message-id "$MESSAGE_ID" \
   --body "Acknowledged."
+
+teams message list \
+  --team "$TEAM_ID" \
+  --channel "$CHANNEL_ID" \
+  --message-id "$MESSAGE_ID" \
+  --all-pages \
+  --output json
 ```
 
 ## Controlled smoke test

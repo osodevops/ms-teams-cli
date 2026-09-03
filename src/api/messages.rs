@@ -226,7 +226,7 @@ pub async fn delete_message(
 
 // --- Chat Messages ---
 
-/// List the replies in one channel thread, newest first.
+/// List the replies in one channel thread in the order Graph returns them.
 ///
 /// `list_channel_messages` returns thread roots only, so without this a
 /// caller cannot see whether a question has already been answered.

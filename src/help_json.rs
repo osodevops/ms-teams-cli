@@ -248,14 +248,25 @@ mod tests {
     #[test]
     fn newly_added_flags_reach_the_dump() {
         let commands = tree().commands;
-        let send = find(&commands, &["message", "send"]);
-        let mention = send
+        for subcommand in ["send", "reply"] {
+            let command = find(&commands, &["message", subcommand]);
+            let mention = command
+                .flags
+                .iter()
+                .find(|f| f.name == "--mention")
+                .expect("--mention");
+            assert_eq!(mention.value_name.as_deref(), Some("USER"));
+            assert!(!mention.required);
+        }
+
+        let list = find(&commands, &["message", "list"]);
+        let message_id = list
             .flags
             .iter()
-            .find(|f| f.name == "--mention")
-            .expect("--mention");
-        assert_eq!(mention.value_name.as_deref(), Some("USER"));
-        assert!(!mention.required);
+            .find(|f| f.name == "--message-id")
+            .expect("--message-id");
+        assert_eq!(message_id.value_name.as_deref(), Some("MESSAGE_ID"));
+        assert!(!message_id.required);
 
         let set = find(&commands, &["presence", "set"]);
         let availability = set

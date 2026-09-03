@@ -56,6 +56,13 @@ teams message reply \\
   --message-id "$MESSAGE_ID" \\
   --body "Acknowledged." \\
   --output json
+
+teams message list \\
+  --team "$TEAM_ID" \\
+  --channel "$CHANNEL_ID" \\
+  --message-id "$MESSAGE_ID" \\
+  --all-pages \\
+  --output json
 .fi
 .SH FILE SMOKE TEST
 .nf
