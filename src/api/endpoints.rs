@@ -323,6 +323,11 @@ pub fn drive_item_create_link(drive_id: &str, item_id: &str) -> String {
     format!("{GRAPH_V1}/drives/{drive_id}/items/{item_id}/createLink")
 }
 
+/// Grant people access to an item in the signed-in user's OneDrive.
+pub fn me_drive_item_invite(item_id: &str) -> String {
+    format!("{GRAPH_V1}/me/drive/items/{item_id}/invite")
+}
+
 // --- Hosted contents (inline images, code snippets) ---
 
 pub fn channel_message_hosted_contents(

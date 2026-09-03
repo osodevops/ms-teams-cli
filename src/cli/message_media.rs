@@ -1,8 +1,10 @@
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 
-use crate::api::{self, GraphClient};
+use crate::api::{self, GraphClient, PaginationOpts};
 use crate::error::{Result, TeamsError};
+use crate::models::file::DriveRecipient;
+use crate::models::member::ConversationMember;
 use crate::models::message::{ChatMessageAttachment, HostedContentUpload, SendMessageRequest};
 
 /// Where `--attach` files get uploaded before the message references them.
@@ -10,7 +12,9 @@ use crate::models::message::{ChatMessageAttachment, HostedContentUpload, SendMes
 /// library — which is why the two need different Files scopes (see
 /// docs/attachments-spec.md).
 pub enum AttachDestination<'a> {
-    Chat,
+    Chat {
+        chat_id: &'a str,
+    },
     Channel {
         team_id: &'a str,
         channel_id: &'a str,
@@ -47,11 +51,27 @@ pub async fn apply_media(
     let (images_html, hosted) = inline_images(images)?;
     body.push_str(&images_html);
 
+    // Chat uploads land in the sender's own OneDrive, where nobody else can
+    // read them until they are shared — look the chat's members up once so
+    // each uploaded file can be shared with them below.
+    let chat_recipients = match dest {
+        AttachDestination::Chat { chat_id } if !attaches.is_empty() => {
+            Some(chat_recipients(client, chat_id).await?)
+        }
+        _ => None,
+    };
+
     for path in attaches {
         let (bytes, content_type, filename) = read_attachment(path)?;
         let item = match dest {
-            AttachDestination::Chat => {
-                api::files::upload_chat_attachment(client, &filename, bytes, &content_type).await?
+            AttachDestination::Chat { .. } => {
+                let item =
+                    api::files::upload_chat_attachment(client, &filename, bytes, &content_type)
+                        .await?;
+                if let Some(recipients) = &chat_recipients {
+                    share_with_chat(client, &item, &filename, recipients).await;
+                }
+                item
             }
             AttachDestination::Channel {
                 team_id,
@@ -83,6 +103,88 @@ pub async fn apply_media(
         req.attachments = Some(attachments);
     }
     Ok(())
+}
+
+/// The people a chat attachment must be shared with: every member of the chat
+/// other than the sender. The Teams client grants these permissions itself
+/// when a file is attached; a bare drive upload does not, so without this step
+/// recipients get "you don't have permission" when they open the file.
+async fn chat_recipients(client: &GraphClient, chat_id: &str) -> Result<Vec<DriveRecipient>> {
+    let me = api::users::get_me(client).await?;
+    let members = api::chats::list_members(
+        client,
+        chat_id,
+        &PaginationOpts {
+            page_size: 50,
+            all_pages: true,
+        },
+    )
+    .await?;
+    Ok(invite_recipients(&members, me.id.as_deref()))
+}
+
+/// Members addressed by Entra object ID when the membership carries one (it
+/// also covers accounts with no mail attribute), else by email; the sender and
+/// members with neither are skipped, and duplicates collapse.
+fn invite_recipients(
+    members: &[ConversationMember],
+    sender_id: Option<&str>,
+) -> Vec<DriveRecipient> {
+    let mut seen = std::collections::HashSet::new();
+    members
+        .iter()
+        .filter(|m| m.user_id.as_deref() != sender_id || sender_id.is_none())
+        .filter_map(|m| match (&m.user_id, &m.email) {
+            (Some(id), _) => Some(DriveRecipient {
+                object_id: Some(id.clone()),
+                email: None,
+            }),
+            (None, Some(email)) => Some(DriveRecipient {
+                object_id: None,
+                email: Some(email.clone()),
+            }),
+            (None, None) => None,
+        })
+        .filter(|r| seen.insert(r.clone()))
+        .collect()
+}
+
+/// Share an uploaded chat file with the chat's members. A failure here is
+/// reported, not fatal: the upload succeeded and the message can still be
+/// sent, but the recipients will not be able to open the file until it is
+/// shared from OneDrive by hand.
+async fn share_with_chat(
+    client: &GraphClient,
+    item: &crate::models::file::DriveItem,
+    filename: &str,
+    recipients: &[DriveRecipient],
+) {
+    if recipients.is_empty() {
+        return;
+    }
+    let Some(item_id) = item.id.as_deref() else {
+        tracing::warn!(
+            "Uploaded '{filename}' but the driveItem has no id, so it could not be shared \
+             with the chat's members; share it from OneDrive by hand."
+        );
+        return;
+    };
+    match api::files::grant_read_access(client, item_id, recipients.to_vec()).await {
+        Ok(perms) => tracing::debug!(
+            "Shared '{filename}' with {} chat member(s); roles granted: {}",
+            recipients.len(),
+            perms
+                .iter()
+                .flat_map(|p| p.roles.iter())
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        Err(e) => tracing::warn!(
+            "Uploaded '{filename}' but could not share it with the chat's members ({e}); \
+             they will get \"you don't have permission\" until it is shared from OneDrive by hand."
+        ),
+    }
 }
 
 /// Build the body-HTML fragment and hosted-content uploads for `--image`
@@ -238,6 +340,43 @@ mod tests {
             hosted_contents: None,
             mentions: None,
         }
+    }
+
+    fn member(user_id: Option<&str>, email: Option<&str>) -> ConversationMember {
+        ConversationMember {
+            id: None,
+            display_name: None,
+            roles: None,
+            user_id: user_id.map(str::to_string),
+            email: email.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn invite_recipients_skip_sender_prefer_object_id_and_dedupe() {
+        let members = [
+            member(Some("me"), Some("me@example.com")),
+            member(Some("u1"), Some("u1@example.com")),
+            member(Some("u1"), None),
+            member(None, Some("mail-only@example.com")),
+            member(None, None),
+        ];
+        let recipients = invite_recipients(&members, Some("me"));
+        assert_eq!(
+            recipients,
+            vec![
+                DriveRecipient {
+                    object_id: Some("u1".into()),
+                    email: None
+                },
+                DriveRecipient {
+                    object_id: None,
+                    email: Some("mail-only@example.com".into())
+                },
+            ]
+        );
+        // Unknown sender: nobody is skipped on that basis.
+        assert_eq!(invite_recipients(&members[..2], None).len(), 2);
     }
 
     #[test]

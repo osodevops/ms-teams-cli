@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- `teams message send --chat … --attach FILE` now shares each uploaded file with the chat's members. The upload lands in the sender's OneDrive (`Microsoft Teams Chat Files`), where nobody else has access; the Teams client grants every member read permission when it attaches a file, but the CLI did not, so recipients got "you don't have permission" when they opened the attachment. After each upload the CLI now lists the chat's members and grants them read access via the drive item's `invite` action (no notification email), addressing them by Entra object ID where the membership carries one, else by email, and skipping the sender. If that step fails — for example when the token cannot list chat members — the upload and the message still go through and a warning on stderr says the file must be shared from OneDrive by hand. Channel attachments are unaffected: they live in the team's SharePoint library, which channel members can already read.
+
 ## v0.6.0 - 2026-08-30
 
 ### Added

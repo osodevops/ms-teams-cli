@@ -316,7 +316,7 @@ pub async fn run(
                     &mut req,
                     &image,
                     &attach,
-                    super::message_media::AttachDestination::Chat,
+                    super::message_media::AttachDestination::Chat { chat_id: &chat_id },
                 )
                 .await?;
                 api::messages::send_chat_message(&client, &chat_id, &req).await?
