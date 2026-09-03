@@ -188,6 +188,14 @@ pub fn set_status_message() -> String {
     format!("{GRAPH_V1}/me/presence/setStatusMessage")
 }
 
+pub fn set_user_preferred_presence() -> String {
+    format!("{GRAPH_V1}/me/presence/setUserPreferredPresence")
+}
+
+pub fn clear_user_preferred_presence() -> String {
+    format!("{GRAPH_V1}/me/presence/clearUserPreferredPresence")
+}
+
 // --- Search ---
 pub fn search_query() -> String {
     format!("{GRAPH_V1}/search/query")
@@ -410,6 +418,18 @@ pub fn shares_drive_item_content(sharing_token: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preferred_presence_write_urls_target_the_signed_in_user() {
+        assert_eq!(
+            set_user_preferred_presence(),
+            "https://graph.microsoft.com/v1.0/me/presence/setUserPreferredPresence"
+        );
+        assert_eq!(
+            clear_user_preferred_presence(),
+            "https://graph.microsoft.com/v1.0/me/presence/clearUserPreferredPresence"
+        );
+    }
 
     #[test]
     fn sharing_url_token_matches_graph_convention() {

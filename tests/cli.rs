@@ -63,6 +63,70 @@ fn presence_set_rejects_a_bad_expiration_before_it_needs_credentials() {
         .stderr(predicate::str::contains("PT5M to PT4H"));
 }
 
+/// The activity is derived from the availability, so the only way to send a pair Graph rejects
+/// is for the value parser to be dropped from the attribute; the checks below would notice.
+#[test]
+fn presence_set_preferred_rejects_bad_values_before_it_needs_credentials() {
+    teams()
+        .args(["presence", "set-preferred", "--availability", "InACall"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains(
+            "Available, Busy, DoNotDisturb, BeRightBack, Away, Offline",
+        ));
+
+    teams()
+        .args([
+            "presence",
+            "set-preferred",
+            "--availability",
+            "Away",
+            "--expiration",
+            "8h",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("is not an ISO 8601 duration"));
+
+    teams()
+        .args([
+            "presence",
+            "set-preferred",
+            "--availability",
+            "Away",
+            "--expiration",
+            "P1DT",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("is not an ISO 8601 duration"));
+}
+
+#[test]
+fn preferred_presence_writes_reject_app_only_auth_before_graph() {
+    let payload = serde_json::json!({ "roles": ["Presence.ReadWrite.All"] });
+    let token = format!(
+        "header.{}.signature",
+        URL_SAFE_NO_PAD.encode(payload.to_string())
+    );
+
+    for args in [
+        vec!["presence", "set-preferred", "--availability", "Away"],
+        vec!["presence", "clear-preferred"],
+    ] {
+        teams()
+            .args(args)
+            .env("TEAMS_CLI_ACCESS_TOKEN", &token)
+            .assert()
+            .code(4)
+            .stdout(
+                predicate::str::contains("\"code\": \"PERMISSION_DENIED\"").and(
+                    predicate::str::contains("requires delegated Microsoft Graph auth"),
+                ),
+            );
+    }
+}
+
 #[test]
 fn help_flag_works() {
     teams().arg("--help").assert().success().stdout(
@@ -717,7 +781,9 @@ fn presence_help_shows_subcommands() {
         .stdout(
             predicate::str::contains("get")
                 .and(predicate::str::contains("set"))
+                .and(predicate::str::contains("set-preferred"))
                 .and(predicate::str::contains("clear"))
+                .and(predicate::str::contains("clear-preferred"))
                 .and(predicate::str::contains("status")),
         );
 }
