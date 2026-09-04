@@ -110,9 +110,66 @@ pub struct SharingLink {
     pub scope: Option<String>,
 }
 
+/// Request to grant people access to a drive item (`POST …/invite`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DriveInviteRequest {
+    pub recipients: Vec<DriveRecipient>,
+    pub roles: Vec<String>,
+    pub require_sign_in: bool,
+    pub send_invitation: bool,
+}
+
+/// One recipient of a drive invite: an Entra object ID or an email address.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DriveRecipient {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub object_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+}
+
+/// A permission on a drive item, as returned by an invite.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DrivePermission {
+    #[serde(default)]
+    pub roles: Vec<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invite_request_serializes_graph_shape() {
+        let req = DriveInviteRequest {
+            recipients: vec![
+                DriveRecipient {
+                    object_id: Some("oid-1".into()),
+                    email: None,
+                },
+                DriveRecipient {
+                    object_id: None,
+                    email: Some("a@example.com".into()),
+                },
+            ],
+            roles: vec!["read".into()],
+            require_sign_in: true,
+            send_invitation: false,
+        };
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "recipients": [{"objectId": "oid-1"}, {"email": "a@example.com"}],
+                "roles": ["read"],
+                "requireSignIn": true,
+                "sendInvitation": false
+            })
+        );
+    }
 
     #[test]
     fn drive_item_with_download_url() {

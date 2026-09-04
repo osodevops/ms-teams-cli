@@ -1,5 +1,9 @@
 use crate::error::{Result, TeamsError};
-use crate::models::file::{DriveItem, FilesFolder, ShareLinkRequest, ShareLinkResponse};
+use crate::models::common::PageResponse;
+use crate::models::file::{
+    DriveInviteRequest, DriveItem, DrivePermission, DriveRecipient, FilesFolder, ShareLinkRequest,
+    ShareLinkResponse,
+};
 
 use super::client::{GraphClient, PaginationOpts};
 use super::endpoints;
@@ -311,6 +315,26 @@ pub async fn delete_file(
     client
         .delete(&endpoints::drive_item(drive_id, file_id))
         .await
+}
+
+/// Grant `recipients` read access to an item in the signed-in user's OneDrive,
+/// without sending them an email. Returns the permissions that now exist for
+/// them. Needs the same `Files.ReadWrite` scope as the upload itself.
+pub async fn grant_read_access(
+    client: &GraphClient,
+    item_id: &str,
+    recipients: Vec<DriveRecipient>,
+) -> Result<Vec<DrivePermission>> {
+    let req = DriveInviteRequest {
+        recipients,
+        roles: vec!["read".to_string()],
+        require_sign_in: true,
+        send_invitation: false,
+    };
+    let resp: PageResponse<DrivePermission> = client
+        .post(&endpoints::me_drive_item_invite(item_id), &req)
+        .await?;
+    Ok(resp.value)
 }
 
 pub async fn create_share_link(
