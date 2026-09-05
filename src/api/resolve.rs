@@ -471,6 +471,7 @@ mod tests {
             display_name: Some("Jane von Smith".into()),
             roles: None,
             user_id: Some("u1".into()),
+            tenant_id: None,
             email: Some("JSmith@example.com".into()),
         };
         assert_eq!(

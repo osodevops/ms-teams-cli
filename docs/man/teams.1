@@ -222,6 +222,16 @@ and
 Human message lists include a Subject column. Plain lists include columns
 present in any message, with blank cells for missing values, so subjects do
 not depend on the first message having a title. JSON omits absent subjects.
+.PP
+.B message send --chat CHAT_ID --attach FILE
+uploads into the sender's OneDrive and attempts to grant the chat's other
+members read access without notification email. Discovery needs User.Read
+and a chat-member read scope such as Chat.ReadBasic; upload and sharing
+need Files.ReadWrite. Object IDs are used only when the roster confirms
+the sender and recipient share a tenant; other recipients use email.
+Lookup failures, members without a usable address, and grant failures
+warn on stderr with manual OneDrive sharing guidance. Lookup or sharing
+failures do not stop upload/send.
 .SH CHAT COMMANDS
 .nf
 teams chat list

@@ -330,7 +330,7 @@ Delegated scopes, per operation:
 | Read a pasted screenshot | `message attachments download` | `ChatMessage.Read` / `ChannelMessage.Read.All` | none | bytes come through the message (`hostedContents/$value`) |
 | Send a pasted screenshot | `message send --image` | `ChatMessage.Send` / `ChannelMessage.Send` | none | bytes travel inside the message create call |
 | Download an attached file | `message attachments download` | (same as reading the message) | `Files.Read.All` | the file lives in someone's OneDrive / a team's SharePoint; reading it is a drive read |
-| Attach a file to a chat message | `message send --attach --chat` | `ChatMessage.Send` | `Files.ReadWrite` | the CLI must first upload the file into *your* OneDrive (`Microsoft Teams Chat Files`) |
+| Attach a file to a chat message | `message send --attach --chat` | `ChatMessage.Send` | `Files.ReadWrite` | uploads into *your* OneDrive (`Microsoft Teams Chat Files`); automatic sharing also needs `User.Read` and a chat-member read scope such as `Chat.ReadBasic` |
 | Attach a file to a channel message | `message send --attach --team/--channel` | `ChannelMessage.Send` | `Files.ReadWrite.All` | the CLI must first upload into the *team's* SharePoint library, which is not your drive — hence the broader `.All` |
 
 Two consequences worth internalizing:
@@ -401,30 +401,31 @@ Graph rewrites the relative `src` into a permanent hosted-content URL on deliver
 Application (app-only) tokens cannot send hosted contents; the CLI already requires
 delegated auth for all message mutation, so nothing changes.
 
-**File attachments** are a two-step dance:
+**File attachments** use this sequence:
 
-1. `PUT` the bytes into the right drive (chat → `/me/drive/root:/Microsoft Teams Chat
-   Files/{name}:/content`, channel → the team drive folder that `filesFolder` reports,
-   same as `file upload`). The response is a `driveItem`.
-2. Send the message with an `attachments` entry whose `id` is **the GUID inside the
+1. For chats, read `/me` and all pages of `/chats/{id}/members` once per send to
+   discover recipients. This needs `User.Read` and a chat-member read scope such as
+   `Chat.ReadBasic`. If either lookup or a later page fails, warn on stderr and
+   continue uploading/sending without automatic sharing.
+2. `PUT` each file into the right drive (chat → `/me/drive/root:/Microsoft Teams Chat
+   Files/{name}:/content`, channel → the team drive folder reported by `filesFolder`).
+   The response is a `driveItem`.
+3. For chats, attempt to share each uploaded file using
+   `POST /me/drive/items/{id}/invite` with `roles: ["read"]`, `requireSignIn: true`,
+   and `sendInvitation: false`. This needs the same `Files.ReadWrite` scope as the
+   upload. Exclude the sender; use a member's object ID only when the roster confirms
+   the member and sender have the same tenant. Foreign or unknown tenants use email.
+   A missing usable address or a failed grant warns that manual OneDrive sharing
+   is needed, without stopping the send. Tenant sharing policy still applies.
+   Channel uploads rely on the channel's existing SharePoint permissions.
+4. Send the message with an `attachments` entry whose `id` is **the GUID inside the
    driveItem's `eTag`** (e.g. `"{5FF69C5F-...},2"` → `5FF69C5F-...`), `contentType`
-   `"reference"`, `contentUrl` = the driveItem's `webUrl`, `name` = its `name` — plus
-   an `<attachment id="{guid}"></attachment>` tag in the body HTML, which is what makes
-   the attachment card render in clients.
-3. **Chats only: share the file with the members.** The upload sits in the sender's own
-   OneDrive, where nobody else has access, and the message merely links to it. The Teams
-   client grants every chat member read permission when it attaches a file; the CLI does
-   the same via `POST /me/drive/items/{id}/invite` with `roles: ["read"]`,
-   `requireSignIn: true` and `sendInvitation: false`, addressing each member of
-   `GET /chats/{id}/members` (minus the sender) by Entra object ID, or by email when the
-   membership carries no ID. Without this step recipients get "you don't have
-   permission" when they open the attachment (observed live, 2026-09-03). The grant is
-   best-effort: if it fails the message is still sent and a warning on stderr says to
-   share the file from OneDrive by hand. Channel uploads need none of this — they live in
-   the team's SharePoint library, which channel members already read.
+   `"reference"`, `contentUrl` = the driveItem's `webUrl`, and `name` = its `name`.
+   Include an `<attachment id="{guid}"></attachment>` tag in the body HTML so the
+   attachment card renders in clients.
 
-Simple upload caps at 4&nbsp;MB (the existing `MAX_UPLOAD_SIZE`); larger files need the
-upload-session API, which is out of scope here — the CLI errors clearly instead.
+Simple upload caps at 250&nbsp;MB; larger files need the upload-session API, which
+is out of scope here — the CLI errors clearly instead.
 Hosted contents ride a single JSON request, so images are capped at 3&nbsp;MB each to
 stay under Graph's 4&nbsp;MB request limit after base64 expansion (+33%).
 

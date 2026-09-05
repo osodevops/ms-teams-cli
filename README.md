@@ -398,6 +398,14 @@ teams message unpin --team <team-id> --channel <channel-id> --pinned-message-id 
 
 `message list --message-id ROOT_MESSAGE_ID` lists the replies under that channel thread root. The global `--page-size` and `--all-pages` options apply to the replies collection.
 
+`message send --chat CHAT_ID --attach FILE` uploads to your OneDrive and attempts
+to share the file with the chat's other members without notification email.
+Discovery needs `User.Read` and a chat-member read scope such as `Chat.ReadBasic`;
+upload and sharing need `Files.ReadWrite`. Object IDs are used only for a tenant
+confirmed to match the sender's; other recipients use email. Lookup or sharing
+failures warn on stderr and allow upload/send to continue. Members without a
+usable address are reported for manual sharing from OneDrive.
+
 The `--mention USER` flag on `message send` and `message reply` tags a person as a real Teams @mention — the kind that pings
 them, not literal `@Name` text. The flag is repeatable and `USER` may be an Entra object ID
 or UPN; the display name is resolved through Microsoft Graph. It works for chat sends,

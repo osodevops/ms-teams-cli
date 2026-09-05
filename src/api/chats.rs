@@ -39,7 +39,7 @@ pub async fn list_members(
 
 /// `GET /chats/{id}/members` doesn't support the `$top` OData query option
 /// (Graph returns HTTP 400), so page via `@odata.nextLink` only.
-async fn list_members_at(
+pub(crate) async fn list_members_at(
     client: &GraphClient,
     url: &str,
     pagination: &PaginationOpts,
