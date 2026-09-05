@@ -211,6 +211,9 @@ is rejected as invalid input. The subject Graph stores is returned by
 .B message list
 and
 .B message get.
+Human message lists include a Subject column. Plain lists include columns
+present in any message, with blank cells for missing values, so subjects do
+not depend on the first message having a title. JSON omits absent subjects.
 .SH CHAT COMMANDS
 .nf
 teams chat list

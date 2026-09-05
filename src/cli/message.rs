@@ -7,8 +7,8 @@ use crate::auth;
 use crate::config::ConfigFile;
 use crate::error::{Result, TeamsError};
 use crate::models::message::{
-    ChatMessageAttachment, ChatMessageMention, ChatMessageMentioned, ChatMessageUser, ItemBody,
-    SendMessageRequest,
+    ChatMessage, ChatMessageAttachment, ChatMessageMention, ChatMessageMentioned, ChatMessageUser,
+    ItemBody, SendMessageRequest,
 };
 use crate::models::user::User;
 use crate::output::{self, OutputFormat};
@@ -372,33 +372,8 @@ pub async fn run(
             };
 
             if format == OutputFormat::Human {
-                let headers = vec!["ID", "From", "Body Preview", "Date"];
-                let rows: Vec<Vec<String>> = messages
-                    .iter()
-                    .map(|m| {
-                        let from = m
-                            .from
-                            .as_ref()
-                            .and_then(|f| f.user.as_ref())
-                            .and_then(|u| u.display_name.clone())
-                            .unwrap_or_default();
-                        let body_preview = m
-                            .body
-                            .as_ref()
-                            .and_then(|b| b.content.as_ref())
-                            .map(|c| {
-                                let clean: String = c.chars().take(60).collect();
-                                clean
-                            })
-                            .unwrap_or_default();
-                        vec![
-                            m.id.clone().unwrap_or_default(),
-                            from,
-                            body_preview,
-                            m.created_date_time.clone().unwrap_or_default(),
-                        ]
-                    })
-                    .collect();
+                let headers = vec!["ID", "From", "Subject", "Body Preview", "Date"];
+                let rows: Vec<Vec<String>> = messages.iter().map(message_list_row).collect();
                 output::table::print_table(headers, rows);
             } else {
                 output::print_success_list(format, &messages, start);
@@ -698,6 +673,26 @@ fn require_channel(team: Option<String>, channel: Option<String>) -> Result<(Str
     Ok((team_id, channel_id))
 }
 
+fn message_list_row(message: &ChatMessage) -> Vec<String> {
+    vec![
+        message.id.clone().unwrap_or_default(),
+        message
+            .from
+            .as_ref()
+            .and_then(|from| from.user.as_ref())
+            .and_then(|user| user.display_name.clone())
+            .unwrap_or_default(),
+        message.subject.clone().unwrap_or_default(),
+        message
+            .body
+            .as_ref()
+            .and_then(|body| body.content.as_ref())
+            .map(|content| content.chars().take(60).collect())
+            .unwrap_or_default(),
+        message.created_date_time.clone().unwrap_or_default(),
+    ]
+}
+
 fn resolve_body(body: Option<String>, stdin: bool) -> Result<String> {
     if stdin {
         let mut buf = String::new();
@@ -936,6 +931,28 @@ fn escape_body_text(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn human_message_row_preserves_subject_and_body() {
+        let mut message: ChatMessage = serde_json::from_value(serde_json::json!({
+            "id": "message-id", "subject": "Release α & <plan>",
+            "from": {"user": {"displayName": "Example User"}},
+            "body": {"content": "Details"}, "createdDateTime": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap();
+        assert_eq!(
+            message_list_row(&message),
+            [
+                "message-id",
+                "Example User",
+                "Release α & <plan>",
+                "Details",
+                "2026-01-01T00:00:00Z"
+            ]
+        );
+        message.subject = None;
+        assert_eq!(message_list_row(&message)[2], "");
+    }
 
     fn write_card(dir: &std::path::Path) -> String {
         let path = dir.join("card.json");

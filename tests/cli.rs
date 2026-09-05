@@ -598,6 +598,29 @@ fn message_send_help_advertises_subject_flag() {
 }
 
 #[test]
+fn help_json_includes_message_subject_flag() {
+    let result = teams().arg("--help-json").assert().success();
+    let help: serde_json::Value = serde_json::from_slice(&result.get_output().stdout).unwrap();
+    let message = help["commands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|command| command["name"] == "message")
+        .unwrap();
+    let send = message["subcommands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|command| command["name"] == "send")
+        .unwrap();
+    assert!(send["flags"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|flag| flag["name"] == "--subject"));
+}
+
+#[test]
 fn message_send_rejects_subject_on_chat_messages() {
     teams()
         .args([

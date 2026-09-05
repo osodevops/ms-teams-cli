@@ -146,7 +146,7 @@ teams message send --team TEAM_ID --channel CHANNEL_ID \
   --mention <object-id-1> --mention <object-id-2> --body "Deploy is going out now."
 ```
 
-`--subject TEXT` sets the subject line on a channel root message — the bold title Teams renders above the body, the same field the client offers behind "Add a subject". Channel sends only: chat messages have no subject, so `--subject` with `--chat` (or without `--channel`) is rejected with exit code 2 before anything is sent. The stored subject comes back on `message list` and `message get`.
+`--subject TEXT` sets the subject line on a channel root message — the bold title Teams renders above the body, the same field the client offers behind "Add a subject". Channel sends only: chat messages have no subject, so `--subject` with `--chat` (or without `--channel`) is rejected with exit code 2 before anything is sent. The stored subject comes back on `message list` and `message get`. Human lists include a Subject column. Plain lists collect columns across all messages, so a titled message keeps its subject even when the first message is untitled; missing values are blank. JSON omits absent subjects.
 
 ```bash
 # Post a channel message with a subject line

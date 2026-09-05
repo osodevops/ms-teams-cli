@@ -408,7 +408,9 @@ exit code 2 before anything is sent.
 title Teams shows above the body, the same field the Teams client offers behind "Add a
 subject". Channel messages only: chat messages have no subject, so `--subject` with
 `--chat` is rejected as invalid input. `message list` and `message get` return the
-subject Graph stores, so a posted subject survives a read-back.
+subject Graph stores, so a posted subject survives a read-back. Human message lists
+include a Subject column; plain lists include subjects even when the first message
+is untitled. JSON continues to omit the subject field when it is absent.
 
 ```bash
 teams message send --chat <chat-id> \

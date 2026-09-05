@@ -62,6 +62,7 @@ Single-crate Rust binary. Key modules:
 ### Output Contract
 All commands emit a JSON envelope: `{ "success": bool, "data": ..., "metadata": { "request_id", "timestamp", "duration_ms" } }`.
 When stdout is a TTY, defaults to human-readable table format. When piped, defaults to JSON.
+Plain list columns include keys from every row, with blank cells for absent values. Human message lists include a Subject column; absent message subjects remain omitted in JSON.
 
 ### Exit Codes
 0=success, 1=general, 2=invalid input, 3=auth, 4=permission denied, 5=not found, 6=rate limited, 7=network, 8=server error, 10=config error
