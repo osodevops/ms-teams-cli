@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Windows builds reserve an 8 MiB main-thread stack, matching Linux and macOS. Windows gives the main thread 1 MiB by default, and building clap's command tree for this many subcommands needs almost all of it in an unoptimized build, so any addition to the `message` command made every debug and test invocation of `teams` on Windows — `--help` included — fail with `thread 'main' has overflowed its stack`, and `cargo test` failed on `windows-latest` while passing on Linux and macOS. A build script now passes `/STACK:8388608` to the MSVC linker (`--stack` on the GNU toolchain). The reservation is address space rather than committed memory, so an idle process costs nothing extra.
+
 ## v0.6.0 - 2026-08-30
 
 ### Added
