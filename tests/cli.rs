@@ -771,6 +771,24 @@ fn message_list_rejects_message_id_with_chat() {
 }
 
 #[test]
+fn documented_chat_attachment_command_parses_before_authentication() {
+    teams()
+        .args([
+            "message",
+            "send",
+            "--chat",
+            "chat-id",
+            "--attach",
+            "example.txt",
+            "--output",
+            "json",
+        ])
+        .assert()
+        .code(3)
+        .stdout(predicate::str::contains("auth login"));
+}
+
+#[test]
 fn message_documented_flags_are_available() {
     teams()
         .args(["message", "get", "--help"])

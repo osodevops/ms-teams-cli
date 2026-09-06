@@ -77,6 +77,7 @@ CLI flags > env vars (TEAMS_CLI_CLIENT_ID, TEAMS_CLI_CLIENT_SECRET, TEAMS_CLI_TE
 - Profile index tracked in keyring for `auth list`
 
 ### Graph API Client
+- Chat attachment sharing is best-effort, including recipient lookup failures. Use object IDs only for recipients whose roster tenant matches the sender's; otherwise use email or warn about manual sharing.
 - Automatic retry with exponential backoff on 429/5xx
 - Respects `Retry-After` header for rate limiting
 - Pagination via `@odata.nextLink` with `--all-pages` flag

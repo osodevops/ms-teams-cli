@@ -5,7 +5,11 @@ use super::client::{GraphClient, PaginationOpts};
 use super::endpoints;
 
 pub async fn get_me(client: &GraphClient) -> Result<User> {
-    client.get(&endpoints::me(), &[]).await
+    get_me_at(client, &endpoints::me()).await
+}
+
+pub(crate) async fn get_me_at(client: &GraphClient, url: &str) -> Result<User> {
+    client.get(url, &[]).await
 }
 
 pub async fn get_user(client: &GraphClient, id: &str) -> Result<User> {

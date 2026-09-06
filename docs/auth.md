@@ -109,6 +109,12 @@ consent). Note that Graph masks drives the token cannot see as 404 rather
 than 403, so a "not found" from `--attach` usually means the missing scope,
 not a missing file.
 
+Automatic sharing of chat attachments also reads `/me` and the chat's membership,
+requiring `User.Read` and a chat-member read scope such as `Chat.ReadBasic`.
+The invite itself uses the upload's `Files.ReadWrite` scope. Lookup and sharing
+failures warn on stderr and let the upload/message continue; share the file from
+OneDrive by hand when automatic sharing cannot complete.
+
 Future features may need additional consent.
 
 ## Login options

@@ -1,8 +1,10 @@
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 
-use crate::api::{self, GraphClient};
+use crate::api::{self, GraphClient, PaginationOpts};
 use crate::error::{Result, TeamsError};
+use crate::models::file::DriveRecipient;
+use crate::models::member::ConversationMember;
 use crate::models::message::{ChatMessageAttachment, HostedContentUpload, SendMessageRequest};
 
 /// Where `--attach` files get uploaded before the message references them.
@@ -10,7 +12,9 @@ use crate::models::message::{ChatMessageAttachment, HostedContentUpload, SendMes
 /// library — which is why the two need different Files scopes (see
 /// docs/attachments-spec.md).
 pub enum AttachDestination<'a> {
-    Chat,
+    Chat {
+        chat_id: &'a str,
+    },
     Channel {
         team_id: &'a str,
         channel_id: &'a str,
@@ -47,11 +51,27 @@ pub async fn apply_media(
     let (images_html, hosted) = inline_images(images)?;
     body.push_str(&images_html);
 
+    // Chat uploads land in the sender's own OneDrive, where nobody else can
+    // read them until they are shared — look the chat's members up once so
+    // each uploaded file can be shared with them below.
+    let chat_recipients = match dest {
+        AttachDestination::Chat { chat_id } if !attaches.is_empty() => {
+            Some(chat_recipients(client, chat_id).await)
+        }
+        _ => None,
+    };
+
     for path in attaches {
         let (bytes, content_type, filename) = read_attachment(path)?;
         let item = match dest {
-            AttachDestination::Chat => {
-                api::files::upload_chat_attachment(client, &filename, bytes, &content_type).await?
+            AttachDestination::Chat { .. } => {
+                let item =
+                    api::files::upload_chat_attachment(client, &filename, bytes, &content_type)
+                        .await?;
+                if let Some(recipients) = &chat_recipients {
+                    share_with_chat(client, &item, &filename, recipients).await;
+                }
+                item
             }
             AttachDestination::Channel {
                 team_id,
@@ -83,6 +103,164 @@ pub async fn apply_media(
         req.attachments = Some(attachments);
     }
     Ok(())
+}
+
+/// The people a chat attachment must be shared with: every member of the chat
+/// other than the sender. The Teams client grants these permissions itself
+/// when a file is attached; a bare drive upload does not, so without this step
+/// recipients get "you don't have permission" when they open the file.
+async fn chat_recipients(client: &GraphClient, chat_id: &str) -> Vec<DriveRecipient> {
+    chat_recipients_at(
+        client,
+        &api::endpoints::me(),
+        &api::endpoints::chat_members(chat_id),
+    )
+    .await
+}
+
+async fn chat_recipients_at(
+    client: &GraphClient,
+    me_url: &str,
+    members_url: &str,
+) -> Vec<DriveRecipient> {
+    let lookup: Result<_> = async {
+        let me = api::users::get_me_at(client, me_url).await?;
+        let members = api::chats::list_members_at(
+            client,
+            members_url,
+            &PaginationOpts {
+                page_size: 50,
+                all_pages: true,
+            },
+        )
+        .await?;
+        Ok(invite_recipients(&members, me.id.as_deref()))
+    }
+    .await;
+    match lookup {
+        Ok(selection) => {
+            if selection.skipped > 0 {
+                tracing::warn!(
+                    "Could not identify {} chat member(s) for file sharing; share the attachments \
+                     with them from OneDrive by hand.",
+                    selection.skipped
+                );
+            }
+            selection.recipients
+        }
+        Err(error) => {
+            tracing::warn!(
+                "Could not look up the chat's file-sharing recipients ({error}); \
+                 continuing without automatic sharing. Share the attachments from OneDrive by hand."
+            );
+            Vec::new()
+        }
+    }
+}
+
+struct RecipientSelection {
+    recipients: Vec<DriveRecipient>,
+    skipped: usize,
+}
+
+/// An object ID is usable only in the sender's directory. Establish that
+/// directory from the sender's roster entry, use email for foreign or unknown
+/// tenants, and report members without a usable address for manual sharing.
+fn invite_recipients(
+    members: &[ConversationMember],
+    sender_id: Option<&str>,
+) -> RecipientSelection {
+    let sender_id = nonempty(sender_id);
+    let is_sender = |member: &ConversationMember| {
+        sender_id
+            .zip(nonempty(member.user_id.as_deref()))
+            .is_some_and(|(sender, id)| sender.eq_ignore_ascii_case(id))
+    };
+    let sender_tenant = members
+        .iter()
+        .find(|member| is_sender(member))
+        .and_then(|member| nonempty(member.tenant_id.as_deref()));
+    let mut seen = std::collections::HashSet::new();
+    let mut selection = RecipientSelection {
+        recipients: Vec::new(),
+        skipped: 0,
+    };
+    for member in members.iter().filter(|member| !is_sender(member)) {
+        let same_tenant = sender_tenant
+            .zip(nonempty(member.tenant_id.as_deref()))
+            .is_some_and(|(sender, tenant)| sender.eq_ignore_ascii_case(tenant));
+        let recipient =
+            if let Some(id) = nonempty(member.user_id.as_deref()).filter(|_| same_tenant) {
+                Some((
+                    format!("id:{}", id.to_ascii_lowercase()),
+                    DriveRecipient {
+                        object_id: Some(id.to_string()),
+                        email: None,
+                    },
+                ))
+            } else {
+                nonempty(member.email.as_deref()).map(|email| {
+                    (
+                        format!("email:{}", email.to_ascii_lowercase()),
+                        DriveRecipient {
+                            object_id: None,
+                            email: Some(email.to_string()),
+                        },
+                    )
+                })
+            };
+        match recipient {
+            Some((key, recipient)) => {
+                if seen.insert(key) {
+                    selection.recipients.push(recipient);
+                }
+            }
+            None => selection.skipped += 1,
+        }
+    }
+    selection
+}
+
+fn nonempty(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+/// Share an uploaded chat file with the chat's members. A failure here is
+/// reported, not fatal: the upload succeeded and the message can still be
+/// sent, but the recipients will not be able to open the file until it is
+/// shared from OneDrive by hand.
+async fn share_with_chat(
+    client: &GraphClient,
+    item: &crate::models::file::DriveItem,
+    filename: &str,
+    recipients: &[DriveRecipient],
+) {
+    if recipients.is_empty() {
+        return;
+    }
+    let Some(item_id) = item.id.as_deref() else {
+        tracing::warn!(
+            "Uploaded '{filename}' but the driveItem has no id, so it could not be shared \
+             with the chat's members; share it from OneDrive by hand."
+        );
+        return;
+    };
+    match api::files::grant_read_access(client, item_id, recipients.to_vec()).await {
+        Ok(perms) => tracing::debug!(
+            "Shared '{filename}' with {} chat member(s); roles granted: {}",
+            recipients.len(),
+            perms
+                .iter()
+                .flat_map(|p| p.roles.iter())
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        Err(e) => tracing::warn!(
+            "Uploaded '{filename}' but could not share it with the chat's members ({e}); \
+             they will get \"you don't have permission\" until it is shared from OneDrive by hand."
+        ),
+    }
 }
 
 /// Build the body-HTML fragment and hosted-content uploads for `--image`
@@ -239,6 +417,251 @@ mod tests {
             hosted_contents: None,
             mentions: None,
         }
+    }
+
+    fn member(user_id: Option<&str>, email: Option<&str>) -> ConversationMember {
+        ConversationMember {
+            id: None,
+            display_name: None,
+            roles: None,
+            user_id: user_id.map(str::to_string),
+            tenant_id: Some("tenant-local".to_string()),
+            email: email.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn invite_recipients_skip_sender_prefer_object_id_and_dedupe() {
+        let members = [
+            member(Some("me"), Some("me@example.com")),
+            member(Some("u1"), Some("u1@example.com")),
+            member(Some("u1"), None),
+            member(None, Some("mail-only@example.com")),
+            member(None, None),
+        ];
+        let selection = invite_recipients(&members, Some("me"));
+        assert_eq!(selection.skipped, 1);
+        assert_eq!(
+            selection.recipients,
+            vec![
+                DriveRecipient {
+                    object_id: Some("u1".into()),
+                    email: None
+                },
+                DriveRecipient {
+                    object_id: None,
+                    email: Some("mail-only@example.com".into())
+                },
+            ]
+        );
+        // Unknown sender: nobody is skipped on that basis.
+        assert_eq!(invite_recipients(&members[..2], None).recipients.len(), 2);
+    }
+
+    #[test]
+    fn foreign_and_unknown_tenants_use_email_instead_of_object_id() {
+        let mut external = member(Some("foreign-id"), Some("external@example.test"));
+        external.tenant_id = Some("tenant-foreign".into());
+        let mut unknown = member(Some("unknown-id"), Some("unknown@example.test"));
+        unknown.tenant_id = None;
+        let members = [member(Some("me"), None), external, unknown];
+        let selection = invite_recipients(&members, Some("me"));
+        assert_eq!(selection.skipped, 0);
+        assert_eq!(
+            selection.recipients,
+            vec![
+                DriveRecipient {
+                    object_id: None,
+                    email: Some("external@example.test".into())
+                },
+                DriveRecipient {
+                    object_id: None,
+                    email: Some("unknown@example.test".into())
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn members_without_a_usable_address_are_counted_for_a_warning() {
+        let mut foreign = member(Some("foreign-id"), None);
+        foreign.tenant_id = Some("tenant-foreign".into());
+        let mut unknown = member(Some("unknown-id"), Some("  "));
+        unknown.tenant_id = None;
+        let members = [member(Some("me"), None), foreign, unknown];
+        let selection = invite_recipients(&members, Some("me"));
+        assert!(selection.recipients.is_empty());
+        assert_eq!(selection.skipped, 2);
+        // A missing sender tenant also makes another member's ID insufficient.
+        let members = [member(Some("local-id"), None)];
+        assert_eq!(invite_recipients(&members, None).skipped, 1);
+    }
+
+    #[test]
+    fn recipient_selection_normalizes_empty_values_and_duplicate_addresses() {
+        let mut sender = member(Some("ME"), None);
+        sender.tenant_id = Some("TENANT-LOCAL".into());
+        let members = [
+            sender,
+            member(Some("U1"), None),
+            member(Some("u1"), None),
+            member(Some(" "), Some(" A@example.test ")),
+            member(None, Some("a@example.test")),
+        ];
+        let selection = invite_recipients(&members, Some("me"));
+        assert_eq!(selection.skipped, 0);
+        assert_eq!(
+            selection.recipients,
+            vec![
+                DriveRecipient {
+                    object_id: Some("U1".into()),
+                    email: None
+                },
+                DriveRecipient {
+                    object_id: None,
+                    email: Some("A@example.test".into())
+                },
+            ]
+        );
+    }
+
+    fn test_client() -> GraphClient {
+        GraphClient::new(
+            crate::auth::token::TokenInfo {
+                access_token: "synthetic-test-token".into(),
+                expires_at: None,
+                token_type: "Bearer".into(),
+                scope: None,
+                refresh_token: None,
+                profile: "test".into(),
+            },
+            &crate::config::NetworkConfig {
+                timeout: 3,
+                max_retries: 0,
+                retry_backoff_base: 1,
+            },
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn discovery_failures_on_me_members_or_later_pages_are_not_fatal() {
+        use wiremock::matchers::{method, path, query_param_is_missing};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        for failure in ["me", "members", "page2"] {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/me"))
+                .respond_with(if failure == "me" {
+                    ResponseTemplate::new(403)
+                } else {
+                    ResponseTemplate::new(200).set_body_json(serde_json::json!({"id": "me"}))
+                })
+                .expect(1)
+                .mount(&server)
+                .await;
+            if failure != "me" {
+                Mock::given(method("GET"))
+                    .and(path("/members"))
+                    .and(query_param_is_missing("$top"))
+                    .respond_with(if failure == "members" {
+                        ResponseTemplate::new(403)
+                    } else {
+                        ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                            "value": [{"userId": "me", "tenantId": "local"},
+                                      {"userId": "u1", "tenantId": "local"}],
+                            "@odata.nextLink": format!("{}/page2", server.uri())
+                        }))
+                    })
+                    .expect(1)
+                    .mount(&server)
+                    .await;
+            }
+            if failure == "page2" {
+                Mock::given(method("GET"))
+                    .and(path("/page2"))
+                    .respond_with(ResponseTemplate::new(403))
+                    .expect(1)
+                    .mount(&server)
+                    .await;
+            }
+            let recipients = chat_recipients_at(
+                &test_client(),
+                &format!("{}/me", server.uri()),
+                &format!("{}/members", server.uri()),
+            )
+            .await;
+            assert!(
+                recipients.is_empty(),
+                "failure at {failure} used incomplete recipient data"
+            );
+            let expected_requests = match failure {
+                "me" => 1,
+                "members" => 2,
+                _ => 3,
+            };
+            assert_eq!(
+                server.received_requests().await.unwrap().len(),
+                expected_requests
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn discovery_follows_all_pages_and_keeps_tenant_information() {
+        use wiremock::matchers::{method, path, query_param_is_missing};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/me"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"id":"me"})))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/members"))
+            .and(query_param_is_missing("$top"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "value": [{"userId": "local-id", "tenantId": "local"}],
+                "@odata.nextLink": format!("{}/page2", server.uri())
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET")).and(path("/page2"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "value": [{"userId": "me", "tenantId": "local"},
+                    {"userId": "foreign-id", "tenantId": "foreign", "email": "external@example.test"},
+                    {"userId": "local-id", "tenantId": "local"}]
+            }))).expect(1).mount(&server).await;
+        let recipients = chat_recipients_at(
+            &test_client(),
+            &format!("{}/me", server.uri()),
+            &format!("{}/members", server.uri()),
+        )
+        .await;
+        assert_eq!(
+            recipients,
+            vec![
+                DriveRecipient {
+                    object_id: Some("local-id".into()),
+                    email: None
+                },
+                DriveRecipient {
+                    object_id: None,
+                    email: Some("external@example.test".into())
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn discovery_endpoint_builders_use_graph_v1() {
+        assert_eq!(api::endpoints::me(), "https://graph.microsoft.com/v1.0/me");
+        assert_eq!(
+            api::endpoints::chat_members("chat-id"),
+            "https://graph.microsoft.com/v1.0/chats/chat-id/members"
+        );
     }
 
     #[test]

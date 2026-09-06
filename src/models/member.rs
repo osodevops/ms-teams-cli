@@ -13,6 +13,8 @@ pub struct ConversationMember {
     #[serde(rename = "userId", skip_serializing_if = "Option::is_none")]
     pub user_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
 }
 
@@ -62,9 +64,11 @@ mod tests {
             "displayName": "Alice",
             "roles": ["owner"],
             "userId": "u1",
+            "tenantId": "tenant-1",
             "email": "alice@example.com"
         });
         let member: ConversationMember = serde_json::from_value(json).unwrap();
+        assert_eq!(member.tenant_id.as_deref(), Some("tenant-1"));
         assert_eq!(member.display_name.as_deref(), Some("Alice"));
         assert_eq!(member.roles.as_ref().unwrap()[0], "owner");
     }
