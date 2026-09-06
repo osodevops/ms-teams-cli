@@ -53,6 +53,22 @@ pub struct ClearPresenceRequest {
     pub session_id: String,
 }
 
+/// Request body for POST /me/presence/setUserPreferredPresence. A preferred presence belongs to
+/// the user rather than to an application's session, so there is no `sessionId`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetUserPreferredPresenceRequest {
+    pub availability: String,
+    pub activity: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expiration_duration: Option<String>,
+}
+
+/// Request body for POST /me/presence/clearUserPreferredPresence, which Graph documents as an
+/// empty JSON object. A braced struct serializes to `{}`; a unit struct would go out as `null`.
+#[derive(Debug, Clone, Serialize)]
+pub struct ClearUserPreferredPresenceRequest {}
+
 /// Request body for POST /me/presence/setStatusMessage
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -215,6 +231,29 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&req).unwrap(),
             serde_json::json!({"sessionId": "app-id"})
+        );
+    }
+
+    /// Graph applies its own default when no expiration is sent, so the key must be absent rather
+    /// than `null`.
+    #[test]
+    fn set_user_preferred_presence_request_omits_an_absent_expiration() {
+        let req = SetUserPreferredPresenceRequest {
+            availability: "Available".to_string(),
+            activity: "Available".to_string(),
+            expiration_duration: None,
+        };
+        assert_eq!(
+            serde_json::to_value(&req).unwrap(),
+            serde_json::json!({"availability": "Available", "activity": "Available"})
+        );
+    }
+
+    #[test]
+    fn clear_user_preferred_presence_request_is_an_empty_object() {
+        assert_eq!(
+            serde_json::to_value(ClearUserPreferredPresenceRequest {}).unwrap(),
+            serde_json::json!({})
         );
     }
 }

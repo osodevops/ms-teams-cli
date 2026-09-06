@@ -7,6 +7,11 @@
 - `teams message send --subject TEXT` sets the subject line on a channel root message — the bold title Teams renders above the body, the same field the client offers behind "Add a subject". Channel sends only: chat messages have no subject, so `--subject` with `--chat` (or without `--channel`) is rejected as invalid input before anything is sent.
 - `teams message list --team T --channel C --message-id ROOT` lists the replies under one channel thread root, paged like any other listing. Without it a caller could not tell from the existing channel-list output whether a question had already been answered, because that listing returns thread roots only.
 - `teams message reply --mention USER` (repeatable) tags a person in a threaded reply the same way `message send --mention` does, so a name in a reply notifies rather than merely appears.
+- `teams presence set-preferred --availability A [--expiration D]` and `teams presence clear-preferred` manage the user-preferred presence, the layer Microsoft Graph ranks above every presence session while one exists. The Teams client's "Appear offline" lives there as `Offline`/`OffWork`, and until now nothing in the CLI could reach it: `presence set` returned success and the account stayed offline. Each of the six availabilities Graph accepts here has exactly one activity, so the command derives it and reports both back. The expiration is checked as a positive ISO 8601 duration in whole day, hour, minute and second units but not bounded, because Graph documents defaults of one day for `Busy` and `DoNotDisturb` and seven days otherwise, rather than a range.
+
+### Changed
+
+- Refreshed two Rust dependencies: `uuid` 1.24.1 → 1.26.0 (the weekly rust-minor group) and `rand` 0.9.2 → 0.9.3, which clears RUSTSEC-2026-0097 (`rand::rng()` unsound with a custom logger; reached only through `reqwest`'s QUIC dependency) from `cargo audit`.
 
 ### Fixed
 

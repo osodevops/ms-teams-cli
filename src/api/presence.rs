@@ -1,8 +1,8 @@
 use crate::error::{Result, TeamsError};
 use crate::models::common::PageResponse;
 use crate::models::presence::{
-    ClearPresenceRequest, GetPresenceBatchRequest, Presence, SetPresenceRequest,
-    SetStatusMessageRequest,
+    ClearPresenceRequest, ClearUserPreferredPresenceRequest, GetPresenceBatchRequest, Presence,
+    SetPresenceRequest, SetStatusMessageRequest, SetUserPreferredPresenceRequest,
 };
 
 use super::client::GraphClient;
@@ -60,6 +60,31 @@ async fn clear_presence_at(
 pub async fn set_status_message(client: &GraphClient, req: &SetStatusMessageRequest) -> Result<()> {
     client
         .post_no_content(&endpoints::set_status_message(), req)
+        .await
+}
+
+pub async fn set_user_preferred_presence(
+    client: &GraphClient,
+    req: &SetUserPreferredPresenceRequest,
+) -> Result<()> {
+    set_user_preferred_presence_at(client, &endpoints::set_user_preferred_presence(), req).await
+}
+
+async fn set_user_preferred_presence_at(
+    client: &GraphClient,
+    url: &str,
+    req: &SetUserPreferredPresenceRequest,
+) -> Result<()> {
+    client.post_no_content(url, req).await
+}
+
+pub async fn clear_user_preferred_presence(client: &GraphClient) -> Result<()> {
+    clear_user_preferred_presence_at(client, &endpoints::clear_user_preferred_presence()).await
+}
+
+async fn clear_user_preferred_presence_at(client: &GraphClient, url: &str) -> Result<()> {
+    client
+        .post_no_content(url, &ClearUserPreferredPresenceRequest {})
         .await
 }
 
@@ -244,6 +269,55 @@ mod tests {
                 activity: "Available".to_string(),
                 expiration_duration: Some("PT1H".to_string()),
             },
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn set_user_preferred_presence_sends_the_pair_and_expiration() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/me/presence/setUserPreferredPresence"))
+            .and(body_json(serde_json::json!({
+                "availability": "Offline",
+                "activity": "OffWork",
+                "expirationDuration": "P1D"
+            })))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        set_user_preferred_presence_at(
+            &test_client(),
+            &format!("{}/me/presence/setUserPreferredPresence", server.uri()),
+            &SetUserPreferredPresenceRequest {
+                availability: "Offline".to_string(),
+                activity: "OffWork".to_string(),
+                expiration_duration: Some("P1D".to_string()),
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    /// Graph documents the body as `{}`. `body_json` compares parsed values, so a request that
+    /// went out as `null` or with no body would not match.
+    #[tokio::test]
+    async fn clear_user_preferred_presence_sends_an_empty_object() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/me/presence/clearUserPreferredPresence"))
+            .and(body_json(serde_json::json!({})))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        clear_user_preferred_presence_at(
+            &test_client(),
+            &format!("{}/me/presence/clearUserPreferredPresence", server.uri()),
         )
         .await
         .unwrap();

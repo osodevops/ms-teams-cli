@@ -124,7 +124,7 @@ The CLI currently covers:
 - `channel`: list/get/create/update/delete/member operations.
 - `message`: send/list/get/reply/update/delete/react/unreact/pin/unpin.
 - `chat`: list/get/create/update/hide/unhide/member operations.
-- `presence`: get, batch get, set, clear, status message.
+- `presence`: get, batch get, set, clear, preferred set/clear, status message.
 - `search`: messages, users, teams.
 - `tag`: list/get/create/update/delete/member operations.
 - `meeting`: list/get/create/update/delete/join URL/attendance.

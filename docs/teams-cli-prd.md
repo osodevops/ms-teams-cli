@@ -440,6 +440,12 @@ teams presence set --availability <Available|Busy|DoNotDisturb|Away|BeRightBack|
   --activity <Available|InACall|InAMeeting|Presenting|...> \
   [--expiration <duration, e.g. 1h, 30m>]
 
+# Set or clear the preferred presence that overrides presence sessions
+teams presence set-preferred \
+  --availability <Available|Busy|DoNotDisturb|BeRightBack|Away|Offline> \
+  [--expiration <positive whole-unit ISO 8601 duration>]
+teams presence clear-preferred
+
 # Set status message
 teams presence status --message "In deep focus until 3pm" \
   [--expiry <datetime>]
