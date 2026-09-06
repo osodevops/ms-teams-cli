@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.7.0 - 2026-09-06
+
 ### Added
 
 - `teams message send --subject TEXT` sets the subject line on a channel root message — the bold title Teams renders above the body, the same field the client offers behind "Add a subject". Channel sends only: chat messages have no subject, so `--subject` with `--chat` (or without `--channel`) is rejected as invalid input before anything is sent.
@@ -19,7 +21,6 @@
 - Plain lists retain optional fields that first appear after the first row, including message subjects. Human message lists include a Subject column; JSON still omits absent subjects.
 - `message list` and `message get` no longer drop the `subject` of a message. The `ChatMessage` model had no `subject` field, so a channel root message's subject — returned by Graph on both reads — silently vanished from every output: a message posted with a subject read back without one. Messages without a subject are unchanged and gain no `"subject": null` noise.
 - `teams message send --chat … --attach FILE` now shares each uploaded file with the chat's other members. The upload lands in the sender's OneDrive (`Microsoft Teams Chat Files`), where nobody else has access; the Teams client grants every member read permission when it attaches a file, but the CLI did not, so recipients got "you don't have permission" when they opened the attachment. After each upload the CLI now grants the members read access through the drive item's `invite` action, with no notification email. A member is addressed by Entra object ID only when the roster shows the same tenant as the sender — Graph documents that a chat's membership can span tenants, and an object ID means nothing outside its own directory — and by email otherwise; the sender is skipped. Every step is best-effort: a failed member lookup, a member with no usable address, or a refused grant warns on stderr and says to share the file from OneDrive by hand, and the upload and the message still go through. Channel attachments are unchanged: they live in the team's SharePoint library, which channel members already read.
-
 
 ## v0.6.0 - 2026-08-30
 
