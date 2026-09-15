@@ -6,6 +6,10 @@
 
 - Refreshed the Rust dependencies: the rust-minor group (`clap` 4.6.7, `clap_complete` 4.6.11, `toml` 1.1.6, `hyper` 1.11.1, `hyper-util` 0.1.21, `uuid` 1.26.1, `thiserror` 2.0.21) and `rustls` 0.23.37 → 0.23.45 (with `rustls-webpki` 0.103.15), which clears RUSTSEC-2026-0285 (TLS 1.3 handshake messages accepted across encryption-level boundaries; `rustls` is reached through `reqwest`) from `cargo audit`. The release workflow's `softprops/action-gh-release` pin moves to v3.0.3.
 
+### Fixed
+
+- `message list` and `message get` no longer drop a mention's identity when the mention is not a person. The mention model only knew the `user` form of Graph's `chatMessageMentionedIdentitySet`, so an @Everyone (a `conversation` identity naming the chat or channel itself), an @channel or @team, and a team `tag` mention all read back as `"mentioned": {}` on every output, making a resolved mention look like one that never resolved. Both forms are now retained with their ids, display names and, for conversations, the `conversationIdentityType`; user mentions and the send-side `--mention` shape are unchanged.
+
 ## v0.7.0 - 2026-09-06
 
 ### Added

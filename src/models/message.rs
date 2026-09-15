@@ -82,13 +82,46 @@ pub struct ChatMessageMention {
     pub mentioned: ChatMessageMentioned,
 }
 
-/// Who a [`ChatMessageMention`] refers to. Only the `user` form is produced
-/// or consumed by this CLI.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Who a [`ChatMessageMention`] refers to: Graph's
+/// `chatMessageMentionedIdentitySet`. The CLI only ever *produces* the `user`
+/// form (`--mention`), but reads must keep every form Graph returns, or a
+/// mention that is not a person comes back as an empty object. `conversation`
+/// is how @Everyone, an @channel and an @team arrive; `tag` is a team tag.
+/// `application` and `device` are not modelled: neither occurs in the
+/// delegated flows this CLI drives.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatMessageMentioned {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<ChatMessageUser>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<ChatMessageConversationIdentity>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tag: Option<ChatMessageTagIdentity>,
+}
+
+/// A conversation named by a mention (Graph `teamworkConversationIdentity`).
+/// `conversation_identity_type` is `chat`, `channel` or `team`; `id` is that
+/// conversation's own id, which is how an @Everyone is addressed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatMessageConversationIdentity {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conversation_identity_type: Option<String>,
+}
+
+/// A team tag named by a mention (Graph `teamworkTagIdentity`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatMessageTagIdentity {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
 
 /// Request body for sending a message.
@@ -255,6 +288,7 @@ mod tests {
                         display_name: Some("Sophie Daniels".into()),
                         user_identity_type: Some("aadUser".into()),
                     }),
+                    ..Default::default()
                 },
             }]),
         };
@@ -327,6 +361,138 @@ mod tests {
             re["mentions"][0]["mentioned"]["user"]["userIdentityType"],
             "aadUser"
         );
+    }
+
+    /// An @Everyone is a *conversation* mention: Graph identifies the chat or
+    /// channel itself, not a person. Before this field existed the read-back
+    /// printed `"mentioned": {}` and the mention looked unresolved.
+    #[test]
+    fn chat_message_keeps_conversation_mentions_on_channels_and_chats() {
+        for (conversation_id, kind) in [
+            (
+                "19:0123456789abcdef0123456789abcdef@thread.tacv2",
+                "channel",
+            ),
+            ("19:0123456789abcdef0123456789abcdef@thread.v2", "chat"),
+        ] {
+            let json = serde_json::json!({
+                "id": "1700000000000",
+                "body": {
+                    "contentType": "html",
+                    "content": "<at id=\"0\">Everyone</at>, deploy starts at 14:00"
+                },
+                "mentions": [
+                    {
+                        "id": 0,
+                        "mentionText": "Everyone",
+                        "mentioned": {
+                            "application": null,
+                            "device": null,
+                            "user": null,
+                            "tag": null,
+                            "conversation": {
+                                "id": conversation_id,
+                                "displayName": "Everyone",
+                                "conversationIdentityType": kind
+                            }
+                        }
+                    }
+                ]
+            });
+            let msg: ChatMessage = serde_json::from_value(json).unwrap();
+            let mentioned = &msg.mentions.as_ref().unwrap()[0].mentioned;
+            assert!(mentioned.user.is_none());
+            assert!(mentioned.tag.is_none());
+            let conversation = mentioned.conversation.as_ref().unwrap();
+            assert_eq!(conversation.id.as_deref(), Some(conversation_id));
+            assert_eq!(conversation.display_name.as_deref(), Some("Everyone"));
+            assert_eq!(
+                conversation.conversation_identity_type.as_deref(),
+                Some(kind)
+            );
+
+            let re = serde_json::to_value(&msg).unwrap();
+            assert_eq!(
+                re["mentions"][0]["mentioned"],
+                serde_json::json!({
+                    "conversation": {
+                        "id": conversation_id,
+                        "displayName": "Everyone",
+                        "conversationIdentityType": kind
+                    }
+                })
+            );
+        }
+    }
+
+    /// A team tag mention arrives as `mentioned.tag` and must survive the same way.
+    #[test]
+    fn chat_message_keeps_tag_mentions() {
+        let json = serde_json::json!({
+            "id": "1700000000000",
+            "body": {
+                "contentType": "html",
+                "content": "<at id=\"0\">On-call</at> the pager is yours"
+            },
+            "mentions": [
+                {
+                    "id": 0,
+                    "mentionText": "On-call",
+                    "mentioned": {
+                        "user": null,
+                        "conversation": null,
+                        "tag": {
+                            "id": "MjQzMmI1N2ItOTFhZC00YzM4LTg2ZmQtZjU5YTMxNTU5MzJjIyNlZGMwODJiMS1kNGZiLTQ1MGQtODVhOS1lYjIxNWMzMjEyMTQ=",
+                            "displayName": "On-call"
+                        }
+                    }
+                }
+            ]
+        });
+        let msg: ChatMessage = serde_json::from_value(json).unwrap();
+        let mentioned = &msg.mentions.as_ref().unwrap()[0].mentioned;
+        assert!(mentioned.user.is_none());
+        assert!(mentioned.conversation.is_none());
+        assert_eq!(
+            mentioned.tag.as_ref().unwrap().display_name.as_deref(),
+            Some("On-call")
+        );
+
+        let re = serde_json::to_value(&msg).unwrap();
+        assert_eq!(
+            re["mentions"][0]["mentioned"]["tag"]["displayName"],
+            "On-call"
+        );
+        assert!(re["mentions"][0]["mentioned"].get("user").is_none());
+    }
+
+    /// An identity set with nothing the CLI models (or nothing at all) still
+    /// parses; the mention is kept with an empty `mentioned` rather than
+    /// failing the whole read.
+    #[test]
+    fn chat_message_tolerates_unmodelled_mention_identities() {
+        let json = serde_json::json!({
+            "id": "1700000000000",
+            "body": { "contentType": "html", "content": "<at id=\"0\">Bot</at> hi" },
+            "mentions": [
+                {
+                    "id": 0,
+                    "mentionText": "Bot",
+                    "mentioned": {
+                        "application": { "id": "00000000-0000-0000-0000-000000000000",
+                                         "displayName": "Bot",
+                                         "applicationIdentityType": "bot" }
+                    }
+                }
+            ]
+        });
+        let msg: ChatMessage = serde_json::from_value(json).unwrap();
+        let mentioned = &msg.mentions.as_ref().unwrap()[0].mentioned;
+        assert!(
+            mentioned.user.is_none() && mentioned.conversation.is_none() && mentioned.tag.is_none()
+        );
+        let re = serde_json::to_value(&msg).unwrap();
+        assert_eq!(re["mentions"][0]["mentioned"], serde_json::json!({}));
     }
 
     /// Graph returns `subject` on channel root messages; it must survive a

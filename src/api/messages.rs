@@ -622,6 +622,7 @@ mod tests {
                         display_name: Some("Sophie Daniels".into()),
                         user_identity_type: Some("aadUser".into()),
                     }),
+                    ..Default::default()
                 },
             }]),
         };

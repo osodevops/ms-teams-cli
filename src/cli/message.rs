@@ -919,6 +919,7 @@ fn apply_mentions(req: &mut SendMessageRequest, identities: &[MentionIdentity]) 
                         display_name: Some(identity.display_name.clone()),
                         user_identity_type: Some("aadUser".to_string()),
                     }),
+                    ..Default::default()
                 },
             })
             .collect(),
