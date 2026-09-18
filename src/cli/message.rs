@@ -649,7 +649,7 @@ pub async fn run(
             api::messages::soft_delete_message(&client, &target)
                 .await
                 .map_err(|err| with_channel_scope_hint(err, &target))?;
-            let msg = read_back(&client, &target, &message_id, "deleted").await;
+            let msg = read_back(&client, &target, "deleted").await;
             output::print_success(format, &msg, start);
             Ok(())
         }
@@ -669,7 +669,7 @@ pub async fn run(
             api::messages::undo_soft_delete_message(&client, &target)
                 .await
                 .map_err(|err| with_channel_scope_hint(err, &target))?;
-            let msg = read_back(&client, &target, &message_id, "restored").await;
+            let msg = read_back(&client, &target, "restored").await;
             output::print_success(format, &msg, start);
             Ok(())
         }
@@ -701,7 +701,7 @@ pub async fn run(
                 }
             };
             api::messages::update_message(&client, &target, &req).await?;
-            let msg = read_back(&client, &target, &message_id, "updated").await;
+            let msg = read_back(&client, &target, "updated").await;
             output::print_success(format, &msg, start);
             Ok(())
         }
@@ -713,19 +713,14 @@ pub async fn run(
 /// `deletedDateTime` set or cleared). The mutation has already been applied by
 /// this point, so a failed read-back is reported alongside the successful
 /// change rather than as a failed command, with `outcome` naming the change.
-async fn read_back(
-    client: &GraphClient,
-    target: &MessageRef,
-    message_id: &str,
-    outcome: &str,
-) -> serde_json::Value {
-    read_back_at(client, &target.message_url(), message_id, outcome).await
+async fn read_back(client: &GraphClient, target: &MessageRef, outcome: &str) -> serde_json::Value {
+    read_back_at(client, &target.message_url(), target, outcome).await
 }
 
 async fn read_back_at(
     client: &GraphClient,
     url: &str,
-    message_id: &str,
+    target: &MessageRef,
     outcome: &str,
 ) -> serde_json::Value {
     let fetched = api::messages::get_message_at(client, url)
@@ -735,6 +730,11 @@ async fn read_back_at(
         Ok(value) => value,
         Err(err) => {
             tracing::warn!("Message {outcome}, but reading it back failed: {err}");
+            let message_id = match target {
+                MessageRef::Channel { message_id, .. }
+                | MessageRef::Chat { message_id, .. }
+                | MessageRef::ChannelReply { message_id, .. } => message_id,
+            };
             serde_json::json!({
                 "id": message_id,
                 outcome: true,
@@ -1697,6 +1697,35 @@ mod tests {
             server
         }
 
+        #[tokio::test]
+        async fn failed_reply_read_back_reports_reply_id() {
+            for outcome in ["deleted", "restored"] {
+                let server = server_returning(
+                    404,
+                    serde_json::json!({
+                        "error": { "code": "NotFound", "message": "Message not found" }
+                    }),
+                )
+                .await;
+                let target = MessageRef::ChannelReply {
+                    team_id: "team".into(),
+                    channel_id: "channel".into(),
+                    message_id: "parent-id".into(),
+                    reply_id: "reply-id".into(),
+                };
+                let value = read_back_at(
+                    &test_client(),
+                    &format!("{}/me/chats/chat-id/messages/message-id", server.uri()),
+                    &target,
+                    outcome,
+                )
+                .await;
+                assert_eq!(value["id"], "reply-id");
+                assert_eq!(value[outcome], true);
+                assert!(value["readBackError"].is_string());
+            }
+        }
+
         /// After a delete, Graph reports the message with `deletedDateTime`
         /// set and the body blanked; that is what the command prints.
         #[tokio::test]
@@ -1714,7 +1743,10 @@ mod tests {
             let value = read_back_at(
                 &test_client(),
                 &format!("{}/me/chats/chat-id/messages/message-id", server.uri()),
-                "message-id",
+                &MessageRef::Chat {
+                    chat_id: "chat-id".into(),
+                    message_id: "message-id".into(),
+                },
                 "deleted",
             )
             .await;
@@ -1741,7 +1773,10 @@ mod tests {
             let value = read_back_at(
                 &test_client(),
                 &format!("{}/me/chats/chat-id/messages/message-id", server.uri()),
-                "message-id",
+                &MessageRef::Chat {
+                    chat_id: "chat-id".into(),
+                    message_id: "message-id".into(),
+                },
                 "restored",
             )
             .await;
@@ -1766,7 +1801,10 @@ mod tests {
             let value = read_back_at(
                 &test_client(),
                 &format!("{}/me/chats/chat-id/messages/message-id", server.uri()),
-                "message-id",
+                &MessageRef::Chat {
+                    chat_id: "chat-id".into(),
+                    message_id: "message-id".into(),
+                },
                 "deleted",
             )
             .await;
