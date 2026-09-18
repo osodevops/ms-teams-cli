@@ -24,7 +24,7 @@ Single-crate Rust binary. Key modules:
   - `auth.rs` — login (PKCE, device code, client credentials), status, list, switch, logout, token
   - `team.rs` — list, get, create, update, delete, clone, archive, unarchive, members
   - `channel.rs` — list, get, create, update, delete, members
-  - `message.rs` — send, list, get, reply, delete, react, unreact, pin, unpin
+  - `message.rs` — send, list, get, reply, update, delete, undelete, react, unreact, pin, unpin
   - `chat.rs` — list, get, create, hide, unhide, members
   - `presence.rs` — get, set, set-preferred, clear, clear-preferred, status, get-batch
   - `search.rs` — messages, users, teams

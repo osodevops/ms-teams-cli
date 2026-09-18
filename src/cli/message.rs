@@ -731,9 +731,10 @@ async fn read_back_at(
         Err(err) => {
             tracing::warn!("Message {outcome}, but reading it back failed: {err}");
             let message_id = match target {
-                MessageRef::Channel { message_id, .. }
-                | MessageRef::Chat { message_id, .. }
-                | MessageRef::ChannelReply { message_id, .. } => message_id,
+                MessageRef::Channel { message_id, .. } | MessageRef::Chat { message_id, .. } => {
+                    message_id
+                }
+                MessageRef::ChannelReply { reply_id, .. } => reply_id,
             };
             serde_json::json!({
                 "id": message_id,
