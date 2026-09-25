@@ -747,6 +747,48 @@ fn message_send_rejects_subject_without_a_channel() {
 }
 
 #[test]
+fn message_send_rejects_quote_without_a_chat() {
+    teams()
+        .args([
+            "message",
+            "send",
+            "--team",
+            "team-1",
+            "--channel",
+            "19:channel@thread.tacv2",
+            "--quote",
+            "1790330813814",
+            "--body",
+            "hi",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("--quote"));
+}
+
+#[test]
+fn message_send_rejects_quote_with_both_chat_and_channel_targets() {
+    teams()
+        .args([
+            "message",
+            "send",
+            "--chat",
+            "19:chat@thread.v2",
+            "--team",
+            "team-1",
+            "--channel",
+            "19:channel@thread.tacv2",
+            "--quote",
+            "1790330813814",
+            "--body",
+            "hi",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("--quote"));
+}
+
+#[test]
 fn message_reply_help_advertises_repeatable_mention_flag() {
     teams()
         .args(["message", "reply", "--help"])

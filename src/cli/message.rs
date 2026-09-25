@@ -51,6 +51,9 @@ pub enum MessageCommand {
         /// Subject line for a channel root message
         #[arg(long, requires = "channel", conflicts_with = "chat")]
         subject: Option<String>,
+        /// Quote-reply to this chat message, as the Teams client's Reply does
+        #[arg(long, value_name = "MESSAGE_ID", requires = "chat", conflicts_with_all = ["team", "channel"])]
+        quote: Option<String>,
     },
     /// List messages in a channel or chat
     List {
@@ -361,6 +364,7 @@ pub async fn run(
             attach,
             mention,
             subject,
+            quote,
         } => {
             let start = Instant::now();
             auth::require_delegated_token(&client.token, "Sending Teams messages")?;
@@ -381,6 +385,17 @@ pub async fn run(
             req.subject = subject;
 
             let msg = if let Some(chat_id) = chat {
+                if let Some(quoted_id) = quote {
+                    let quoted = api::messages::get_message(
+                        &client,
+                        &api::messages::MessageRef::Chat {
+                            chat_id: chat_id.clone(),
+                            message_id: quoted_id,
+                        },
+                    )
+                    .await?;
+                    apply_quote(&mut req, &quoted)?;
+                }
                 super::message_media::apply_media(
                     &client,
                     &mut req,
@@ -1097,6 +1112,246 @@ fn apply_mentions(req: &mut SendMessageRequest, identities: &[MentionIdentity]) 
             .collect(),
     );
     Ok(())
+}
+
+/// Longest preview the quote card carries; the Teams client truncates near here.
+const QUOTE_PREVIEW_CHARS: usize = 200;
+
+/// Turn the request into a quote-reply to `quoted`, the shape the Teams client
+/// produces for Reply in a chat: a `messageReference` attachment whose id is
+/// the quoted message's id, and a marker for it at the very start of the body
+/// so the quote card renders above the reply text and any mentions.
+fn apply_quote(req: &mut SendMessageRequest, quoted: &ChatMessage) -> Result<()> {
+    let message_id = quoted.id.clone().ok_or_else(|| {
+        TeamsError::InvalidInput("The message to quote came back without an id".into())
+    })?;
+    let sender = quoted
+        .from
+        .as_ref()
+        .and_then(|f| f.user.as_ref())
+        .ok_or_else(|| {
+            TeamsError::InvalidInput(format!(
+                "Message {message_id} was not sent by a user, so it cannot be quoted"
+            ))
+        })?;
+    let body = quoted.body.as_ref();
+    let is_html = body.and_then(|b| b.content_type.as_deref()) == Some("html");
+    let raw = body.and_then(|b| b.content.as_deref()).unwrap_or_default();
+    let preview = quote_preview(raw, is_html);
+
+    let reference = serde_json::json!({
+        "messageId": message_id,
+        "messagePreview": preview,
+        "messageSender": {
+            "application": null,
+            "device": null,
+            "user": {
+                "userIdentityType": sender.user_identity_type.as_deref().unwrap_or("aadUser"),
+                "id": sender.id,
+                "displayName": sender.display_name,
+            },
+        },
+    });
+
+    super::message_media::ensure_html_body(req);
+    let existing = req.body.content.take().unwrap_or_default();
+    req.body.content = Some(format!(
+        "{}{existing}",
+        super::message_media::attachment_tag(&message_id)
+    ));
+    req.attachments
+        .get_or_insert_with(Vec::new)
+        .push(ChatMessageAttachment {
+            id: Some(message_id),
+            content_type: Some("messageReference".to_string()),
+            content: Some(reference.to_string()),
+            content_url: None,
+            name: None,
+            thumbnail_url: None,
+            teams_app_id: None,
+        });
+    Ok(())
+}
+
+/// Plain-text preview of a quoted body: tags removed, entities decoded,
+/// whitespace collapsed, and cut to `QUOTE_PREVIEW_CHARS` characters.
+fn quote_preview(content: &str, is_html: bool) -> String {
+    let text = if is_html {
+        decode_entities(&html_text(content))
+    } else {
+        content.to_string()
+    };
+    let collapsed = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    collapsed.chars().take(QUOTE_PREVIEW_CHARS).collect()
+}
+
+/// Tags whose boundaries separate words; inline tags such as `<b>` do not.
+const BLOCK_TAGS: &[&str] = &[
+    "p",
+    "div",
+    "br",
+    "li",
+    "tr",
+    "td",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "blockquote",
+];
+
+/// The visible text of an HTML fragment, with entities still encoded. A `>`
+/// inside a quoted attribute does not end its tag, and an `<emoji>` or `<img>`
+/// contributes its `alt` text, which is how Teams represents an emoji.
+fn html_text(content: &str) -> String {
+    let mut out = String::with_capacity(content.len());
+    let mut chars = content.chars();
+    while let Some(c) = chars.next() {
+        if c != '<' {
+            out.push(c);
+            continue;
+        }
+        let mut tag = String::new();
+        let mut quote: Option<char> = None;
+        for t in chars.by_ref() {
+            match (quote, t) {
+                (None, '>') => break,
+                (None, '"' | '\'') => quote = Some(t),
+                (Some(q), _) if t == q => quote = None,
+                _ => {}
+            }
+            tag.push(t);
+        }
+        out.push_str(&tag_text(&tag));
+    }
+    out
+}
+
+/// What one tag, given without its angle brackets, adds to the visible text.
+fn tag_text(tag: &str) -> String {
+    let name: String = tag
+        .trim_start_matches('/')
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric())
+        .collect::<String>()
+        .to_ascii_lowercase();
+    if (name == "emoji" || name == "img") && !tag.starts_with('/') {
+        return attribute_value(tag, "alt").unwrap_or_default();
+    }
+    if BLOCK_TAGS.contains(&name.as_str()) {
+        return " ".to_string();
+    }
+    String::new()
+}
+
+/// The value of an attribute in a tag given without its angle brackets, such
+/// as `alt` in `emoji alt="🙂"`. Attributes are read in order, so text inside
+/// another attribute's quoted value is never mistaken for a name.
+fn attribute_value(tag: &str, attribute: &str) -> Option<String> {
+    let mut rest = tag.trim_start_matches(|c: char| !c.is_whitespace());
+    loop {
+        rest = rest.trim_start_matches(|c: char| c.is_whitespace() || c == '/');
+        if rest.is_empty() {
+            return None;
+        }
+        let name_end = rest
+            .find(|c: char| c.is_whitespace() || c == '=' || c == '/')
+            .unwrap_or(rest.len());
+        let name = &rest[..name_end];
+        rest = rest[name_end..].trim_start();
+        let value = match rest.strip_prefix('=') {
+            Some(after) => {
+                let (value, remainder) = attribute_token(after.trim_start());
+                rest = remainder;
+                Some(value)
+            }
+            None => None,
+        };
+        if name.eq_ignore_ascii_case(attribute) {
+            return value.map(str::to_string);
+        }
+    }
+}
+
+/// Split an attribute value, quoted or not, from the text that follows it.
+fn attribute_token(text: &str) -> (&str, &str) {
+    match text.chars().next() {
+        Some(q @ ('"' | '\'')) => {
+            let body = &text[1..];
+            match body.find(q) {
+                Some(end) => (&body[..end], &body[end + 1..]),
+                None => (body, ""),
+            }
+        }
+        _ => {
+            let end = text.find(char::is_whitespace).unwrap_or(text.len());
+            (&text[..end], &text[end..])
+        }
+    }
+}
+
+/// Decode character references in one pass, so `&amp;lt;` becomes `&lt;` and
+/// not `<`. Unknown or malformed references are left as written.
+fn decode_entities(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(amp) = rest.find('&') {
+        out.push_str(&rest[..amp]);
+        rest = &rest[amp..];
+        let decoded = rest
+            .find(';')
+            .filter(|end| *end <= 10)
+            .and_then(|end| decode_entity(&rest[1..end]).map(|c| (c, end)));
+        match decoded {
+            Some((c, end)) => {
+                out.push(c);
+                rest = &rest[end + 1..];
+            }
+            None => {
+                out.push('&');
+                rest = &rest[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// One character reference without its `&` and `;`: numeric, or a named
+/// entity common in Teams message bodies.
+fn decode_entity(name: &str) -> Option<char> {
+    if let Some(number) = name.strip_prefix('#') {
+        let (digits, radix) = match number.strip_prefix(['x', 'X']) {
+            Some(hex) => (hex, 16),
+            None => (number, 10),
+        };
+        if digits.is_empty() || !digits.chars().all(|c| c.is_digit(radix)) {
+            return None;
+        }
+        let code = u32::from_str_radix(digits, radix).ok()?;
+        return char::from_u32(code);
+    }
+    let c = match name {
+        "amp" => '&',
+        "lt" => '<',
+        "gt" => '>',
+        "quot" => '"',
+        "apos" => '\'',
+        "nbsp" => ' ',
+        "ndash" => '–',
+        "mdash" => '—',
+        "hellip" => '…',
+        "lsquo" => '‘',
+        "rsquo" => '’',
+        "ldquo" => '“',
+        "rdquo" => '”',
+        "pound" => '£',
+        "euro" => '€',
+        _ => return None,
+    };
+    Some(c)
 }
 
 /// Build a message body and synchronize any resolved mentions after rejecting

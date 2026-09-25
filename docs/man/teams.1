@@ -150,7 +150,7 @@ teams channel members remove TEAM_ID CHANNEL_ID MEMBER_ID
 .fi
 .SH MESSAGE COMMANDS
 .nf
-teams message send (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) [--body TEXT | --stdin] [--content-type text|html] [--adaptive-card PATH] [--image PATH]... [--attach PATH]... [--mention USER]... [--subject TEXT]
+teams message send (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) [--body TEXT | --stdin] [--content-type text|html] [--adaptive-card PATH] [--image PATH]... [--attach PATH]... [--mention USER]... [--subject TEXT] [--quote MESSAGE_ID]
 teams message list (--team TEAM_ID --channel CHANNEL_ID [--message-id ROOT_MESSAGE_ID] | --chat CHAT_ID)
 teams message get --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID) [--with-attachments]
 teams message attachments list (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID)
@@ -224,6 +224,11 @@ and
 Human message lists include a Subject column. Plain lists include columns
 present in any message, with blank cells for missing values, so subjects do
 not depend on the first message having a title. JSON omits absent subjects.
+.PP
+.B --quote MESSAGE_ID
+sends a quote-reply in a chat, as the Teams client's Reply does: the quoted
+message renders as a card above the new text. Chats only; a message with no
+user sender cannot be quoted.
 .PP
 .B message send --chat CHAT_ID --attach FILE
 uploads into the sender's OneDrive and attempts to grant the chat's other
