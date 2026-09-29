@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- `teams auth login --help` no longer prints the value of `TEAMS_CLI_CLIENT_SECRET` when it is set. The help still names the variable.
+
 ## v0.8.0 - 2026-09-29
 
 ### Added

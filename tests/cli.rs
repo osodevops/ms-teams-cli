@@ -1412,3 +1412,19 @@ fn file_token_store_lists_and_logs_out_a_profile() {
         "[]"
     );
 }
+
+/// `--help` names the environment variable a client secret can come from, but
+/// never prints the secret itself, which would put it in a terminal
+/// scrollback, a pasted bug report or an agent transcript.
+#[test]
+fn login_help_does_not_print_the_client_secret() {
+    teams()
+        .env("TEAMS_CLI_CLIENT_SECRET", "sentinel-secret-value")
+        .args(["auth", "login", "--help"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("TEAMS_CLI_CLIENT_SECRET")
+                .and(predicate::str::contains("sentinel-secret-value").not()),
+        );
+}
