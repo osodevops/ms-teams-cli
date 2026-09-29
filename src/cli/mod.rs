@@ -27,7 +27,7 @@ use clap::{Parser, Subcommand};
 #[derive(Debug, Parser)]
 #[command(
     name = "teams",
-    version,
+    version = crate::config::version_text(),
     about = "Microsoft Teams CLI — agent-first design"
 )]
 pub struct Cli {
@@ -185,7 +185,9 @@ pub async fn run(cli: Cli, config: &ConfigFile) -> Result<()> {
     };
 
     match cli.command {
-        Commands::Auth { command } => auth::run(command, config, &profile, format).await,
+        Commands::Auth { command } => {
+            auth::run(command, config, cli.config.as_deref(), &profile, format).await
+        }
         Commands::User { command } => {
             user::run(command, &runtime_config, &profile, format, &pagination).await
         }

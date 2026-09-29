@@ -6,34 +6,41 @@ use crate::config::{self, ConfigFile};
 use crate::error::{Result, TeamsError};
 use crate::output::{self, OutputFormat};
 
+#[derive(Debug, clap::Args)]
+pub struct LoginArgs {
+    /// Use client credentials flow (non-interactive)
+    #[arg(long)]
+    client_credentials: bool,
+
+    /// Use device code flow
+    #[arg(long)]
+    device_code: bool,
+
+    /// Azure AD application (client) ID. Saved to the profile after a
+    /// successful login and reused by later logins. TEAMS_CLI_CLIENT_ID is
+    /// used when this is absent, but is not saved
+    #[arg(long)]
+    client_id: Option<String>,
+
+    /// Azure AD client secret
+    #[arg(long, env = "TEAMS_CLI_CLIENT_SECRET", hide_env_values = true)]
+    client_secret: Option<String>,
+
+    /// Azure AD tenant ID. Saved to the profile after a successful login and
+    /// reused by later logins. TEAMS_CLI_TENANT_ID is used when this is
+    /// absent, but is not saved
+    #[arg(long)]
+    tenant_id: Option<String>,
+
+    /// OAuth scopes (space-separated, for delegated flows)
+    #[arg(long, env = "TEAMS_CLI_SCOPES")]
+    scopes: Option<String>,
+}
+
 #[derive(Debug, Subcommand)]
 pub enum AuthCommand {
     /// Authenticate with Microsoft Teams
-    Login {
-        /// Use client credentials flow (non-interactive)
-        #[arg(long)]
-        client_credentials: bool,
-
-        /// Use device code flow
-        #[arg(long)]
-        device_code: bool,
-
-        /// Azure AD application (client) ID
-        #[arg(long, env = "TEAMS_CLI_CLIENT_ID")]
-        client_id: Option<String>,
-
-        /// Azure AD client secret
-        #[arg(long, env = "TEAMS_CLI_CLIENT_SECRET")]
-        client_secret: Option<String>,
-
-        /// Azure AD tenant ID
-        #[arg(long, env = "TEAMS_CLI_TENANT_ID")]
-        tenant_id: Option<String>,
-
-        /// OAuth scopes (space-separated, for delegated flows)
-        #[arg(long, env = "TEAMS_CLI_SCOPES")]
-        scopes: Option<String>,
-    },
+    Login(LoginArgs),
     /// Silently redeem the stored refresh token for the resolved delegated scopes
     Refresh {
         /// OAuth scopes (space-separated, for delegated flows)
@@ -212,77 +219,166 @@ fn delegated_admin_consent_url(client_id: &str, tenant_id: &str, delegated_scope
     )
 }
 
+/// Resolve the client and tenant IDs a login signs in through: given values,
+/// then the profile's saved values, then (delegated flows only) the built-in
+/// public application and the `organizations` tenant. The client credentials
+/// flow has no built-in application, so it requires both IDs.
+fn login_registration(
+    args: &LoginArgs,
+    config: &ConfigFile,
+    profile: &str,
+) -> Result<(String, String)> {
+    let client_id = args.client_id.as_deref();
+    let tenant_id = args.tenant_id.as_deref();
+    if !args.client_credentials {
+        return Ok((
+            config::resolve_delegated_client_id(client_id, profile, config)?,
+            config::resolve_delegated_tenant_id(tenant_id, profile, config),
+        ));
+    }
+    let client_id = config::resolve_client_id(client_id, profile, config).ok_or_else(|| {
+        TeamsError::InvalidInput(
+            "Client ID is required for client credentials flow. Use --client-id or set TEAMS_CLI_CLIENT_ID".into(),
+        )
+    })?;
+    let tenant_id = config::resolve_tenant_id(tenant_id, profile, config).ok_or_else(|| {
+        TeamsError::InvalidInput(
+            "Tenant ID is required for client credentials flow. Use --tenant-id or set TEAMS_CLI_TENANT_ID".into(),
+        )
+    })?;
+    Ok((client_id, tenant_id))
+}
+
+/// Save the IDs given on the command line to the profile, editing only those
+/// two keys in the config file. The file is read again here rather than
+/// reused from startup, because an interactive login can take minutes and
+/// the file may have been edited meanwhile.
+fn save_registration(args: &LoginArgs, config_path: Option<&str>, profile: &str) -> Result<bool> {
+    let path = match config_path {
+        Some(path) => std::path::PathBuf::from(path),
+        None => config::default_config_path()?,
+    };
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => {
+            return Err(TeamsError::ConfigError(format!(
+                "Failed to read config at {}: {e}",
+                path.display()
+            )))
+        }
+    };
+    let updated = config::remember_registration(
+        &text,
+        profile,
+        args.client_id.as_deref(),
+        args.tenant_id.as_deref(),
+    )?;
+    match updated {
+        Some(updated) => config::write_config_text(&path, &updated).map(|()| true),
+        None => Ok(false),
+    }
+}
+
+/// Report a failure to save the IDs on stderr rather than failing the
+/// command: the login itself succeeded and its token is stored.
+fn save_registration_or_warn(args: &LoginArgs, config_path: Option<&str>, profile: &str) -> bool {
+    save_registration(args, config_path, profile).unwrap_or_else(|e| {
+        eprintln!(
+            "Warning: signed in, but could not save the client and tenant IDs to profile \
+             '{profile}': {e}. Pass them again at the next login."
+        );
+        false
+    })
+}
+
+/// Say which application and tenant a login uses, and where each came from,
+/// before the sign-in starts.
+fn print_registration_notice(
+    args: &LoginArgs,
+    config: &ConfigFile,
+    profile: &str,
+    client_id: &str,
+    tenant_id: &str,
+) {
+    let saved = config.profiles.get(profile);
+    let client_source = config::IdSource::of(
+        args.client_id.is_some(),
+        std::env::var("TEAMS_CLI_CLIENT_ID").is_ok(),
+        saved.is_some_and(|p| p.client_id.is_some()),
+    );
+    let tenant_source = config::IdSource::of(
+        args.tenant_id.is_some(),
+        std::env::var("TEAMS_CLI_TENANT_ID").is_ok(),
+        saved.is_some_and(|p| p.tenant_id.is_some()),
+    );
+    eprintln!(
+        "Signing in through application {client_id} ({}) in tenant {tenant_id} ({})",
+        client_source.describe(profile),
+        tenant_source.describe(profile),
+    );
+}
+
+async fn login(
+    args: LoginArgs,
+    config: &ConfigFile,
+    config_path: Option<&str>,
+    profile: &str,
+    format: OutputFormat,
+) -> Result<()> {
+    let start = Instant::now();
+    let (client_id, tenant_id) = login_registration(&args, config, profile)?;
+    let client_secret = if args.client_credentials {
+        Some(
+            config::resolve_client_secret(args.client_secret.as_deref()).ok_or_else(|| {
+                TeamsError::InvalidInput(
+                    "Client secret is required for client credentials flow. Use --client-secret or set TEAMS_CLI_CLIENT_SECRET".into(),
+                )
+            })?,
+        )
+    } else {
+        None
+    };
+    print_registration_notice(&args, config, profile, &client_id, &tenant_id);
+
+    let token_response = if let Some(client_secret) = client_secret {
+        auth::client_credentials::authenticate(&client_id, &client_secret, &tenant_id).await?
+    } else {
+        let scopes = config::resolve_delegated_scopes(args.scopes.as_deref(), profile, config);
+        if args.device_code {
+            auth::device_code::authenticate(&client_id, &tenant_id, Some(&scopes)).await?
+        } else {
+            auth::auth_code_pkce::authenticate(&client_id, &tenant_id, Some(&scopes)).await?
+        }
+    };
+
+    let token_info = token_response.into_token_info(profile);
+    auth::keyring::store_token(profile, &token_info)?;
+    auth::keyring::add_profile_to_index(profile)?;
+    let saved_to_config = save_registration_or_warn(&args, config_path, profile);
+
+    let msg = serde_json::json!({
+        "message": "Authenticated successfully",
+        "profile": profile,
+        "client_id": client_id,
+        "tenant_id": tenant_id,
+        "saved_to_config": saved_to_config,
+        "expires_at": token_info.expires_at.map(|e| e.to_rfc3339()),
+        "scope": token_info.scope,
+    });
+    output::print_success(format, &msg, start);
+    Ok(())
+}
+
 pub async fn run(
     cmd: AuthCommand,
     config: &ConfigFile,
+    config_path: Option<&str>,
     profile: &str,
     format: OutputFormat,
 ) -> Result<()> {
     match cmd {
-        AuthCommand::Login {
-            client_credentials,
-            device_code,
-            client_id,
-            client_secret,
-            tenant_id,
-            scopes,
-        } => {
-            let start = Instant::now();
-
-            let token_response = if client_credentials {
-                let client_id = config::resolve_client_id(client_id.as_deref(), profile, config)
-                    .ok_or_else(|| {
-                        TeamsError::InvalidInput(
-                            "Client ID is required for client credentials flow. Use --client-id or set TEAMS_CLI_CLIENT_ID".into(),
-                        )
-                    })?;
-                let tenant_id = config::resolve_tenant_id(tenant_id.as_deref(), profile, config)
-                    .ok_or_else(|| {
-                        TeamsError::InvalidInput(
-                            "Tenant ID is required for client credentials flow. Use --tenant-id or set TEAMS_CLI_TENANT_ID".into(),
-                        )
-                    })?;
-                let client_secret = config::resolve_client_secret(client_secret.as_deref())
-                    .ok_or_else(|| {
-                        TeamsError::InvalidInput(
-                            "Client secret is required for client credentials flow. Use --client-secret or set TEAMS_CLI_CLIENT_SECRET".into(),
-                        )
-                    })?;
-
-                auth::client_credentials::authenticate(&client_id, &client_secret, &tenant_id)
-                    .await?
-            } else if device_code {
-                let client_id =
-                    config::resolve_delegated_client_id(client_id.as_deref(), profile, config)?;
-                let tenant_id =
-                    config::resolve_delegated_tenant_id(tenant_id.as_deref(), profile, config);
-                let scopes = config::resolve_delegated_scopes(scopes.as_deref(), profile, config);
-                auth::device_code::authenticate(&client_id, &tenant_id, Some(&scopes)).await?
-            } else {
-                // Default: auth code + PKCE
-                let client_id =
-                    config::resolve_delegated_client_id(client_id.as_deref(), profile, config)?;
-                let tenant_id =
-                    config::resolve_delegated_tenant_id(tenant_id.as_deref(), profile, config);
-                let scopes = config::resolve_delegated_scopes(scopes.as_deref(), profile, config);
-                auth::auth_code_pkce::authenticate(&client_id, &tenant_id, Some(&scopes)).await?
-            };
-
-            let token_info = token_response.into_token_info(profile);
-
-            // Store in keyring
-            auth::keyring::store_token(profile, &token_info)?;
-            auth::keyring::add_profile_to_index(profile)?;
-
-            let msg = serde_json::json!({
-                "message": "Authenticated successfully",
-                "profile": profile,
-                "expires_at": token_info.expires_at.map(|e| e.to_rfc3339()),
-                "scope": token_info.scope,
-            });
-            output::print_success(format, &msg, start);
-            Ok(())
-        }
+        AuthCommand::Login(args) => login(args, config, config_path, profile, format).await,
 
         AuthCommand::Refresh { scopes } => {
             let start = Instant::now();

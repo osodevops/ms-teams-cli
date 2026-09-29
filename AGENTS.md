@@ -64,11 +64,11 @@ When adding errors, update `exit_code()` and `error_code()` together and add tes
 
 Credential resolution is intentionally predictable:
 
-- Client ID and tenant ID: CLI flag, then `TEAMS_CLI_CLIENT_ID` or `TEAMS_CLI_TENANT_ID`, then config profile.
+- Client ID and tenant ID: CLI flag, then `TEAMS_CLI_CLIENT_ID` or `TEAMS_CLI_TENANT_ID`, then config profile. A successful `auth login` writes `--client-id`/`--tenant-id` values (not the environment variables) into the profile with `config::remember_registration`, which edits the parsed document, keeping comments and layout, and atomically replaces the file; later logins reuse the values. Saving is best effort: a failure is a warning, not a failed login.
 - Client secret: CLI flag, then `TEAMS_CLI_CLIENT_SECRET`.
 - Access token for normal commands: `TEAMS_CLI_ACCESS_TOKEN`, then OS keyring token for the selected profile.
 
-Config lives under the platform config directory in `teams-cli/config.toml`, unless `--config` is provided. Config profiles are resolved by `config::resolve_profile`; `--profile` overrides the configured default profile.
+Config lives under the platform config directory in `<namespace>/config.toml`, unless `--config` is provided. The namespace (`config::NAMESPACE`) is fixed at compile time: `teams-cli` for release builds, `teams-cli-dev` for debug builds, or the value of `TEAMS_CLI_BUILD_NAMESPACE` at build time. It also names the keyring service, so by default a debug build does not touch an installed release's tokens. A build override of `teams-cli` shares release token storage, and `--config` can select the release config file; `teams config path` reports it. Config profiles are resolved by `config::resolve_profile`; `--profile` overrides the configured default profile.
 
 Auth flows:
 

@@ -749,6 +749,9 @@ cargo fmt -- --check                 # Check formatting
 cargo clippy --all-targets -- -D warnings  # Lint
 ```
 
+By default a debug build keeps its tokens and config under `teams-cli-dev`, apart from an
+installed release; see "Storage namespace" in [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Contributing
 
 We welcome issues and PRs. Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.

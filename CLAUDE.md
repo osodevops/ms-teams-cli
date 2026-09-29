@@ -99,7 +99,7 @@ CLI flags > env vars (TEAMS_CLI_CLIENT_ID, TEAMS_CLI_CLIENT_SECRET, TEAMS_CLI_TE
 - `RUST_LOG` — Tracing filter level
 
 ## Config
-- Config file: `~/.config/teams-cli/config.toml` (Linux) or `~/Library/Application Support/teams-cli/config.toml` (macOS)
+- Config file: `~/.config/teams-cli/config.toml` (Linux) or `~/Library/Application Support/teams-cli/config.toml` (macOS); debug builds use `teams-cli-dev` in place of `teams-cli` for both the config directory and the keyring service (`config::NAMESPACE`, override with `TEAMS_CLI_BUILD_NAMESPACE` at build time)
 - Profiles define client_id, tenant_id, auth_flow per account
 - Network section: timeout, max_retries, retry_backoff_base
 - Output section: format, color, page_size

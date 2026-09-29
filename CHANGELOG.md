@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Added
+
+- `teams --version` names the storage namespace of any build that does not use the release namespace `teams-cli`, and `teams config path` reports `namespace` in every build.
+- `teams auth login --client-id X --tenant-id Y` saves both IDs to the profile's `client_id` and `tenant_id` in the config file once the login succeeds, so the next login for that profile signs in through the same app registration instead of falling back to the built-in app. Only those two keys are edited, so comments and other settings survive, and the file is replaced atomically. Saving is best effort: if the write fails, the login still succeeds with a warning. `TEAMS_CLI_CLIENT_ID` and `TEAMS_CLI_TENANT_ID` still apply but are not saved. Login prints the application and tenant it signs in through, and where each came from, on standard error, and its output includes `client_id`, `tenant_id` and `saved_to_config`. The client secret is never saved.
+
+### Changed
+
+- Debug builds from source keep their tokens under the keyring service `teams-cli-dev` and their config in a `teams-cli-dev` directory, so by default they no longer read or rewrite an installed release's keychain items or config file. Release builds keep `teams-cli`, and existing installs need no action. `TEAMS_CLI_BUILD_NAMESPACE`, set at compile time, chooses another namespace. A developer who signed in with a debug build before this change signs in once more.
+
 ## v0.8.0 - 2026-09-29
 
 ### Added

@@ -116,6 +116,7 @@ pub async fn run(
             let msg = serde_json::json!({
                 "path": path.display().to_string(),
                 "exists": path.exists(),
+                "namespace": config::NAMESPACE,
             });
             output::print_success(format, &msg, start);
             Ok(())
