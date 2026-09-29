@@ -91,7 +91,7 @@ All Microsoft Graph calls should go through `GraphClient` in `src/api/client.rs`
 
 Use endpoint builders from `src/api/endpoints.rs` rather than constructing Graph URLs inline in command handlers. Endpoints target `https://graph.microsoft.com/v1.0` (setReaction/unsetReaction moved from beta to v1.0 in Graph and the CLI follows); `GRAPH_BETA` remains available for any future beta-only call.
 
-Message deletion goes through the v1.0 `softDelete` / `undoSoftDelete` actions, never the DELETE verb, which Graph rejects for messages. Verified with a delegated token on 2026-08-20: `POST /me/chats/{chat}/messages/{id}/softDelete` and the documented `/users/{oid}/chats/...` form answer 204 (with an empty body or `{}`); the undocumented `/chats/{chat}/messages/{id}/softDelete` form answers 405; a repeat `softDelete` on an already-deleted message is also 204, so state must be read back (`deletedDateTime`). Channel targets need `ChannelMessage.ReadWrite`, which is not in the default delegated scopes.
+Message deletion goes through the v1.0 `softDelete` / `undoSoftDelete` actions, never the DELETE verb, which Graph rejects for messages. Verified with a delegated token on 2026-08-20: `POST /me/chats/{chat}/messages/{id}/softDelete` and the documented `/users/{oid}/chats/...` form answer 204; the CLI sends no request body, as documented (`{}` is also accepted); the undocumented `/chats/{chat}/messages/{id}/softDelete` form is rejected; a repeat `softDelete` on an already-deleted message is also 204, so state must be read back (`deletedDateTime`). Channel targets need `ChannelMessage.ReadWrite`, which requires admin consent and so is not in the default delegated scopes.
 
 ## Command Implementation Pattern
 

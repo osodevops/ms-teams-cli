@@ -141,8 +141,8 @@ pub fn channel_message_reply_action(
 
 /// Chat message actions are only served under a user path. Graph documents
 /// `/users/{id}/chats/...` and also accepts `/me/chats/...`, while the plain
-/// `/chats/{id}/messages/{id}/softDelete` form answers 405 (verified
-/// 2026-08-20 with a delegated token).
+/// `/chats/{id}/messages/{id}/softDelete` form is rejected (verified
+/// 2026-08-20 and 2026-09-29 with a delegated token).
 pub fn me_chat_message_action(chat_id: &str, message_id: &str, action: &str) -> String {
     format!("{GRAPH_V1}/me/chats/{chat_id}/messages/{message_id}/{action}")
 }

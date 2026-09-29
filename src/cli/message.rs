@@ -648,7 +648,9 @@ pub async fn run(
             let target = resolve_message_ref(team, channel, chat, reply, message_id.clone())?;
             api::messages::soft_delete_message(&client, &target)
                 .await
-                .map_err(|err| with_channel_scope_hint(err, &target))?;
+                .map_err(|err| {
+                    with_channel_scope_hint(err, &target, client.token.scope.as_deref())
+                })?;
             let msg = read_back(&client, &target, "deleted").await;
             output::print_success(format, &msg, start);
             Ok(())
@@ -668,7 +670,9 @@ pub async fn run(
             let target = resolve_message_ref(team, channel, chat, reply, message_id.clone())?;
             api::messages::undo_soft_delete_message(&client, &target)
                 .await
-                .map_err(|err| with_channel_scope_hint(err, &target))?;
+                .map_err(|err| {
+                    with_channel_scope_hint(err, &target, client.token.scope.as_deref())
+                })?;
             let msg = read_back(&client, &target, "restored").await;
             output::print_success(format, &msg, start);
             Ok(())
@@ -746,15 +750,30 @@ async fn read_back_at(
 }
 
 /// Channel deletion needs a delegated scope the default login does not
-/// request, and Graph's 403 does not say so. Name the scope so the fix is
-/// obvious; chat targets pass the error through unchanged.
-fn with_channel_scope_hint(err: TeamsError, target: &MessageRef) -> TeamsError {
+/// request, and Graph's 403 does not say so. Name the scope so the likely fix
+/// is obvious. The hint is skipped for chat targets, and when the token
+/// already carries the scope, since the 403 then has another cause (the
+/// message is someone else's, or tenant policy forbids it).
+fn with_channel_scope_hint(
+    err: TeamsError,
+    target: &MessageRef,
+    scope: Option<&str>,
+) -> TeamsError {
     let is_channel = !matches!(target, MessageRef::Chat { .. });
+    let has_scope = scope.is_some_and(|scopes| {
+        scopes
+            .split_whitespace()
+            .any(|s| s.eq_ignore_ascii_case("ChannelMessage.ReadWrite"))
+    });
     match err {
-        TeamsError::PermissionDenied(msg) if is_channel => TeamsError::PermissionDenied(format!(
-            "{msg} (channel messages need the ChannelMessage.ReadWrite delegated scope; \
-             sign in again with `teams auth login --scopes ...` including it)"
-        )),
+        TeamsError::PermissionDenied(msg) if is_channel && !has_scope => {
+            TeamsError::PermissionDenied(format!(
+                "{msg} (channel messages likely need the ChannelMessage.ReadWrite delegated \
+                 scope, which requires admin consent: have an administrator grant it with \
+                 `teams auth consent-url --scopes ...`, then sign in again with \
+                 `teams auth login --scopes ...` including it)"
+            ))
+        }
         other => other,
     }
 }
@@ -811,10 +830,6 @@ fn reaction_type_for(reaction: &str) -> String {
         .map_or_else(|| reaction.to_string(), |(_, emoji)| (*emoji).to_string())
 }
 
-/// Unwraps the team/channel pair for the channel branch. Clap rejects an
-/// incomplete pair during parsing, so this is the residual unwrap rather than
-/// the primary check; the wording matches `message list` for the case where a
-/// future caller reaches it.
 /// Turn the `--team`/`--channel`/`--chat`/`--reply` flags shared by the
 /// message commands into a [`MessageRef`], rejecting mixed or incomplete
 /// combinations clap's per-flag rules cannot express.
@@ -856,6 +871,10 @@ pub(crate) fn resolve_message_ref(
     }
 }
 
+/// Unwraps the team/channel pair for the channel branch. Clap rejects an
+/// incomplete pair during parsing, so this is the residual unwrap rather than
+/// the primary check; the wording matches `message list` for the case where a
+/// future caller reaches it.
 fn require_channel(team: Option<String>, channel: Option<String>) -> Result<(String, String)> {
     let team_id = team.ok_or_else(|| {
         TeamsError::InvalidInput("--team and --channel required, or use --chat".into())
@@ -1833,19 +1852,33 @@ mod tests {
             message_id: "m".into(),
         };
 
-        let hinted =
-            with_channel_scope_hint(TeamsError::PermissionDenied("Forbidden".into()), &channel);
-        assert!(
-            hinted.to_string().contains("ChannelMessage.ReadWrite"),
-            "{hinted}"
-        );
+        let denied = || TeamsError::PermissionDenied("Forbidden".into());
+        let default_scopes = Some("Chat.ReadWrite ChannelMessage.Send User.Read");
+
+        let hinted = with_channel_scope_hint(denied(), &channel, default_scopes);
+        let text = hinted.to_string();
+        assert!(text.contains("ChannelMessage.ReadWrite"), "{text}");
+        assert!(text.contains("admin consent"), "{text}");
+        assert!(text.contains("teams auth consent-url"), "{text}");
         assert_eq!(hinted.exit_code(), 4);
 
-        let untouched =
-            with_channel_scope_hint(TeamsError::PermissionDenied("Forbidden".into()), &chat);
+        // No scope list to inspect (a pre-obtained token): still hint.
+        let hinted = with_channel_scope_hint(denied(), &channel, None);
+        assert!(hinted.to_string().contains("ChannelMessage.ReadWrite"));
+
+        // The token already has the scope, so the 403 has another cause.
+        let has_scope = Some("Chat.ReadWrite channelmessage.readwrite User.Read");
+        let untouched = with_channel_scope_hint(denied(), &channel, has_scope);
         assert_eq!(untouched.to_string(), "Permission denied: Forbidden");
 
-        let other = with_channel_scope_hint(TeamsError::NotFound("gone".into()), &channel);
+        let untouched = with_channel_scope_hint(denied(), &chat, default_scopes);
+        assert_eq!(untouched.to_string(), "Permission denied: Forbidden");
+
+        let other = with_channel_scope_hint(
+            TeamsError::NotFound("gone".into()),
+            &channel,
+            default_scopes,
+        );
         assert!(matches!(other, TeamsError::NotFound(_)), "{other:?}");
     }
 }

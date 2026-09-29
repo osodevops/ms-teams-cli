@@ -248,6 +248,18 @@ impl GraphClient {
         .await
     }
 
+    /// POST with no request body, returning no content (204). For Graph
+    /// actions documented as taking no body, such as `softDelete`.
+    pub async fn post_empty_no_content(&self, url: &str) -> Result<()> {
+        self.request_with_retry_no_content(|this| {
+            this.http
+                .post(url)
+                .header("Authorization", this.token.bearer_header())
+                .header(reqwest::header::CONTENT_LENGTH, 0)
+        })
+        .await
+    }
+
     /// POST request returning the Location header (for 202 Accepted async operations).
     pub async fn post_for_location<B: serde::Serialize>(
         &self,

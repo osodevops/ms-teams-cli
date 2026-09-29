@@ -255,10 +255,10 @@ pub async fn undo_soft_delete_message(client: &GraphClient, message: &MessageRef
     post_action(client, &message.action_url("undoSoftDelete")).await
 }
 
-/// The actions take no parameters. Graph accepts an empty JSON object as the
-/// body, which lets the shared no-content POST helper be reused as is.
+/// The actions take no parameters, and Graph documents them as taking no
+/// request body, so none is sent.
 async fn post_action(client: &GraphClient, url: &str) -> Result<()> {
-    client.post_no_content(url, &serde_json::json!({})).await
+    client.post_empty_no_content(url).await
 }
 
 // --- Chat Messages ---
@@ -896,15 +896,18 @@ mod tests {
         );
     }
 
-    /// Graph answers both actions with 204 and an empty body, and accepts an
-    /// empty JSON object as the request body.
+    /// Graph answers both actions with 204 and an empty body, and documents
+    /// them as taking no request body, so none is sent.
     #[tokio::test]
     async fn soft_delete_posts_the_action_and_accepts_no_content() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/me/chats/chat-id/messages/message-id/softDelete"))
             .and(header("authorization", "Bearer test-token"))
-            .and(body_json(serde_json::json!({})))
+            .and(header("content-length", "0"))
+            .and(|request: &wiremock::Request| {
+                request.body.is_empty() && !request.headers.contains_key("content-type")
+            })
             .respond_with(ResponseTemplate::new(204))
             .expect(1)
             .mount(&server)

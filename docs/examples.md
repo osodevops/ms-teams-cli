@@ -122,8 +122,8 @@ teams message reply \
 ```
 
 Cleanup only if the signed-in user and tenant policy allow deleting messages
-(channel deletion needs the `ChannelMessage.ReadWrite` delegated scope; `--yes`
-is mandatory):
+(channel deletion needs the `ChannelMessage.ReadWrite` delegated scope, which
+requires admin consent; `--yes` is mandatory):
 
 ```bash
 teams message delete \
