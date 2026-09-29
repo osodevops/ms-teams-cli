@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use super::token::TokenInfo;
 use crate::error::{Result, TeamsError};
 
-const SERVICE_NAME: &str = "teams-cli";
 const DISABLE_KEYRING_ENV: &str = "TEAMS_CLI_DISABLE_KEYRING";
 const TOKEN_STORE_ENV: &str = "TEAMS_CLI_TOKEN_STORE";
 
@@ -121,7 +120,7 @@ struct OsKeyring;
 
 impl OsKeyring {
     fn entry(key: &str) -> Result<::keyring::Entry> {
-        ::keyring::Entry::new(SERVICE_NAME, key)
+        ::keyring::Entry::new(crate::config::NAMESPACE, key)
             .map_err(|e| TeamsError::KeyringError(format!("Failed to create keyring entry: {e}")))
     }
 }
@@ -499,6 +498,21 @@ mod tests {
     use std::sync::Mutex;
 
     use super::*;
+
+    /// Keychain entries are named after the build's storage namespace, so by
+    /// default a debug build does not reach a release build's items.
+    /// Building an entry does not touch the keychain.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn keychain_entries_use_the_storage_namespace_as_their_service() {
+        let entry = OsKeyring::entry("default:token").unwrap();
+        let credential = entry
+            .get_credential()
+            .downcast_ref::<::keyring::macos::MacCredential>()
+            .expect("the macOS keyring builds MacCredential entries");
+        assert_eq!(credential.service, crate::config::NAMESPACE);
+        assert_eq!(credential.account, "default:token");
+    }
 
     #[derive(Default)]
     struct MemoryStore {

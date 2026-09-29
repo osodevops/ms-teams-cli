@@ -131,6 +131,11 @@ visible with:
 security find-generic-password -s teams-cli
 ```
 
+Debug builds from source keep their tokens under the separate service
+`teams-cli-dev` (see "Storage namespace" in `CONTRIBUTING.md`), so rebuilding
+from source does not, by default, touch the installed release's items. `teams --version`
+names the namespace of any build that does not use `teams-cli`.
+
 Actions:
 
 - Expect one prompt per profile after upgrading or rebuilding; approve it
@@ -139,15 +144,12 @@ Actions:
   and waits on it. Set `TEAMS_CLI_TOKEN_STORE=file` for that process and sign
   in once with it set; tokens then live in `0600` files under the config
   directory and no keychain dialog is involved.
-- To make grants persist across rebuilds, re-sign the binary with a stable
-  local identity: create a self-signed code-signing certificate in Keychain
-  Access (Certificate Assistant, certificate type "Code Signing"), then
-  after each upgrade or build run:
-
-```bash
-codesign --force --sign <certificate-name> --identifier com.osodevops.teams-cli "$(command -v teams)"
-```
-
+- Re-signing with a self-signed certificate did not stop the prompts when
+  tested on macOS 26 with this CLI's keychain library: each rebuild signed
+  with the same trusted certificate and identifier was asked again, even
+  after "Always Allow" on the previous one. The signature carries no
+  Apple-issued team identifier, and the keychain appears to tie the item to
+  the build instead.
 - In tests only, set `TEAMS_CLI_DISABLE_KEYRING=1` so the suite never
   touches the real keychain.
 

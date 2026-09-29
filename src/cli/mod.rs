@@ -27,7 +27,7 @@ use clap::{Parser, Subcommand};
 #[derive(Debug, Parser)]
 #[command(
     name = "teams",
-    version,
+    version = crate::config::version_text(),
     about = "Microsoft Teams CLI — agent-first design"
 )]
 pub struct Cli {

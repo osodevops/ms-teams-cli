@@ -68,7 +68,7 @@ Credential resolution is intentionally predictable:
 - Client secret: CLI flag, then `TEAMS_CLI_CLIENT_SECRET`.
 - Access token for normal commands: `TEAMS_CLI_ACCESS_TOKEN`, then OS keyring token for the selected profile.
 
-Config lives under the platform config directory in `teams-cli/config.toml`, unless `--config` is provided. Config profiles are resolved by `config::resolve_profile`; `--profile` overrides the configured default profile.
+Config lives under the platform config directory in `<namespace>/config.toml`, unless `--config` is provided. The namespace (`config::NAMESPACE`) is fixed at compile time: `teams-cli` for release builds, `teams-cli-dev` for debug builds, or the value of `TEAMS_CLI_BUILD_NAMESPACE` at build time. It also names the keyring service, so by default a debug build does not touch an installed release's tokens. A build override of `teams-cli` shares release token storage, and `--config` can select the release config file; `teams config path` reports it. Config profiles are resolved by `config::resolve_profile`; `--profile` overrides the configured default profile.
 
 Auth flows:
 

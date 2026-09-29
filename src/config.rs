@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 
@@ -10,6 +11,83 @@ pub const OSO_PUBLIC_CLIENT_ID: &str = "fba1b5d0-fdd0-4fe2-9729-9ccdc38f9595";
 pub const DEFAULT_DELEGATED_TENANT_ID: &str = "organizations";
 pub const DEFAULT_DELEGATED_SCOPES: &str = "User.Read Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Send Chat.ReadWrite ChatMessage.Send ChatMessage.Read User.ReadBasic.All Presence.Read.All Presence.ReadWrite offline_access";
 pub const DEFAULT_REDIRECT_URI: &str = "http://localhost:8400/callback";
+
+/// Default storage namespace of release builds.
+pub const RELEASE_NAMESPACE: &str = "teams-cli";
+
+/// Names the keyring service and the configuration directory this binary
+/// uses. It is fixed at compile time: `TEAMS_CLI_BUILD_NAMESPACE` in the
+/// environment of `cargo build` if set, otherwise `teams-cli-dev` for a debug
+/// build and `teams-cli` for a release build. A default debug build thus keeps
+/// its own tokens and config file, and does not read or rewrite the keychain
+/// items of an installed release, which on macOS would raise an access prompt
+/// for whichever of the two builds did not create the item.
+pub const NAMESPACE: &str = checked_namespace(match option_env!("TEAMS_CLI_BUILD_NAMESPACE") {
+    Some(namespace) => namespace,
+    None if cfg!(debug_assertions) => "teams-cli-dev",
+    None => RELEASE_NAMESPACE,
+});
+
+const fn checked_namespace(namespace: &'static str) -> &'static str {
+    if !is_valid_namespace(namespace) {
+        panic!(
+            "TEAMS_CLI_BUILD_NAMESPACE must be `teams-cli` or `teams-cli-` followed by \
+             lowercase letters, digits and hyphens, at most 64 characters in all"
+        );
+    }
+    namespace
+}
+
+/// Version text for `teams --version`. A build outside the release namespace
+/// says so, so that a person or an agent can tell which tokens and config a
+/// binary uses without opening the keyring.
+pub fn version_text() -> &'static str {
+    static TEXT: OnceLock<String> = OnceLock::new();
+    TEXT.get_or_init(|| version_line(env!("CARGO_PKG_VERSION"), NAMESPACE))
+}
+
+fn version_line(version: &str, namespace: &str) -> String {
+    if namespace == RELEASE_NAMESPACE {
+        version.to_string()
+    } else {
+        format!("{version} (storage namespace {namespace})")
+    }
+}
+
+/// The namespace becomes a directory name and a keyring service name. It must
+/// be `teams-cli` or `teams-cli-` plus lowercase letters, digits and hyphens:
+/// the fixed prefix rules out names Windows reserves, such as `CON`, and the
+/// lowercase suffix rules out a case variant of `teams-cli` that a
+/// case-insensitive file system would resolve to the release directory.
+const fn is_valid_namespace(namespace: &str) -> bool {
+    const PREFIX: &[u8] = b"teams-cli";
+    let bytes = namespace.as_bytes();
+    if bytes.len() > 64 || bytes.len() < PREFIX.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < PREFIX.len() {
+        if bytes[i] != PREFIX[i] {
+            return false;
+        }
+        i += 1;
+    }
+    if bytes.len() == PREFIX.len() {
+        return true;
+    }
+    if bytes[i] != b'-' || bytes.len() == PREFIX.len() + 1 {
+        return false;
+    }
+    i += 1;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if !(b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-') {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ConfigFile {
@@ -105,7 +183,7 @@ fn default_backoff_base() -> u64 {
 pub fn config_dir() -> Result<PathBuf> {
     let dir = dirs::config_dir()
         .ok_or_else(|| TeamsError::ConfigError("Cannot determine config directory".into()))?;
-    Ok(dir.join("teams-cli"))
+    Ok(dir.join(NAMESPACE))
 }
 
 pub fn default_config_path() -> Result<PathBuf> {
@@ -631,5 +709,70 @@ scopes = "User.Read People.Read offline_access"
         config.default.page_size = Some(75);
         assert_eq!(effective_page_size(&config, None), 75);
         assert_eq!(effective_page_size(&config, Some(100)), 100);
+    }
+
+    #[test]
+    fn namespace_accepts_directory_safe_names() {
+        let longest = format!("teams-cli-{}", "x".repeat(54));
+        for name in [
+            "teams-cli",
+            "teams-cli-dev",
+            "teams-cli-2",
+            "teams-cli-a-b",
+            "teams-cli--",
+            &longest,
+        ] {
+            assert!(is_valid_namespace(name), "{name} should be accepted");
+        }
+    }
+
+    #[test]
+    fn namespace_rejects_names_unsafe_as_a_directory_or_service() {
+        let too_long = format!("teams-cli-{}", "x".repeat(55));
+        let rejected = [
+            "",
+            "teams",
+            "teams-cli-",
+            "teams-clix",
+            "TEAMS-CLI",
+            "Teams-cli-dev",
+            "teams-cli-Dev",
+            "teams-cli-a.b",
+            "teams-cli-a_b",
+            "teams-cli-../outside",
+            "teams-cli-a/b",
+            "teams-cli-dév",
+            "CON",
+            &too_long,
+        ];
+        for name in rejected {
+            assert!(!is_valid_namespace(name), "{name:?} should be rejected");
+        }
+    }
+
+    #[test]
+    fn debug_builds_default_to_a_separate_namespace() {
+        if option_env!("TEAMS_CLI_BUILD_NAMESPACE").is_none() {
+            let expected = if cfg!(debug_assertions) {
+                "teams-cli-dev"
+            } else {
+                RELEASE_NAMESPACE
+            };
+            assert_eq!(NAMESPACE, expected);
+        }
+    }
+
+    #[test]
+    fn config_dir_is_named_after_the_namespace() {
+        assert_eq!(config_dir().unwrap().file_name().unwrap(), NAMESPACE);
+    }
+
+    #[test]
+    fn version_line_names_only_a_non_release_namespace() {
+        assert_eq!(version_line("1.2.3", RELEASE_NAMESPACE), "1.2.3");
+        assert_eq!(
+            version_line("1.2.3", "teams-cli-dev"),
+            "1.2.3 (storage namespace teams-cli-dev)"
+        );
     }
 }

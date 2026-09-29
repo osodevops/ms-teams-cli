@@ -179,24 +179,6 @@ fn help_flag_works() {
 }
 
 #[test]
-fn version_flag_works() {
-    teams()
-        .arg("--version")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains(env!("CARGO_PKG_VERSION")));
-}
-
-#[test]
-fn config_path_works() {
-    teams()
-        .args(["config", "path"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("teams-cli"));
-}
-
-#[test]
 fn auth_status_without_login_exits_nonzero() {
     teams().args(["auth", "status"]).assert().code(1);
 }
@@ -1373,12 +1355,16 @@ fn unknown_token_store_is_invalid_input_not_an_auth_error() {
 #[test]
 fn file_token_store_lists_and_logs_out_a_profile() {
     let home = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
-    let config_dir = if cfg!(target_os = "macos") {
-        home.path().join("Library/Application Support")
-    } else {
-        home.path().to_path_buf()
-    };
-    let tokens = config_dir.join("teams-cli").join("tokens");
+    let config_path = teams()
+        .env("HOME", home.path())
+        .env("XDG_CONFIG_HOME", home.path())
+        .args(["config", "path", "--output", "json"])
+        .output()
+        .unwrap();
+    let config_path: serde_json::Value = serde_json::from_slice(&config_path.stdout).unwrap();
+    let config_path = std::path::PathBuf::from(config_path["data"]["path"].as_str().unwrap());
+    assert!(config_path.starts_with(home.path()));
+    let tokens = config_path.parent().unwrap().join("tokens");
     fs::create_dir_all(&tokens).unwrap();
     fs::write(tokens.join("profile-index"), r#"["work"]"#).unwrap();
     fs::write(
@@ -1411,4 +1397,45 @@ fn file_token_store_lists_and_logs_out_a_profile() {
         fs::read_to_string(tokens.join("profile-index")).unwrap(),
         "[]"
     );
+}
+
+/// The integration tests run the binary cargo built for them, so its storage
+/// namespace follows the same rule as the crate: the build-time override if
+/// one is set, otherwise the development namespace for a debug build.
+fn expected_namespace() -> &'static str {
+    match option_env!("TEAMS_CLI_BUILD_NAMESPACE") {
+        Some(namespace) => namespace,
+        None if cfg!(debug_assertions) => "teams-cli-dev",
+        None => "teams-cli",
+    }
+}
+
+/// `teams --version` names a non-release storage namespace, so a person or an
+/// agent can tell which tokens and config a binary uses without opening the
+/// keyring.
+#[test]
+fn version_reports_a_non_release_storage_namespace() {
+    let namespace = expected_namespace();
+    let version = format!("teams {}", env!("CARGO_PKG_VERSION"));
+    let expected = if namespace == "teams-cli" {
+        format!("{version}\n")
+    } else {
+        format!("{version} (storage namespace {namespace})\n")
+    };
+    teams().arg("--version").assert().success().stdout(expected);
+}
+
+/// `config path` reports the namespace, and the config file sits in a
+/// directory named after it.
+#[test]
+fn config_path_reports_the_storage_namespace() {
+    let namespace = expected_namespace();
+    let result = teams()
+        .args(["config", "path", "--output", "json"])
+        .assert()
+        .success();
+    let data: serde_json::Value = serde_json::from_slice(&result.get_output().stdout).unwrap();
+    assert_eq!(data["data"]["namespace"], namespace);
+    let path = std::path::PathBuf::from(data["data"]["path"].as_str().unwrap());
+    assert_eq!(path.parent().unwrap().file_name().unwrap(), namespace);
 }

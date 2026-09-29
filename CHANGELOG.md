@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- `teams --version` names the storage namespace of any build that does not use the release namespace `teams-cli`, and `teams config path` reports `namespace` in every build.
+
+### Changed
+
+- Debug builds from source keep their tokens under the keyring service `teams-cli-dev` and their config in a `teams-cli-dev` directory, so by default they no longer read or rewrite an installed release's keychain items or config file. Release builds keep `teams-cli`, and existing installs need no action. `TEAMS_CLI_BUILD_NAMESPACE`, set at compile time, chooses another namespace. A developer who signed in with a debug build before this change signs in once more.
+
 ## v0.8.0 - 2026-09-29
 
 ### Added
