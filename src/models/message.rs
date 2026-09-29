@@ -50,12 +50,59 @@ pub struct ItemBody {
     pub content: Option<String>,
 }
 
-/// Sender identity.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Sender identity (Graph `chatMessageFromIdentitySet`, also the shape of a
+/// reaction's `user`). A message posted by a bot, a workflow or a connector
+/// carries `application` rather than `user`, so both are kept.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatMessageFrom {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<ChatMessageUser>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub application: Option<ChatMessageApplication>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device: Option<ChatMessageIdentity>,
+}
+
+impl ChatMessageFrom {
+    /// The display name of whoever sent the message: the user, else the
+    /// application.
+    pub fn display_name(&self) -> Option<&str> {
+        self.user
+            .as_ref()
+            .and_then(|user| user.display_name.as_deref())
+            .or_else(|| {
+                self.application
+                    .as_ref()
+                    .and_then(|app| app.display_name.as_deref())
+            })
+    }
+}
+
+/// An application identity within a message (Graph
+/// `teamworkApplicationIdentity`): a bot, workflow, connector or webhook.
+/// `application_identity_type` is Graph's `applicationIdentityType`, for
+/// example `bot`, `tenantBot`, `office365Connector` or `outgoingWebhook`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatMessageApplication {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub application_identity_type: Option<String>,
+}
+
+/// An id and display name: a Graph `identity` (a `device`) or a
+/// `teamworkTagIdentity` (a team tag).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatMessageIdentity {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
 
 /// User identity within a message. `user_identity_type` is Graph's
@@ -86,18 +133,22 @@ pub struct ChatMessageMention {
 /// `chatMessageMentionedIdentitySet`. The CLI only ever *produces* the `user`
 /// form (`--mention`), but reads must keep every form Graph returns, or a
 /// mention that is not a person comes back as an empty object. `conversation`
-/// is how @Everyone, an @channel and an @team arrive; `tag` is a team tag.
-/// `application` and `device` are not modelled: neither occurs in the
-/// delegated flows this CLI drives.
+/// is how @Everyone, an @channel and an @team arrive; `tag` is a team tag;
+/// `application` is a bot or other app mentioned by a person, which a
+/// delegated read returns like any other mention.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatMessageMentioned {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<ChatMessageUser>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub application: Option<ChatMessageApplication>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device: Option<ChatMessageIdentity>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub conversation: Option<ChatMessageConversationIdentity>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tag: Option<ChatMessageTagIdentity>,
+    pub tag: Option<ChatMessageIdentity>,
 }
 
 /// A conversation named by a mention (Graph `teamworkConversationIdentity`).
@@ -112,16 +163,6 @@ pub struct ChatMessageConversationIdentity {
     pub display_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub conversation_identity_type: Option<String>,
-}
-
-/// A team tag named by a mention (Graph `teamworkTagIdentity`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatMessageTagIdentity {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub display_name: Option<String>,
 }
 
 /// Request body for sending a message.
@@ -228,6 +269,7 @@ mod tests {
                     display_name: Some("Alice".into()),
                     user_identity_type: None,
                 }),
+                ..Default::default()
             }),
             body: Some(ItemBody {
                 content_type: Some("text".into()),
@@ -466,6 +508,68 @@ mod tests {
         assert!(re["mentions"][0]["mentioned"].get("user").is_none());
     }
 
+    /// A bot mentioned by a person arrives as `mentioned.application`, and a
+    /// message a bot posted names it in `from.application` instead of
+    /// `from.user`. Both are read in delegated flows and must survive.
+    #[test]
+    fn chat_message_keeps_application_mentions_and_senders() {
+        let app = serde_json::json!({
+            "@odata.type": "#microsoft.graph.teamworkApplicationIdentity",
+            "id": "358f0194-6b0e-4dd3-af35-c24fe8a9ec87",
+            "displayName": "Workflows",
+            "applicationIdentityType": "bot"
+        });
+        let json = serde_json::json!({
+            "id": "1700000000000",
+            "from": { "user": null, "device": null, "application": app },
+            "body": { "contentType": "html", "content": "<at id=\"0\">Workflows</at> run it" },
+            "mentions": [
+                {
+                    "id": 0,
+                    "mentionText": "Workflows",
+                    "mentioned": {
+                        "user": null, "device": null, "conversation": null, "tag": null,
+                        "application": app
+                    }
+                }
+            ]
+        });
+        let msg: ChatMessage = serde_json::from_value(json).unwrap();
+        let mentioned = &msg.mentions.as_ref().unwrap()[0].mentioned;
+        assert!(mentioned.user.is_none());
+        let application = mentioned.application.as_ref().unwrap();
+        assert_eq!(application.display_name.as_deref(), Some("Workflows"));
+        assert_eq!(
+            application.application_identity_type.as_deref(),
+            Some("bot")
+        );
+        assert_eq!(msg.from.as_ref().unwrap().display_name(), Some("Workflows"));
+
+        let expected = serde_json::json!({
+            "application": {
+                "id": "358f0194-6b0e-4dd3-af35-c24fe8a9ec87",
+                "displayName": "Workflows",
+                "applicationIdentityType": "bot"
+            }
+        });
+        let re = serde_json::to_value(&msg).unwrap();
+        assert_eq!(re["mentions"][0]["mentioned"], expected);
+        assert_eq!(re["from"], expected);
+    }
+
+    /// A user sender's name wins over any application on the same identity
+    /// set, which is how a message sent through an app on a user's behalf reads.
+    #[test]
+    fn chat_message_sender_name_prefers_user() {
+        let from: ChatMessageFrom = serde_json::from_value(serde_json::json!({
+            "user": { "displayName": "Alice" },
+            "application": { "displayName": "Workflows" }
+        }))
+        .unwrap();
+        assert_eq!(from.display_name(), Some("Alice"));
+        assert_eq!(ChatMessageFrom::default().display_name(), None);
+    }
+
     /// An identity set with nothing the CLI models (or nothing at all) still
     /// parses; the mention is kept with an empty `mentioned` rather than
     /// failing the whole read.
@@ -473,24 +577,16 @@ mod tests {
     fn chat_message_tolerates_unmodelled_mention_identities() {
         let json = serde_json::json!({
             "id": "1700000000000",
-            "body": { "contentType": "html", "content": "<at id=\"0\">Bot</at> hi" },
+            "body": { "contentType": "html", "content": "<at id=\"0\">Thing</at> hi" },
             "mentions": [
                 {
                     "id": 0,
-                    "mentionText": "Bot",
-                    "mentioned": {
-                        "application": { "id": "00000000-0000-0000-0000-000000000000",
-                                         "displayName": "Bot",
-                                         "applicationIdentityType": "bot" }
-                    }
+                    "mentionText": "Thing",
+                    "mentioned": { "unknownFutureValue": { "id": "x" } }
                 }
             ]
         });
         let msg: ChatMessage = serde_json::from_value(json).unwrap();
-        let mentioned = &msg.mentions.as_ref().unwrap()[0].mentioned;
-        assert!(
-            mentioned.user.is_none() && mentioned.conversation.is_none() && mentioned.tag.is_none()
-        );
         let re = serde_json::to_value(&msg).unwrap();
         assert_eq!(re["mentions"][0]["mentioned"], serde_json::json!({}));
     }

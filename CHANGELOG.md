@@ -8,7 +8,7 @@
 
 ### Fixed
 
-- `message list` and `message get` no longer drop a mention's identity when the mention is not a person. The mention model only knew the `user` form of Graph's `chatMessageMentionedIdentitySet`, so an @Everyone (a `conversation` identity naming the chat or channel itself), an @channel or @team, and a team `tag` mention all read back as `"mentioned": {}` on every output, making a resolved mention look like one that never resolved. Both forms are now retained with their ids, display names and, for conversations, the `conversationIdentityType`; user mentions and the send-side `--mention` shape are unchanged.
+- `message list` and `message get` no longer drop a mention's identity when the mention is not a person. The mention model only knew the `user` form of Graph's `chatMessageMentionedIdentitySet`, so an @Everyone (a `conversation` identity naming the chat or channel itself), an @channel or @team, and a team `tag` mention all read back as `"mentioned": {}` on every output, making a resolved mention look like one that never resolved. A bot or other app mentioned by a person (an `application` identity) was dropped the same way, and so was the sender of a message a bot, workflow or connector posted: `from` read back as `{}` and the human list's From column was blank. Every identity form Graph documents — `user`, `application`, `device`, `conversation` and `tag` — is now retained with its id, display name and type; the From column falls back to the application's name; user mentions and the send-side `--mention` shape are unchanged.
 
 ## v0.7.0 - 2026-09-06
 
