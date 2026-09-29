@@ -428,13 +428,13 @@ subject Graph stores, so a posted subject survives a read-back. Human message li
 include a Subject column; plain lists include subjects even when the first message
 is untitled. JSON continues to omit the subject field when it is absent.
 
-`message send --chat CHAT_ID --quote MESSAGE_ID` sends a quote-reply, the same
-shape the Teams client produces for Reply in a chat: the quoted message renders
-as a card above the new text. The CLI fetches the quoted message, attaches a
-`messageReference` carrying its sender and a plain-text preview of up to 200
-characters, and places the reference marker at the start of the HTML body.
-Chats only; channel messages use `message reply` threads instead. A message
-sent by an application rather than a user cannot be quoted.
+`message send --chat CHAT_ID --quote MESSAGE_ID` sends a quote-reply, as the
+Teams client's Reply does in a chat: the quoted message renders as a card above
+the new text. It goes through Graph's `replyWithQuote` action, which builds the
+quote card and its preview itself. Repeat `--quote` to quote several messages
+of the same chat in one reply (Graph accepts up to 5). Mentions, inline images
+and attachments combine with it as on any other send. Chats only; channel
+messages use `message reply` threads instead.
 
 ```bash
 teams message send --chat <chat-id> \

@@ -115,6 +115,10 @@ pub fn chat_message(chat_id: &str, message_id: &str) -> String {
     format!("{GRAPH_V1}/chats/{chat_id}/messages/{message_id}")
 }
 
+pub fn chat_reply_with_quote(chat_id: &str) -> String {
+    format!("{GRAPH_V1}/chats/{chat_id}/messages/replyWithQuote")
+}
+
 /// Graph exposes message deletion as the `softDelete` and `undoSoftDelete`
 /// actions rather than the DELETE verb. For channel posts and replies the
 /// action hangs off the message resource.

@@ -183,6 +183,15 @@ pub struct SendMessageRequest {
     pub mentions: Option<Vec<ChatMessageMention>>,
 }
 
+/// Request body for Graph's chat `replyWithQuote` action: the ids of the chat
+/// messages to quote and the reply itself.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplyWithQuoteRequest<'a> {
+    pub message_ids: &'a [String],
+    pub reply_message: &'a SendMessageRequest,
+}
+
 /// Write-side hosted content: inline image bytes riding a message create
 /// call. The body HTML references it as `../hostedContents/{temporaryId}/$value`
 /// and Graph rewrites that into a permanent URL on delivery.

@@ -1,7 +1,7 @@
-use crate::error::Result;
+use crate::error::{Result, TeamsError};
 use crate::models::message::{
     ChatMessage, ChatMessageHostedContent, PinMessageRequest, PinnedMessage, ReactionRequest,
-    SendMessageRequest,
+    ReplyWithQuoteRequest, SendMessageRequest,
 };
 
 use super::client::{GraphClient, PaginationOpts};
@@ -314,6 +314,49 @@ async fn send_chat_message_at(
     req: &SendMessageRequest,
 ) -> Result<ChatMessage> {
     client.post(url, req).await
+}
+
+/// Quote-reply in a chat through Graph's v1.0 `replyWithQuote` action. The
+/// service reads each quoted message and builds the `messageReference`
+/// attachments and their previews itself, placing the quote cards above the
+/// reply. It parses the reply body as HTML whatever its `contentType`, so the
+/// caller must send HTML.
+pub async fn reply_with_quote(
+    client: &GraphClient,
+    chat_id: &str,
+    message_ids: &[String],
+    reply: &SendMessageRequest,
+) -> Result<ChatMessage> {
+    reply_with_quote_at(
+        client,
+        &endpoints::chat_reply_with_quote(chat_id),
+        message_ids,
+        reply,
+    )
+    .await
+}
+
+async fn reply_with_quote_at(
+    client: &GraphClient,
+    url: &str,
+    message_ids: &[String],
+    reply: &SendMessageRequest,
+) -> Result<ChatMessage> {
+    let req = ReplyWithQuoteRequest {
+        message_ids,
+        reply_message: reply,
+    };
+    client.post(url, &req).await.map_err(|err| match err {
+        // Graph answers an id that is not a message in this chat with 403
+        // "MessageIdNotInAllowedRange", which is not a permission problem.
+        TeamsError::PermissionDenied(msg) if msg.contains("MessageIdNotInAllowedRange") => {
+            TeamsError::NotFound(format!(
+                "a --quote message ID is not a message in this chat ({})",
+                message_ids.join(", ")
+            ))
+        }
+        other => other,
+    })
 }
 
 // --- Reactions ---
@@ -894,6 +937,103 @@ mod tests {
             reply.action_url("softDelete"),
             "https://graph.microsoft.com/v1.0/teams/team-id/channels/channel-id/messages/1700000000000/replies/1700000000001/softDelete"
         );
+    }
+
+    /// A quote-reply posts the quoted ids and the whole reply (body, mentions,
+    /// media) to the chat's `replyWithQuote` action, which answers 201 with
+    /// the new message carrying the `messageReference` Graph built.
+    #[tokio::test]
+    async fn reply_with_quote_posts_the_ids_and_the_reply() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/chats/chat-id/messages/replyWithQuote"))
+            .and(body_json(serde_json::json!({
+                "messageIds": ["1790667379654", "1790667031882"],
+                "replyMessage": {
+                    "body": { "contentType": "html", "content": "<p>a &amp; b</p>" }
+                }
+            })))
+            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+                "id": "1790668476875",
+                "body": {
+                    "contentType": "html",
+                    "content": "<attachment id=\"1790667379654\"></attachment>\n<p>a &amp; b</p>"
+                },
+                "attachments": [{
+                    "id": "1790667379654",
+                    "contentType": "messageReference",
+                    "content": "{\"messageId\":\"1790667379654\"}"
+                }]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let reply = SendMessageRequest {
+            subject: None,
+            body: ItemBody {
+                content_type: Some("html".into()),
+                content: Some("<p>a &amp; b</p>".into()),
+            },
+            attachments: None,
+            hosted_contents: None,
+            mentions: None,
+        };
+        let msg = reply_with_quote_at(
+            &test_client(),
+            &format!("{}/chats/chat-id/messages/replyWithQuote", server.uri()),
+            &["1790667379654".to_string(), "1790667031882".to_string()],
+            &reply,
+        )
+        .await
+        .unwrap();
+        assert_eq!(msg.id.as_deref(), Some("1790668476875"));
+        let attachment = &msg.attachments.unwrap()[0];
+        assert_eq!(attachment.content_type.as_deref(), Some("messageReference"));
+    }
+
+    /// An id that is not a message in the chat comes back as 403
+    /// MessageIdNotInAllowedRange (verified live); that is a missing message,
+    /// not a permission problem, so it maps to not found.
+    #[tokio::test]
+    async fn reply_with_quote_reports_a_foreign_message_as_not_found() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(403).set_body_json(serde_json::json!({
+                "error": {
+                    "code": "Forbidden",
+                    "message": "InsufficientPrivileges",
+                    "innerError": {
+                        "code": "1",
+                        "message": "MessageIdNotInAllowedRange-The messageId is not in the allowed range of messages."
+                    }
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let reply = SendMessageRequest {
+            subject: None,
+            body: ItemBody {
+                content_type: Some("html".into()),
+                content: Some("<p>hi</p>".into()),
+            },
+            attachments: None,
+            hosted_contents: None,
+            mentions: None,
+        };
+        let err = reply_with_quote_at(
+            &test_client(),
+            &format!("{}/chats/chat-id/messages/replyWithQuote", server.uri()),
+            &["1000000000000".to_string()],
+            &reply,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, TeamsError::NotFound(_)), "{err:?}");
+        assert_eq!(err.exit_code(), 5);
+        assert!(err.to_string().contains("1000000000000"), "{err}");
     }
 
     /// Graph answers both actions with 204 and an empty body, and documents
