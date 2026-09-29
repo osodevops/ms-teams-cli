@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.8.0 - 2026-09-29
+
 ### Added
 
 - `teams message undelete` restores a message removed with `message delete`, through the Graph `undoSoftDelete` action.
