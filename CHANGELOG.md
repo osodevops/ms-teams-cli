@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.9.0 - 2026-10-04
+
 ### Added
 
 - `teams --version` names the storage namespace of any build that does not use the release namespace `teams-cli`, and `teams config path` reports `namespace` in every build.
