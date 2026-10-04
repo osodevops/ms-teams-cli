@@ -1475,3 +1475,21 @@ fn missing_token_names_a_non_release_storage_namespace() {
         "{message}"
     );
 }
+
+/// The client and tenant IDs are saved only after a login succeeds. A login
+/// refused before it signs in, here for want of a client secret, leaves the
+/// config file untouched.
+#[test]
+fn a_failed_login_does_not_save_the_given_ids() {
+    let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    let config_path = dir.path().join("config.toml");
+    teams()
+        .args(["--config", config_path.to_str().unwrap()])
+        .args(["auth", "login", "--client-credentials"])
+        .args(["--client-id", "app-1", "--tenant-id", "tenant-1"])
+        .args(["--output", "json"])
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("Client secret is required"));
+    assert!(!config_path.exists());
+}

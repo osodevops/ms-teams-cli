@@ -68,6 +68,17 @@ Then run:
 teams --profile customer auth login --device-code
 teams --profile customer auth doctor --output json
 .fi
+.PP
+Instead of editing the file, a delegated login given
+.B --client-id
+and
+.B --tenant-id
+saves them to the profile once it succeeds, leaving the rest of the file as
+it was. Values from
+.B TEAMS_CLI_CLIENT_ID
+and
+.B TEAMS_CLI_TENANT_ID
+are used but never saved, and a client credentials login saves nothing.
 .SH CLIENT CREDENTIALS
 Client credentials are explicit and require a customer-owned confidential app:
 .PP

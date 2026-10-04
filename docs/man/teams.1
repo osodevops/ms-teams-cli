@@ -71,6 +71,12 @@ registrations can still be selected with
 .B --client-id
 and
 .B --tenant-id.
+A successful delegated login saves those two flags to the profile's
+.B client_id
+and
+.B tenant_id,
+so the profile's next login reuses them; values from the environment, and a
+client credentials login, are never saved.
 Client credentials always require explicit customer app credentials.
 Credential resolution for explicit client ID and tenant ID is CLI flag,
 environment variable, then config profile. Client secret resolution is CLI

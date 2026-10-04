@@ -322,6 +322,135 @@ pub fn resolve_delegated_tenant_id(
         .unwrap_or_else(|| DEFAULT_DELEGATED_TENANT_ID.to_string())
 }
 
+/// Where login found the ID it signs in with, for the notice it prints. The
+/// order is the resolution order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IdSource {
+    /// `--client-id` or `--tenant-id`.
+    Flag,
+    /// `TEAMS_CLI_CLIENT_ID` or `TEAMS_CLI_TENANT_ID`.
+    Environment,
+    /// The profile's `client_id` or `tenant_id` in the config file.
+    Profile,
+    /// The built-in public application or the `organizations` tenant.
+    BuiltIn,
+}
+
+impl IdSource {
+    pub fn of(flag: bool, environment: bool, profile: bool) -> Self {
+        if flag {
+            IdSource::Flag
+        } else if environment {
+            IdSource::Environment
+        } else if profile {
+            IdSource::Profile
+        } else {
+            IdSource::BuiltIn
+        }
+    }
+
+    pub fn describe(self, profile: &str) -> String {
+        match self {
+            IdSource::Flag => "from the command line".to_string(),
+            IdSource::Environment => "from the environment".to_string(),
+            IdSource::Profile => format!("saved in profile '{profile}'"),
+            IdSource::BuiltIn => "built-in default".to_string(),
+        }
+    }
+}
+
+/// Set a profile's `client_id` and `tenant_id` in the text of a config file,
+/// so that the next `auth login` for the profile signs in through the same
+/// application registration without being told again. Only these two keys
+/// change; comments, formatting, other profiles and keys this version does
+/// not know are left as they were. Blank values are ignored. Returns the new
+/// text, or `None` when the profile already holds these values.
+pub fn remember_registration(
+    text: &str,
+    profile: &str,
+    client_id: Option<&str>,
+    tenant_id: Option<&str>,
+) -> Result<Option<String>> {
+    let mut document: toml_edit::DocumentMut = text
+        .parse()
+        .map_err(|e| TeamsError::ConfigError(format!("Invalid config TOML: {e}")))?;
+    let not_a_table =
+        |name: &str| TeamsError::ConfigError(format!("Config key `{name}` is not a table"));
+
+    let profiles = document
+        .entry("profiles")
+        .or_insert_with(|| {
+            let mut table = toml_edit::Table::new();
+            table.set_implicit(true);
+            toml_edit::Item::Table(table)
+        })
+        .as_table_like_mut()
+        .ok_or_else(|| not_a_table("profiles"))?;
+    let section = profiles
+        .entry(profile)
+        .or_insert(toml_edit::Item::Table(toml_edit::Table::new()))
+        .as_table_like_mut()
+        .ok_or_else(|| not_a_table(&format!("profiles.{profile}")))?;
+
+    let mut changed = false;
+    for (key, value) in [("client_id", client_id), ("tenant_id", tenant_id)] {
+        let Some(value) = value.map(str::trim).filter(|v| !v.is_empty()) else {
+            continue;
+        };
+        if section.get(key).and_then(toml_edit::Item::as_str) == Some(value) {
+            continue;
+        }
+        // An existing value keeps its surrounding whitespace and trailing
+        // comment; only the string itself changes.
+        match section.get_mut(key).and_then(toml_edit::Item::as_value_mut) {
+            Some(existing) => {
+                let decor = existing.decor().clone();
+                *existing = toml_edit::Value::from(value);
+                *existing.decor_mut() = decor;
+            }
+            None => {
+                section.insert(key, toml_edit::value(value));
+            }
+        }
+        changed = true;
+    }
+    Ok(changed.then(|| document.to_string()))
+}
+
+/// Replace the config file with `text`: written `0600` to a temporary file in
+/// the same directory and renamed over the original, so a failed write never
+/// leaves a truncated config behind. A symlinked config file is written
+/// through the link, so the link survives.
+pub fn write_config_text(path: &std::path::Path, text: &str) -> Result<()> {
+    let resolved = fs::canonicalize(path).ok();
+    let path = resolved.as_deref().unwrap_or(path);
+    let fail = |e: std::io::Error| {
+        TeamsError::ConfigError(format!("Failed to write config to {}: {e}", path.display()))
+    };
+    let dir = path.parent().ok_or_else(|| {
+        TeamsError::ConfigError(format!("Config path {} has no directory", path.display()))
+    })?;
+    fs::create_dir_all(dir).map_err(fail)?;
+    let tmp = dir.join(format!(".config.toml.{}.tmp", std::process::id()));
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let written = options.open(&tmp).and_then(|mut file| {
+        use std::io::Write;
+        file.write_all(text.as_bytes())?;
+        file.sync_all()
+    });
+    if let Err(e) = written.and_then(|()| fs::rename(&tmp, path)) {
+        let _ = fs::remove_file(&tmp);
+        return Err(fail(e));
+    }
+    Ok(())
+}
+
 /// Append `offline_access` to a delegated scope string when it is missing, so
 /// the identity platform always issues a refresh token.
 pub fn ensure_offline_access(scopes: &str) -> String {
@@ -773,6 +902,195 @@ scopes = "User.Read People.Read offline_access"
         assert_eq!(
             version_line("1.2.3", "teams-cli-dev"),
             "1.2.3 (storage namespace teams-cli-dev)"
+        );
+    }
+
+    fn remember(text: &str, profile: &str, client: Option<&str>, tenant: Option<&str>) -> String {
+        remember_registration(text, profile, client, tenant)
+            .unwrap()
+            .expect("the registration should change the file")
+    }
+
+    fn parse(text: &str) -> ConfigFile {
+        toml::from_str(text).unwrap()
+    }
+
+    #[test]
+    fn remember_registration_creates_the_file_and_the_profile() {
+        let text = remember("", "benbot", Some("app-1"), Some("tenant-1"));
+        assert_eq!(
+            text,
+            "[profiles.benbot]\nclient_id = \"app-1\"\ntenant_id = \"tenant-1\"\n"
+        );
+    }
+
+    /// Only the two keys change: a hand-edited file keeps its comments, its
+    /// layout, other profiles, the profile's other settings, and keys this
+    /// version of the CLI does not know.
+    #[test]
+    fn remember_registration_edits_only_the_two_keys() {
+        let original = "\
+# Accounts I use
+[default]
+profile = \"work\"   # the usual one
+future_setting = true
+
+[profiles.work]
+# Private app registration
+auth_app = \"byo\"
+client_id = \"old-app\"
+tenant_id = \"tenant-1\"
+scopes = \"User.Read\"
+
+[profiles.other]
+client_id = \"other-app\"
+";
+        let text = remember(original, "work", Some("new-app"), None);
+        assert_eq!(
+            text,
+            original.replace("client_id = \"old-app\"", "client_id = \"new-app\"")
+        );
+    }
+
+    #[test]
+    fn remember_registration_keeps_a_replaced_value_s_comment_and_spacing() {
+        let original = "[profiles.work]\nclient_id  =  \"old-app\"   # customer app\n";
+        let text = remember(original, "work", Some("new-app"), None);
+        assert_eq!(
+            text,
+            "[profiles.work]\nclient_id  =  \"new-app\"   # customer app\n"
+        );
+    }
+
+    #[test]
+    fn remember_registration_edits_dotted_and_inline_profiles() {
+        let dotted = "profiles.work.client_id = \"old-app\"\n";
+        assert_eq!(
+            remember(dotted, "work", Some("new-app"), None),
+            "profiles.work.client_id = \"new-app\"\n"
+        );
+        let inline = "[profiles]\nwork = { client_id = \"old-app\" }\n";
+        assert_eq!(
+            remember(inline, "work", Some("new-app"), None),
+            "[profiles]\nwork = { client_id = \"new-app\" }\n"
+        );
+    }
+
+    #[test]
+    fn remember_registration_adds_a_profile_beside_existing_ones() {
+        let original = "[profiles.work]\nclient_id = \"app-1\"\n";
+        let text = remember(original, "benbot", Some("app-2"), None);
+        let config = parse(&text);
+        assert_eq!(config.profiles["work"].client_id.as_deref(), Some("app-1"));
+        assert_eq!(
+            config.profiles["benbot"].client_id.as_deref(),
+            Some("app-2")
+        );
+        assert!(text.starts_with(original));
+    }
+
+    #[test]
+    fn remember_registration_saves_nothing_when_nothing_changes() {
+        let original = "[profiles.work]\nclient_id = \"app-1\"\ntenant_id = \"tenant-1\"\n";
+        for (client, tenant) in [
+            (Some("app-1"), Some("tenant-1")),
+            (None, None),
+            (Some("  "), Some("")),
+        ] {
+            assert_eq!(
+                remember_registration(original, "work", client, tenant).unwrap(),
+                None
+            );
+        }
+        assert_eq!(remember_registration("", "new", None, None).unwrap(), None);
+    }
+
+    #[test]
+    fn remember_registration_trims_values_and_ignores_blank_ones() {
+        let original = "[profiles.work]\nclient_id = \"app-1\"\ntenant_id = \"tenant-1\"\n";
+        let config = parse(&remember(original, "work", Some(" app-2 "), Some(" ")));
+        assert_eq!(config.profiles["work"].client_id.as_deref(), Some("app-2"));
+        assert_eq!(
+            config.profiles["work"].tenant_id.as_deref(),
+            Some("tenant-1")
+        );
+    }
+
+    #[test]
+    fn remember_registration_refuses_a_file_it_cannot_edit_safely() {
+        assert!(remember_registration("profiles = \"x\"\n", "work", Some("a"), None).is_err());
+        assert!(remember_registration("[profiles\n", "work", Some("a"), None).is_err());
+    }
+
+    /// The saved IDs are what the next login resolves when it is given none,
+    /// including for a profile that requires its own application.
+    #[test]
+    fn a_remembered_registration_is_used_by_the_next_login() {
+        let text = remember(
+            "[profiles.work]\nauth_app = \"byo\"\n",
+            "work",
+            Some("app-1"),
+            Some("tenant-1"),
+        );
+        let config = parse(&text);
+        assert_eq!(
+            resolve_delegated_client_id(None, "work", &config).unwrap(),
+            "app-1"
+        );
+        assert_eq!(
+            resolve_delegated_tenant_id(None, "work", &config),
+            "tenant-1"
+        );
+        assert_eq!(
+            resolve_delegated_client_id(Some("app-2"), "work", &config).unwrap(),
+            "app-2"
+        );
+    }
+
+    #[test]
+    fn write_config_text_replaces_the_file_privately() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested").join("config.toml");
+        write_config_text(&path, "a = 1\n").unwrap();
+        write_config_text(&path, "a = 2\n").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "a = 2\n");
+        assert_eq!(fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600);
+        }
+    }
+
+    /// A config file kept elsewhere, such as in a dotfiles repository, and
+    /// linked into place stays linked; the edit lands in the target.
+    #[cfg(unix)]
+    #[test]
+    fn write_config_text_writes_through_a_symlink() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("dotfiles-config.toml");
+        let link = dir.path().join("config.toml");
+        fs::write(&target, "a = 1\n").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        write_config_text(&link, "a = 2\n").unwrap();
+        assert!(fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(fs::read_to_string(&target).unwrap(), "a = 2\n");
+    }
+
+    #[test]
+    fn id_source_follows_the_resolution_order() {
+        assert_eq!(IdSource::of(true, true, true), IdSource::Flag);
+        assert_eq!(IdSource::of(false, true, true), IdSource::Environment);
+        assert_eq!(IdSource::of(false, false, true), IdSource::Profile);
+        assert_eq!(IdSource::of(false, false, false), IdSource::BuiltIn);
+        assert_eq!(
+            IdSource::Profile.describe("work"),
+            "saved in profile 'work'"
         );
     }
 }

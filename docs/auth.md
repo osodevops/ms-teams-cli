@@ -210,6 +210,37 @@ teams auth login --device-code \
   --tenant-id <customer-tenant-id>
 ```
 
+After a successful delegated login (browser or device code), a client ID or
+tenant ID given with `--client-id` or `--tenant-id` is saved to the profile's
+`client_id` and `tenant_id` in the config file. The next `teams auth login` for that profile signs in through the
+same registration without being told again, instead of falling back to the
+built-in app. Only those two values change; comments, layout and every other
+setting in the file are left as they were, and a symlinked config file stays
+a symlink. A login that fails saves nothing, and a value given again replaces
+the saved one. Saving is best effort: if the file cannot be written, the
+login still succeeds and a warning on standard error says so. The login
+output's `saved_to_config` is `true` when this login changed the file, and
+`false` when the values were already saved or the write failed.
+
+`TEAMS_CLI_CLIENT_ID` and `TEAMS_CLI_TENANT_ID` still take precedence over the
+profile when set, but are never saved: an environment variable exported for
+one profile would otherwise be written into whichever profile signed in next.
+Each login prints the application and tenant it signs in through, and where
+each came from, on standard error. `auth logout` removes the token but keeps
+the saved IDs, which are settings rather than credentials; change them with
+another login or `teams config set`. The client secret is never saved.
+
+To sign in through a registration once without saving it, pass the IDs in
+`TEAMS_CLI_CLIENT_ID` and `TEAMS_CLI_TENANT_ID` instead of the flags. To send
+a profile back to the built-in app, delete its `client_id` and `tenant_id`
+lines from the config file (`teams config path` shows where), or run
+`teams config set profiles.<profile>.client_id null` and the same for
+`tenant_id`; `config set` rewrites the whole file and drops its comments.
+
+A client credentials login saves nothing. That flow has no built-in app to
+fall back to, and a confidential app saved to the profile would be used by
+the profile's next delegated login, which such an app usually cannot serve.
+
 Client credentials for supported app-only Graph operations:
 
 ```bash
@@ -251,6 +282,11 @@ Then:
 teams --profile customer auth login --device-code
 teams --profile customer auth doctor --output json
 ```
+
+Instead of editing the file, a delegated login given `--client-id` and
+`--tenant-id` writes the profile's `client_id` and `tenant_id` once it
+succeeds, leaving the rest of the file as it was (see "Customer-owned
+delegated app" above).
 
 BYO delegated app requirements:
 

@@ -5,6 +5,7 @@
 ### Added
 
 - `teams --version` names the storage namespace of any build that does not use the release namespace `teams-cli`, and `teams config path` reports `namespace` in every build.
+- A delegated `teams auth login --client-id X --tenant-id Y` (browser or device code) saves both IDs to the profile's `client_id` and `tenant_id` in the config file once the login succeeds, so the next login for that profile signs in through the same app registration instead of falling back to the built-in app. Only those two keys are edited, so comments and other settings survive, and the file is replaced atomically. Saving is best effort: if the write fails, the login still succeeds with a warning. `TEAMS_CLI_CLIENT_ID` and `TEAMS_CLI_TENANT_ID` still apply but are not saved, and a client credentials login saves nothing, so its confidential app never becomes the profile's delegated one. Login prints the application and tenant it signs in through, and where each came from, on standard error, and its output includes `client_id`, `tenant_id` and `saved_to_config`. The client secret is never saved.
 
 ### Changed
 
