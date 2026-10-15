@@ -46,7 +46,11 @@ async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_writer(std::io::stderr)
-        .with_ansi(!cli.no_color)
+        .with_ansi(log_colors(
+            cli.no_color,
+            std::env::var_os("NO_COLOR"),
+            std::io::IsTerminal::is_terminal(&std::io::stderr()),
+        ))
         .init();
 
     // Load config
@@ -71,5 +75,31 @@ async fn main() {
         ));
         output::print_error(format, &e);
         std::process::exit(e.exit_code());
+    }
+}
+
+/// Whether log lines on stderr carry ANSI colour: not when `--no-color` or a
+/// non-empty `NO_COLOR` asks otherwise, nor when stderr is a file or pipe,
+/// where the codes would land in a log as text.
+fn log_colors(
+    no_color: bool,
+    no_color_env: Option<std::ffi::OsString>,
+    stderr_is_terminal: bool,
+) -> bool {
+    let no_color_env = no_color_env.is_some_and(|v| !v.is_empty());
+    !no_color && !no_color_env && stderr_is_terminal
+}
+
+#[cfg(test)]
+mod tests {
+    use super::log_colors;
+
+    #[test]
+    fn log_colors_only_on_a_terminal_without_a_no_color_request() {
+        assert!(log_colors(false, None, true));
+        assert!(!log_colors(false, None, false));
+        assert!(!log_colors(true, None, true));
+        assert!(!log_colors(false, Some("1".into()), true));
+        assert!(log_colors(false, Some("".into()), true));
     }
 }

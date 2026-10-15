@@ -279,14 +279,14 @@ If `file download` runs without `--path`, raw bytes go to stdout. Use `--path` i
 ## Subscriptions and listener
 
 ```bash
-teams subscribe create --resource RESOURCE --change-type created,updated,deleted --webhook-url URL [--expiration ISO8601] [--client-state STATE]
+teams subscribe create --resource RESOURCE --change-type created,updated,deleted --webhook-url URL [--expiration ISO8601] [--client-state STATE] [--lifecycle-url URL]
 teams subscribe list
 teams subscribe renew SUBSCRIPTION_ID [--expiration ISO8601]
 teams subscribe delete SUBSCRIPTION_ID
-teams listen [--port PORT]
+teams listen [--port PORT] [--bind ADDR] [--client-state SECRET]
 ```
 
-Microsoft Graph requires an HTTPS notification URL. `teams listen` is a local HTTP listener for testing behind a tunnel or reverse proxy.
+Microsoft Graph requires an HTTPS notification URL. `teams listen` is a local HTTP listener for testing behind a tunnel or reverse proxy. It binds `127.0.0.1` unless `--bind` says otherwise. With `--client-state` (or `TEAMS_CLI_CLIENT_STATE`), notifications without that `clientState` are dropped. Output lines omit `clientState` and add `kind` (`change` or `lifecycle`). For relays and status codes, see "Running behind a relay" in the README.
 
 ## Completions
 

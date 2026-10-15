@@ -596,6 +596,7 @@ teams subscribe create \
   --resource "/teams/{team-id}/channels/{channel-id}/messages" \
   --change-type created,updated \
   --webhook-url https://your-endpoint/webhook
+# Over one hour, Graph also needs --lifecycle-url https://your-endpoint/lifecycle
 teams subscribe list
 teams subscribe renew <subscription-id> [--expiration <datetime>]
 teams subscribe delete <subscription-id>
@@ -605,14 +606,42 @@ teams listen --port 8080
 teams listen --port 8080 | jq '.changeType, .resource'
 ```
 
+The listener binds `127.0.0.1` unless `--bind` says otherwise (`--bind 0.0.0.0` for all interfaces). Each line is one notification with every field Graph sent except `clientState`, plus `"kind": "change"` or, for lifecycle events (`lifecycleEvent`), `"kind": "lifecycle"`.
+
+Pass the subscription's `--client-state` to `listen` too (or set `TEAMS_CLI_CLIENT_STATE`) and notifications without that `clientState` are dropped with a warning on stderr. Without it, anyone who can reach the port can inject lines, and the listener says so at startup.
+
 **Note:** Microsoft Graph requires HTTPS for webhook URLs. Use [ngrok](https://ngrok.com) or similar:
 
 ```bash
+export TEAMS_CLI_CLIENT_STATE="$(openssl rand -hex 16)"
 ngrok http 8080
 teams subscribe create --resource "/teams/all/messages" \
-  --change-type created --webhook-url https://xxxx.ngrok.io/webhook
+  --change-type created --webhook-url https://xxxx.ngrok.io/webhook \
+  --client-state "$TEAMS_CLI_CLIENT_STATE"
 teams listen --port 8080
 ```
+
+#### Running behind a relay
+
+A relay can forward notifications to `teams listen` instead of Graph calling it directly:
+
+- POST the raw Graph body, `{"value":[...]}`, to `/` or `/webhook`.
+- Graph's validation request (`?validationToken=`) needs a synchronous reply within 10 seconds, so answer it at the public edge (echo the decoded token as `text/plain`) rather than forwarding it.
+- Bind to the interface the relay uses with `--bind`, and set `--client-state` so forged posts are dropped.
+
+Responses:
+
+| Status | Meaning | Relay should |
+|--------|---------|--------------|
+| 202 | Queued for stdout, or dropped for a wrong `clientState` | Not retry |
+| 400 | Body is not a notification collection | Not retry |
+| 408 | Body not received within 10 seconds | Retry |
+| 413 | Body over 1 MiB | Not retry |
+| 503 | Output queue full (stdout reader is behind), or shutting down | Retry with backoff |
+
+At most 64 connections are served at once; others wait. Headers must arrive within 10 seconds.
+
+On Ctrl+C or SIGTERM the listener stops accepting, answers 503, and writes out every notification it already answered 202, however long stdout takes. A second signal abandons the rest. If any acknowledged notification is not written (second signal, or stdout closed), it prints how many on stderr and exits 1.
 
 ### User Lookup
 
@@ -710,6 +739,7 @@ auth_flow = "device-code"
 | `TEAMS_CLI_PROFILE` | Named credential profile (overridden by `--profile`; an explicit value beats the config's `default.profile`) |
 | `TEAMS_CLI_SCOPES` | Delegated OAuth scopes for login (same precedence as `--scopes`; ignored by client credentials) |
 | `TEAMS_CLI_ACCESS_TOKEN` | Pre-obtained Microsoft Graph access token (skips login entirely; `--profile`/`TEAMS_CLI_PROFILE` do not affect which token is used) |
+| `TEAMS_CLI_CLIENT_STATE` | Secret `teams listen` requires in each notification's `clientState` (same as `--client-state`) |
 | `RUST_LOG` | Tracing filter (e.g., `debug`, `teams=trace`) |
 
 ## Verbosity

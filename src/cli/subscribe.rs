@@ -27,6 +27,9 @@ pub enum SubscribeCommand {
         /// Client state string for validation
         #[arg(long)]
         client_state: Option<String>,
+        /// Lifecycle notification URL; Graph requires it for subscriptions over one hour
+        #[arg(long)]
+        lifecycle_url: Option<String>,
     },
     /// List active subscriptions
     List,
@@ -62,6 +65,7 @@ pub async fn run(
             webhook_url,
             expiration,
             client_state,
+            lifecycle_url,
         } => {
             let start = Instant::now();
             let expiration_date_time = expiration.unwrap_or_else(|| {
@@ -74,6 +78,7 @@ pub async fn run(
                 resource,
                 expiration_date_time,
                 client_state,
+                lifecycle_notification_url: lifecycle_url,
             };
             let sub = api::subscriptions::create_subscription(&client, &req).await?;
             output::print_success(format, &sub, start);

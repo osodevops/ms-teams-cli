@@ -47,7 +47,7 @@ fn try_write_stdout(bytes: &[u8]) -> io::Result<()> {
     io::stdout().lock().write_all(bytes)
 }
 
-fn try_write_stdout_line(line: &str) -> io::Result<()> {
+pub fn try_write_stdout_line(line: &str) -> io::Result<()> {
     let stdout = io::stdout();
     let mut stdout = stdout.lock();
     stdout.write_all(line.as_bytes())?;

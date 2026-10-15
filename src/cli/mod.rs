@@ -164,9 +164,16 @@ pub enum Commands {
     },
     /// Start a webhook listener for change notifications
     Listen {
-        /// Port to listen on
+        /// Port to listen on (0 picks a free port)
         #[arg(long, default_value = "8080")]
         port: u16,
+        /// Address to bind. Use 0.0.0.0 to accept connections from other hosts
+        #[arg(long, default_value = "127.0.0.1")]
+        bind: std::net::IpAddr,
+        /// Print only notifications carrying this clientState. Prefer the
+        /// environment variable: a flag value shows in process listings
+        #[arg(long, env = "TEAMS_CLI_CLIENT_STATE", hide_env_values = true)]
+        client_state: Option<String>,
     },
 }
 
@@ -234,7 +241,11 @@ pub async fn run(cli: Cli, config: &ConfigFile) -> Result<()> {
         Commands::Subscribe { command } => {
             subscribe::run(command, &runtime_config, &profile, format, &pagination).await
         }
-        Commands::Listen { port } => listen::run(port).await,
+        Commands::Listen {
+            port,
+            bind,
+            client_state,
+        } => listen::run(bind, port, client_state).await,
     }
 }
 

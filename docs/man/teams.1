@@ -337,16 +337,48 @@ for a destination file because global
 is reserved for json, human, and plain output formats.
 .SH SUBSCRIPTIONS AND LISTENER
 .nf
-teams subscribe create --resource RESOURCE --change-type TYPES --webhook-url URL [--expiration ISO8601] [--client-state STATE]
+teams subscribe create --resource RESOURCE --change-type TYPES --webhook-url URL [--expiration ISO8601] [--client-state STATE] [--lifecycle-url URL]
 teams subscribe list
 teams subscribe renew SUBSCRIPTION_ID [--expiration ISO8601]
 teams subscribe delete SUBSCRIPTION_ID
-teams listen [--port PORT]
+teams listen [--port PORT] [--bind ADDR] [--client-state SECRET]
 .fi
 .PP
 Microsoft Graph requires HTTPS notification URLs. The local listener is plain
 HTTP and is intended to sit behind a reverse proxy such as ngrok for testing.
-It emits change notifications as newline-delimited JSON.
+It emits change notifications as newline-delimited JSON: every field Graph
+sent except
+.B clientState,
+plus
+.B kind
+(\fBlifecycle\fR when
+.B lifecycleEvent
+is present, else \fBchange\fR).
+.PP
+The listener binds 127.0.0.1 unless
+.B --bind
+names another address, such as 0.0.0.0.
+With
+.B --client-state
+(or
+.B TEAMS_CLI_CLIENT_STATE),
+notifications without that clientState are dropped with a warning on stderr;
+without it, the listener warns that notifications are not authenticated.
+.PP
+Behind a relay, POST the raw Graph body
+.B {"value":[...]}
+to / or /webhook, and answer Graph's validationToken request at the public
+edge. Responses: 202 queued, or dropped for a wrong clientState (do not
+retry); 400 malformed (do not retry); 408 body not received within 10
+seconds; 413 body over 1 MiB (do not retry); 503 output queue full because
+the stdout reader is behind, or shutting down (retry with backoff). At most 64
+connections are served at once, and headers must arrive within 10 seconds.
+.PP
+On Ctrl+C or SIGTERM the listener stops accepting, answers 503, and writes out
+every notification it already answered 202. A second signal abandons the rest.
+If any acknowledged notification is not written, the count goes to stderr and
+the exit code is 1.
+A port already in use exits with code 10.
 .SH COMPLETIONS
 .nf
 teams completions bash
@@ -367,6 +399,12 @@ Azure AD client secret for client credentials auth.
 Prefer it to
 .B --client-secret,
 whose value shows in process listings and shell history.
+.TP
+.B TEAMS_CLI_CLIENT_STATE
+Secret
+.B teams listen
+requires in each notification's clientState. Same as
+.B --client-state.
 .TP
 .B TEAMS_CLI_TENANT_ID
 Azure AD tenant ID.

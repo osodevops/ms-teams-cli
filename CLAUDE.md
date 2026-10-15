@@ -84,10 +84,12 @@ CLI flags > env vars (TEAMS_CLI_CLIENT_ID, TEAMS_CLI_CLIENT_SECRET, TEAMS_CLI_TE
 - `$top` parameter for page size control
 
 ### Webhook Listener
-- `teams listen --port 8080` starts a hyper HTTP server
+- `teams listen --port 8080` starts a hyper HTTP server on 127.0.0.1 (`--bind` to change)
 - Handles Graph subscription validation (echoes `?validationToken`)
-- Outputs change notifications as NDJSON to stdout
-- Multi-connection, graceful Ctrl+C shutdown
+- Outputs change notifications as NDJSON to stdout via a bounded queue and writer thread: 202 once queued, 503 when full
+- `--client-state` / `TEAMS_CLI_CLIENT_STATE` drops notifications with another or no `clientState`; output strips `clientState` and adds `kind`
+- Limits: 1 MiB body (413), 10s header and body deadlines, 64 connections
+- Ctrl+C/SIGTERM: stop admitting (503), write out everything acknowledged; a second signal abandons it; unwritten acknowledged lines → count on stderr, exit 1
 - Requires HTTPS via reverse proxy (ngrok) for production use
 
 ## Environment Variables
@@ -95,6 +97,7 @@ CLI flags > env vars (TEAMS_CLI_CLIENT_ID, TEAMS_CLI_CLIENT_SECRET, TEAMS_CLI_TE
 - `TEAMS_CLI_CLIENT_SECRET` — Azure AD client secret
 - `TEAMS_CLI_TENANT_ID` — Azure AD tenant ID
 - `TEAMS_CLI_ACCESS_TOKEN` — Pre-obtained access token
+- `TEAMS_CLI_CLIENT_STATE` — clientState `teams listen` requires on notifications
 - `TEAMS_CLI_TOKEN_STORE` — `keyring` (default) or `file` (0600 files under the config dir's `tokens/`)
 - `RUST_LOG` — Tracing filter level
 
