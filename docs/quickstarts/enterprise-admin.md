@@ -68,7 +68,7 @@ Confirm:
 For a customer-owned app:
 
 - Create an Entra app registration.
-- Configure public client redirect URI `http://localhost:8400/callback`.
+- Configure public client redirect URI `http://localhost/callback`.
 - Enable public client flows.
 - Add delegated Graph permissions required by your chosen command set.
 - Grant admin consent.

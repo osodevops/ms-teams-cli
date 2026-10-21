@@ -4,7 +4,11 @@
 
 ### Added
 
-- `--redirect-uri`, `TEAMS_CLI_REDIRECT_URI` and the profile's `redirect_uri` select the browser login's redirect URI for `auth login`, `auth consent-url` and `auth doctor`. The login listens on the URI's host and port (both loopback addresses for `localhost`) and accepts the callback on any path; the flag is saved to the profile with the IDs. The default is unchanged.
+- `--redirect-uri`, `TEAMS_CLI_REDIRECT_URI` and the profile's `redirect_uri` select the browser login's redirect URI for `auth login`, `auth consent-url` and `auth doctor`. The login listens on the URI's host and port (both loopback addresses for `localhost`) and accepts the callback on any path; the flag is saved to the profile with the IDs. A redirect URI without a port gets a free port from the OS at each login, as MSAL does; the identity platform allows this because it ignores the port of a localhost redirect URI, so `--redirect-uri http://localhost` works for an app registered that way.
+
+### Changed
+
+- The default redirect URI is now `http://localhost/callback` on a free port instead of `http://localhost:8400/callback`, so a busy port 8400 no longer blocks login. App registrations with `http://localhost:8400/callback` keep working because the port is ignored.
 
 ### Changed
 

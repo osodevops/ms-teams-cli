@@ -34,7 +34,7 @@ Known live behavior:
 Entra app registration status as of 2026-05-27:
 
 - OSO public client app is multi-tenant (`AzureADMultipleOrgs`).
-- Public client redirect URI is configured as `http://localhost:8400/callback`.
+- Public client redirect URI is configured as `http://localhost/callback`.
 - Public client/device-code fallback is enabled.
 - Implicit grant access-token and ID-token issuance are disabled.
 - Home tenant admin consent has been granted for the current delegated scope bundle.

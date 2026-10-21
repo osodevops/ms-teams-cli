@@ -124,7 +124,7 @@ The CLI has OSO's multi-tenant delegated public client app baked in:
 ```text
 Client ID: fba1b5d0-fdd0-4fe2-9729-9ccdc38f9595
 Default authority: organizations
-Loopback redirect URI: http://localhost:8400/callback
+Loopback redirect URI: http://localhost/callback (any port)
 ```
 
 Customer admin consent:
@@ -201,7 +201,7 @@ teams auth login --device-code --scopes "User.Read ChannelMessage.Read.All offli
 teams auth login --client-id <client-id> --tenant-id <tenant-id>
 
 # Browser login with an app whose registered redirect URI is http://localhost (no path)
-teams auth login --client-id <client-id> --tenant-id <tenant-id> --redirect-uri http://localhost:8400
+teams auth login --client-id <client-id> --tenant-id <tenant-id> --redirect-uri http://localhost
 
 # Device code flow with a customer-owned app
 teams auth login --device-code --client-id <client-id> --tenant-id <tenant-id>
@@ -259,8 +259,11 @@ default scope set.
 
 The browser login's redirect URI follows it too: `--redirect-uri` (or
 `TEAMS_CLI_REDIRECT_URI`), then the profile's `redirect_uri`, then
-`http://localhost:8400/callback`. The CLI listens on the URI's host and port,
+`http://localhost/callback`. The CLI listens on the URI's host and port,
 accepts the callback on any path, and the URI must be registered on the app.
+A URI without a port gets a free port from the OS at each login; the identity
+platform ignores the port of a localhost redirect URI, so the registered URI
+needs none.
 
 When permissions are consented after login (for example an admin grants a new
 delegated scope), `teams auth refresh` silently redeems the stored refresh

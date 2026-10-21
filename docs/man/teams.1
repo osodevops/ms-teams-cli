@@ -106,7 +106,8 @@ or
 then the profile
 .B redirect_uri
 field, then
-.B http://localhost:8400/callback.
+.B http://localhost/callback.
+A URI without a port gets a free port from the operating system.
 .B teams auth refresh
 silently redeems the stored refresh token for the resolved scopes, picking up
 newly admin-consented permissions without a browser; without an explicit

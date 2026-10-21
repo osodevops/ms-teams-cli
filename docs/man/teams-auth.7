@@ -18,7 +18,7 @@ Delegated login defaults to the OSO multi-tenant public client app:
 .nf
 Client ID: fba1b5d0-fdd0-4fe2-9729-9ccdc38f9595
 Authority: organizations
-Redirect URI: http://localhost:8400/callback
+Redirect URI: http://localhost/callback (any port)
 .fi
 .PP
 Common login commands:
@@ -65,7 +65,7 @@ permissions beyond the defaults.
 An app whose registered redirect URI has no path, such as
 .B http://localhost,
 needs
-.B redirect_uri = "http://localhost:8400"
+.B redirect_uri = "http://localhost"
 in the profile or
 .B --redirect-uri
 at login.

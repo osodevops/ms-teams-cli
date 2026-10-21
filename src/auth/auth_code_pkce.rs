@@ -62,7 +62,9 @@ fn build_authorize_url(
 
 /// The loopback socket addresses the redirect URI names. `localhost` can
 /// resolve to ::1 or 127.0.0.1 depending on the browser, so both are
-/// returned and the login listens on each.
+/// returned and the login listens on each. A URI without a port, or with
+/// port 0 or 80, leaves the port to the OS (the url crate reports port 80 as
+/// none), so those addresses carry port 0.
 pub(crate) fn loopback_addrs(redirect_uri: &str) -> Result<Vec<SocketAddr>> {
     let url = url::Url::parse(redirect_uri).map_err(|e| {
         TeamsError::InvalidInput(format!("Invalid redirect URI '{redirect_uri}': {e}"))
@@ -81,6 +83,7 @@ pub(crate) fn loopback_addrs(redirect_uri: &str) -> Result<Vec<SocketAddr>> {
     if url.scheme() != "http" || !host_ok {
         return Err(reject());
     }
+    let port = url.port().unwrap_or(0);
     let addrs: Vec<SocketAddr> = url
         .socket_addrs(|| None)
         .map_err(|e| {
@@ -88,6 +91,10 @@ pub(crate) fn loopback_addrs(redirect_uri: &str) -> Result<Vec<SocketAddr>> {
         })?
         .into_iter()
         .filter(|addr| addr.ip().is_loopback())
+        .map(|mut addr| {
+            addr.set_port(port);
+            addr
+        })
         .collect();
     if addrs.is_empty() {
         return Err(reject());
@@ -97,13 +104,30 @@ pub(crate) fn loopback_addrs(redirect_uri: &str) -> Result<Vec<SocketAddr>> {
 
 /// Listen on each address. A machine without IPv6 cannot bind `[::1]`, so one
 /// bound address is enough, but a port held by another process is an error:
-/// the browser could deliver the authorization code to that process.
-async fn bind_loopback(addrs: Vec<SocketAddr>) -> Result<Vec<tokio::net::TcpListener>> {
+/// the browser could deliver the authorization code to that process. Port 0
+/// asks the OS for a free port, which the other addresses then share, so the
+/// redirect URI names one port whichever address the browser connects to.
+/// Returns the listeners and that port.
+async fn bind_loopback(addrs: Vec<SocketAddr>) -> Result<(Vec<tokio::net::TcpListener>, u16)> {
     let mut listeners = Vec::new();
+    let mut port = 0;
     let mut skipped = None;
-    for addr in addrs {
+    for mut addr in addrs {
+        if addr.port() == 0 {
+            addr.set_port(port);
+        }
         match tokio::net::TcpListener::bind(addr).await {
-            Ok(listener) => listeners.push(listener),
+            Ok(listener) => {
+                port = listener
+                    .local_addr()
+                    .map_err(|e| {
+                        TeamsError::AuthError(format!(
+                            "Failed to bind loopback server on {addr}: {e}"
+                        ))
+                    })?
+                    .port();
+                listeners.push(listener);
+            }
             Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
                 return Err(TeamsError::AuthError(format!(
                     "Failed to bind loopback server on {addr}: {e}"
@@ -122,7 +146,21 @@ async fn bind_loopback(addrs: Vec<SocketAddr>) -> Result<Vec<tokio::net::TcpList
             "Failed to bind loopback server on {addr}: {e}"
         )));
     }
-    Ok(listeners)
+    Ok((listeners, port))
+}
+
+/// The redirect URI with the listener's port in it, when the URI left the
+/// port to the OS. A URI that names a port is sent exactly as given.
+fn redirect_uri_with_port(redirect_uri: &str, port: u16) -> Result<String> {
+    let mut url = url::Url::parse(redirect_uri).map_err(|e| {
+        TeamsError::InvalidInput(format!("Invalid redirect URI '{redirect_uri}': {e}"))
+    })?;
+    if url.port().unwrap_or(0) != 0 {
+        return Ok(redirect_uri.to_string());
+    }
+    url.set_port(Some(port))
+        .map_err(|()| TeamsError::AuthError("Cannot set the redirect URI port".into()))?;
+    Ok(url.to_string())
 }
 
 /// Authenticate using authorization code flow with PKCE.
@@ -139,19 +177,19 @@ pub async fn authenticate(
 
     let state = random_urlsafe_bytes(16)?;
 
+    // Start loopback server
+    let (tx, rx) = oneshot::channel::<String>();
+
+    let (listeners, port) = bind_loopback(addrs).await?;
+    let redirect_uri = redirect_uri_with_port(redirect_uri, port)?;
     let auth_url = build_authorize_url(
         client_id,
         tenant_id,
         scopes,
         &state,
         &challenge,
-        redirect_uri,
+        &redirect_uri,
     );
-
-    // Start loopback server
-    let (tx, rx) = oneshot::channel::<String>();
-
-    let listeners = bind_loopback(addrs).await?;
 
     let tx = Arc::new(Mutex::new(Some(tx)));
     let mut server_handles = Vec::new();
@@ -249,7 +287,7 @@ pub async fn authenticate(
             ("grant_type", "authorization_code"),
             ("client_id", client_id),
             ("code", &code),
-            ("redirect_uri", redirect_uri),
+            ("redirect_uri", redirect_uri.as_str()),
             ("code_verifier", &verifier),
             ("scope", scopes),
         ])
@@ -349,10 +387,16 @@ mod tests {
             loopback_addrs("http://[::1]:8400").unwrap(),
             vec!["[::1]:8400".parse::<SocketAddr>().unwrap()]
         );
-        assert!(loopback_addrs("http://localhost")
-            .unwrap()
-            .iter()
-            .all(|a| a.port() == 80));
+        for uri in [
+            "http://localhost",
+            "http://localhost:80/callback",
+            "http://localhost:0",
+        ] {
+            assert!(
+                loopback_addrs(uri).unwrap().iter().all(|a| a.port() == 0),
+                "{uri}"
+            );
+        }
     }
 
     #[test]
@@ -383,9 +427,46 @@ mod tests {
         let unavailable: SocketAddr = "192.0.2.1:0".parse().unwrap();
         let free: SocketAddr = "127.0.0.1:0".parse().unwrap();
         assert_eq!(
-            bind_loopback(vec![unavailable, free]).await.unwrap().len(),
+            bind_loopback(vec![unavailable, free])
+                .await
+                .unwrap()
+                .0
+                .len(),
             1
         );
         assert!(bind_loopback(vec![unavailable]).await.is_err());
+    }
+
+    /// Port 0 gets a free port from the OS, and every other address gets the
+    /// same one, so the redirect URI names one port. [::1] may be skipped on a
+    /// machine without IPv6, which is why only the bound ones are checked.
+    #[tokio::test]
+    async fn bind_loopback_shares_one_free_port() {
+        let addrs: Vec<SocketAddr> =
+            vec!["127.0.0.1:0".parse().unwrap(), "[::1]:0".parse().unwrap()];
+        let (listeners, port) = bind_loopback(addrs).await.unwrap();
+        assert_ne!(port, 0);
+        assert!(!listeners.is_empty());
+        assert!(listeners
+            .iter()
+            .all(|l| l.local_addr().unwrap().port() == port));
+    }
+
+    #[test]
+    fn redirect_uri_gets_the_listener_port_only_when_it_names_none() {
+        for (uri, want) in [
+            ("http://localhost", "http://localhost:54321/"),
+            (
+                "http://localhost/callback",
+                "http://localhost:54321/callback",
+            ),
+            (
+                "http://localhost:8400/callback",
+                "http://localhost:8400/callback",
+            ),
+            ("http://localhost:0", "http://localhost:54321/"),
+        ] {
+            assert_eq!(redirect_uri_with_port(uri, 54321).unwrap(), want, "{uri}");
+        }
     }
 }

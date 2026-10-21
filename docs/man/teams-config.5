@@ -149,7 +149,8 @@ is appended when missing. Ignored by client credentials login.
 Redirect URI for the browser login. The CLI listens on its host and port,
 which must be localhost or a loopback address, and sends it to the identity
 platform, where it must match the app registration. Default
-http://localhost:8400/callback.
+http://localhost/callback. A URI without a port gets a free port, which the
+identity platform allows for localhost.
 .SH RESOLUTION ORDER
 Profile resolution:
 .nf
@@ -183,7 +184,7 @@ Redirect URI resolution:
 .nf
 1. --redirect-uri flag or TEAMS_CLI_REDIRECT_URI
 2. Selected config profile redirect_uri
-3. http://localhost:8400/callback
+3. http://localhost/callback
 .fi
 .PP
 Access token resolution for normal commands:

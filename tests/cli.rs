@@ -244,8 +244,8 @@ fn auth_consent_url_uses_the_default_redirect_uri() {
         .assert()
         .success()
         .stdout(
-            predicate::str::contains(r#""redirect_uri": "http://localhost:8400/callback""#).and(
-                predicate::str::contains("redirect_uri=http%3A%2F%2Flocalhost%3A8400%2Fcallback"),
+            predicate::str::contains(r#""redirect_uri": "http://localhost/callback""#).and(
+                predicate::str::contains("redirect_uri=http%3A%2F%2Flocalhost%2Fcallback"),
             ),
         );
 }

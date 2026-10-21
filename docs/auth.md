@@ -33,7 +33,7 @@ Delegated login defaults to OSO's multi-tenant public client app:
 ```text
 Client ID: fba1b5d0-fdd0-4fe2-9729-9ccdc38f9595
 Authority: organizations
-Redirect URI: http://localhost:8400/callback
+Redirect URI: http://localhost/callback (any port)
 ```
 
 The default lets most users start with:
@@ -294,11 +294,11 @@ BYO delegated app requirements:
 
 - Supported account type: usually single-tenant for locked-down enterprises.
 - Public client flows enabled.
-- Redirect URI for browser flow: `http://localhost:8400/callback` by default.
+- Redirect URI for browser flow: `http://localhost/callback` on a port the OS picks, by default.
   `--redirect-uri`, `TEAMS_CLI_REDIRECT_URI` or the profile's `redirect_uri`
   change it. Entra ignores the port on loopback redirect URIs but matches the
   path exactly, so an app registered with `http://localhost` needs
-  `--redirect-uri http://localhost:8400`.
+  `--redirect-uri http://localhost`.
 - Delegated Graph permissions required for the features the customer wants.
 - Admin consent granted where required.
 

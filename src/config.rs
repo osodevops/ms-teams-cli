@@ -10,7 +10,8 @@ use crate::error::{Result, TeamsError};
 pub const OSO_PUBLIC_CLIENT_ID: &str = "fba1b5d0-fdd0-4fe2-9729-9ccdc38f9595";
 pub const DEFAULT_DELEGATED_TENANT_ID: &str = "organizations";
 pub const DEFAULT_DELEGATED_SCOPES: &str = "User.Read Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Send Chat.ReadWrite ChatMessage.Send ChatMessage.Read User.ReadBasic.All Presence.Read.All Presence.ReadWrite offline_access";
-pub const DEFAULT_REDIRECT_URI: &str = "http://localhost:8400/callback";
+// The port is left to the OS at login, which the identity platform allows because it ignores the port of a localhost redirect URI.
+pub const DEFAULT_REDIRECT_URI: &str = "http://localhost/callback";
 
 /// Default storage namespace of release builds.
 pub const RELEASE_NAMESPACE: &str = "teams-cli";

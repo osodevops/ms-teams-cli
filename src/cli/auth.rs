@@ -35,10 +35,10 @@ pub struct LoginArgs {
 
     /// Redirect URI for the browser login: the CLI listens on its host and
     /// port (localhost or a loopback address) and sends it to the identity
-    /// platform, where it must match the app registration. Saved to the
-    /// profile after a successful delegated login. TEAMS_CLI_REDIRECT_URI is
-    /// used when this is absent, but is not saved
-    /// [default: http://localhost:8400/callback]
+    /// platform, where it must match the app registration. Without a port,
+    /// a free port is used. Saved to the profile after a successful delegated
+    /// login. TEAMS_CLI_REDIRECT_URI is used when this is absent, but is not
+    /// saved [default: http://localhost/callback]
     #[arg(long)]
     redirect_uri: Option<String>,
 
