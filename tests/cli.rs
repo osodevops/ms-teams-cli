@@ -19,6 +19,7 @@ fn teams_process() -> std::process::Command {
     cmd.env_remove("TEAMS_CLI_CLIENT_ID");
     cmd.env_remove("TEAMS_CLI_CLIENT_SECRET");
     cmd.env_remove("TEAMS_CLI_TENANT_ID");
+    cmd.env_remove("TEAMS_CLI_REDIRECT_URI");
     cmd.env_remove("TEAMS_CLI_ACCESS_TOKEN");
     cmd.env_remove("TEAMS_CLI_TOKEN_STORE");
     cmd
@@ -222,6 +223,160 @@ fn auth_login_help_documents_scopes_flag_and_env() {
             predicate::str::contains("--scopes <SCOPES>")
                 .and(predicate::str::contains("TEAMS_CLI_SCOPES")),
         );
+}
+
+#[test]
+fn auth_login_help_documents_redirect_uri_flag_and_env() {
+    teams()
+        .args(["auth", "login", "--help"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("--redirect-uri <REDIRECT_URI>")
+                .and(predicate::str::contains("TEAMS_CLI_REDIRECT_URI")),
+        );
+}
+
+#[test]
+fn auth_consent_url_uses_the_default_redirect_uri() {
+    teams()
+        .args(["auth", "consent-url", "--output", "json"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains(r#""redirect_uri": "http://localhost:8400/callback""#).and(
+                predicate::str::contains("redirect_uri=http%3A%2F%2Flocalhost%3A8400%2Fcallback"),
+            ),
+        );
+}
+
+#[test]
+fn auth_consent_url_uses_redirect_uri_flag() {
+    teams()
+        .args([
+            "auth",
+            "consent-url",
+            "--redirect-uri",
+            "http://localhost:8400",
+            "--output",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains(r#""redirect_uri": "http://localhost:8400""#)
+                .and(predicate::str::contains(
+                    "redirect_uri=http%3A%2F%2Flocalhost%3A8400",
+                ))
+                .and(predicate::str::contains("%2Fcallback").not()),
+        );
+}
+
+#[test]
+fn auth_consent_url_uses_redirect_uri_env() {
+    let mut cmd = teams();
+    cmd.env("TEAMS_CLI_REDIRECT_URI", "http://127.0.0.1:9400");
+    cmd.args(["auth", "consent-url", "--output", "json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            r#""redirect_uri": "http://127.0.0.1:9400""#,
+        ));
+}
+
+#[test]
+fn auth_consent_url_uses_profile_redirect_uri() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    fs::write(
+        &path,
+        r#"
+[profiles.customer]
+auth_app = "byo"
+client_id = "11111111-1111-1111-1111-111111111111"
+tenant_id = "22222222-2222-2222-2222-222222222222"
+redirect_uri = "http://localhost:9400"
+"#,
+    )
+    .unwrap();
+
+    teams()
+        .args([
+            "--config",
+            path.to_str().unwrap(),
+            "--profile",
+            "customer",
+            "auth",
+            "consent-url",
+            "--output",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            r#""redirect_uri": "http://localhost:9400""#,
+        ));
+
+    teams()
+        .args([
+            "--config",
+            path.to_str().unwrap(),
+            "--profile",
+            "customer",
+            "auth",
+            "consent-url",
+            "--redirect-uri",
+            "http://localhost:9500",
+            "--output",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            r#""redirect_uri": "http://localhost:9500""#,
+        ));
+}
+
+#[test]
+fn auth_doctor_reports_redirect_uri() {
+    teams()
+        .args([
+            "auth",
+            "doctor",
+            "--redirect-uri",
+            "http://localhost:8400",
+            "--output",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            r#""redirect_uri": "http://localhost:8400""#,
+        ));
+}
+
+#[test]
+fn auth_login_rejects_a_redirect_uri_that_is_not_loopback() {
+    teams()
+        .args(["auth", "login", "--redirect-uri", "http://10.0.0.1:8400"])
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("localhost"));
+    teams()
+        .args(["auth", "login", "--redirect-uri", "https://localhost:8400"])
+        .assert()
+        .code(2);
+    teams()
+        .args([
+            "auth",
+            "login",
+            "--device-code",
+            "--redirect-uri",
+            "http://10.0.0.1:8400",
+        ])
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("localhost"));
 }
 
 #[test]

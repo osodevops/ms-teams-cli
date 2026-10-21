@@ -159,6 +159,7 @@ pub struct ProfileConfig {
     pub tenant_id: Option<String>,
     pub auth_flow: Option<String>,
     pub scopes: Option<String>,
+    pub redirect_uri: Option<String>,
 }
 
 fn default_format() -> String {
@@ -356,6 +357,22 @@ pub fn resolve_delegated_tenant_id(
         .unwrap_or_else(|| DEFAULT_DELEGATED_TENANT_ID.to_string())
 }
 
+/// The redirect URI for the browser login: flag, `TEAMS_CLI_REDIRECT_URI`,
+/// the profile, then the built-in default.
+pub fn resolve_redirect_uri(cli_flag: Option<&str>, profile: &str, config: &ConfigFile) -> String {
+    if let Some(v) = cli_flag {
+        return v.to_string();
+    }
+    if let Ok(v) = std::env::var("TEAMS_CLI_REDIRECT_URI") {
+        return v;
+    }
+    config
+        .profiles
+        .get(profile)
+        .and_then(|p| p.redirect_uri.clone())
+        .unwrap_or_else(|| DEFAULT_REDIRECT_URI.to_string())
+}
+
 /// Where login found the ID it signs in with, for the notice it prints. The
 /// order is the resolution order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -393,9 +410,10 @@ impl IdSource {
     }
 }
 
-/// Set a profile's `client_id` and `tenant_id` in the text of a config file,
-/// so that the next `auth login` for the profile signs in through the same
-/// application registration without being told again. Only these two keys
+/// Set a profile's `client_id`, `tenant_id` and `redirect_uri` in the text of
+/// a config file, so that the next `auth login` for the profile signs in
+/// through the same application registration without being told again. Only
+/// these three keys
 /// change; comments, formatting, other profiles and keys this version does
 /// not know are left as they were. Blank values are ignored. Returns the new
 /// text, or `None` when the profile already holds these values.
@@ -404,6 +422,7 @@ pub fn remember_registration(
     profile: &str,
     client_id: Option<&str>,
     tenant_id: Option<&str>,
+    redirect_uri: Option<&str>,
 ) -> Result<Option<String>> {
     let mut document: toml_edit::DocumentMut = text
         .parse()
@@ -427,7 +446,11 @@ pub fn remember_registration(
         .ok_or_else(|| not_a_table(&format!("profiles.{profile}")))?;
 
     let mut changed = false;
-    for (key, value) in [("client_id", client_id), ("tenant_id", tenant_id)] {
+    for (key, value) in [
+        ("client_id", client_id),
+        ("tenant_id", tenant_id),
+        ("redirect_uri", redirect_uri),
+    ] {
         let Some(value) = value.map(str::trim).filter(|v| !v.is_empty()) else {
             continue;
         };
@@ -761,6 +784,7 @@ scopes = "User.Read People.Read offline_access"
                 tenant_id: None,
                 auth_flow: None,
                 scopes: None,
+                redirect_uri: None,
             },
         );
 
@@ -791,6 +815,30 @@ scopes = "User.Read People.Read offline_access"
         assert_eq!(
             resolve_delegated_tenant_id(None, "default", &config),
             DEFAULT_DELEGATED_TENANT_ID
+        );
+    }
+
+    #[test]
+    fn resolve_redirect_uri_priority() {
+        let mut config = ConfigFile::default();
+        assert_eq!(
+            resolve_redirect_uri(None, "work", &config),
+            DEFAULT_REDIRECT_URI
+        );
+        config.profiles.insert(
+            "work".to_string(),
+            ProfileConfig {
+                redirect_uri: Some("http://localhost:9400".to_string()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            resolve_redirect_uri(None, "work", &config),
+            "http://localhost:9400"
+        );
+        assert_eq!(
+            resolve_redirect_uri(Some("http://localhost:9500"), "work", &config),
+            "http://localhost:9500"
         );
     }
 
@@ -900,6 +948,7 @@ scopes = "User.Read People.Read offline_access"
                 tenant_id: Some("tenant".into()),
                 auth_flow: Some("device-code".into()),
                 scopes: None,
+                redirect_uri: None,
             },
         );
 
@@ -1010,8 +1059,14 @@ scopes = "User.Read People.Read offline_access"
         );
     }
 
-    fn remember(text: &str, profile: &str, client: Option<&str>, tenant: Option<&str>) -> String {
-        remember_registration(text, profile, client, tenant)
+    fn remember(
+        text: &str,
+        profile: &str,
+        client: Option<&str>,
+        tenant: Option<&str>,
+        redirect: Option<&str>,
+    ) -> String {
+        remember_registration(text, profile, client, tenant, redirect)
             .unwrap()
             .expect("the registration should change the file")
     }
@@ -1022,10 +1077,16 @@ scopes = "User.Read People.Read offline_access"
 
     #[test]
     fn remember_registration_creates_the_file_and_the_profile() {
-        let text = remember("", "benbot", Some("app-1"), Some("tenant-1"));
+        let text = remember(
+            "",
+            "benbot",
+            Some("app-1"),
+            Some("tenant-1"),
+            Some("http://localhost:8400"),
+        );
         assert_eq!(
             text,
-            "[profiles.benbot]\nclient_id = \"app-1\"\ntenant_id = \"tenant-1\"\n"
+            "[profiles.benbot]\nclient_id = \"app-1\"\ntenant_id = \"tenant-1\"\nredirect_uri = \"http://localhost:8400\"\n"
         );
     }
 
@@ -1050,7 +1111,7 @@ scopes = \"User.Read\"
 [profiles.other]
 client_id = \"other-app\"
 ";
-        let text = remember(original, "work", Some("new-app"), None);
+        let text = remember(original, "work", Some("new-app"), None, None);
         assert_eq!(
             text,
             original.replace("client_id = \"old-app\"", "client_id = \"new-app\"")
@@ -1060,7 +1121,7 @@ client_id = \"other-app\"
     #[test]
     fn remember_registration_keeps_a_replaced_value_s_comment_and_spacing() {
         let original = "[profiles.work]\nclient_id  =  \"old-app\"   # customer app\n";
-        let text = remember(original, "work", Some("new-app"), None);
+        let text = remember(original, "work", Some("new-app"), None, None);
         assert_eq!(
             text,
             "[profiles.work]\nclient_id  =  \"new-app\"   # customer app\n"
@@ -1071,12 +1132,12 @@ client_id = \"other-app\"
     fn remember_registration_edits_dotted_and_inline_profiles() {
         let dotted = "profiles.work.client_id = \"old-app\"\n";
         assert_eq!(
-            remember(dotted, "work", Some("new-app"), None),
+            remember(dotted, "work", Some("new-app"), None, None),
             "profiles.work.client_id = \"new-app\"\n"
         );
         let inline = "[profiles]\nwork = { client_id = \"old-app\" }\n";
         assert_eq!(
-            remember(inline, "work", Some("new-app"), None),
+            remember(inline, "work", Some("new-app"), None, None),
             "[profiles]\nwork = { client_id = \"new-app\" }\n"
         );
     }
@@ -1084,7 +1145,7 @@ client_id = \"other-app\"
     #[test]
     fn remember_registration_adds_a_profile_beside_existing_ones() {
         let original = "[profiles.work]\nclient_id = \"app-1\"\n";
-        let text = remember(original, "benbot", Some("app-2"), None);
+        let text = remember(original, "benbot", Some("app-2"), None, None);
         let config = parse(&text);
         assert_eq!(config.profiles["work"].client_id.as_deref(), Some("app-1"));
         assert_eq!(
@@ -1103,17 +1164,26 @@ client_id = \"other-app\"
             (Some("  "), Some("")),
         ] {
             assert_eq!(
-                remember_registration(original, "work", client, tenant).unwrap(),
+                remember_registration(original, "work", client, tenant, None).unwrap(),
                 None
             );
         }
-        assert_eq!(remember_registration("", "new", None, None).unwrap(), None);
+        assert_eq!(
+            remember_registration("", "new", None, None, None).unwrap(),
+            None
+        );
     }
 
     #[test]
     fn remember_registration_trims_values_and_ignores_blank_ones() {
         let original = "[profiles.work]\nclient_id = \"app-1\"\ntenant_id = \"tenant-1\"\n";
-        let config = parse(&remember(original, "work", Some(" app-2 "), Some(" ")));
+        let config = parse(&remember(
+            original,
+            "work",
+            Some(" app-2 "),
+            Some(" "),
+            None,
+        ));
         assert_eq!(config.profiles["work"].client_id.as_deref(), Some("app-2"));
         assert_eq!(
             config.profiles["work"].tenant_id.as_deref(),
@@ -1123,8 +1193,10 @@ client_id = \"other-app\"
 
     #[test]
     fn remember_registration_refuses_a_file_it_cannot_edit_safely() {
-        assert!(remember_registration("profiles = \"x\"\n", "work", Some("a"), None).is_err());
-        assert!(remember_registration("[profiles\n", "work", Some("a"), None).is_err());
+        assert!(
+            remember_registration("profiles = \"x\"\n", "work", Some("a"), None, None).is_err()
+        );
+        assert!(remember_registration("[profiles\n", "work", Some("a"), None, None).is_err());
     }
 
     /// The saved IDs are what the next login resolves when it is given none,
@@ -1136,6 +1208,7 @@ client_id = \"other-app\"
             "work",
             Some("app-1"),
             Some("tenant-1"),
+            None,
         );
         let config = parse(&text);
         assert_eq!(

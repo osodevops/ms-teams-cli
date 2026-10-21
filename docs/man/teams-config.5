@@ -144,6 +144,12 @@ Delegated OAuth scope string requested at login for this profile. Replaces the
 built-in default delegated scopes;
 .B offline_access
 is appended when missing. Ignored by client credentials login.
+.TP
+.B redirect_uri
+Redirect URI for the browser login. The CLI listens on its host and port,
+which must be localhost or a loopback address, and sends it to the identity
+platform, where it must match the app registration. Default
+http://localhost:8400/callback.
 .SH RESOLUTION ORDER
 Profile resolution:
 .nf
@@ -171,6 +177,13 @@ Delegated scope resolution:
 1. --scopes flag or TEAMS_CLI_SCOPES
 2. Selected config profile scopes
 3. Built-in default delegated scopes
+.fi
+.PP
+Redirect URI resolution:
+.nf
+1. --redirect-uri flag or TEAMS_CLI_REDIRECT_URI
+2. Selected config profile redirect_uri
+3. http://localhost:8400/callback
 .fi
 .PP
 Access token resolution for normal commands:

@@ -60,11 +60,11 @@ Set page size for paginated list commands.
 Follow Graph pagination and return all pages.
 .SH AUTHENTICATION
 .nf
-teams auth login [--client-credentials] [--device-code] [--client-id ID] [--client-secret SECRET] [--tenant-id ID] [--scopes SCOPES]
+teams auth login [--client-credentials] [--device-code] [--client-id ID] [--client-secret SECRET] [--tenant-id ID] [--redirect-uri URI] [--scopes SCOPES]
 teams auth refresh [--scopes SCOPES]
 teams auth status
-teams auth consent-url [--client-id ID] [--tenant-id ID] [--scopes SCOPES]
-teams auth doctor [--client-id ID] [--tenant-id ID]
+teams auth consent-url [--client-id ID] [--tenant-id ID] [--redirect-uri URI] [--scopes SCOPES]
+teams auth doctor [--client-id ID] [--tenant-id ID] [--redirect-uri URI]
 teams auth list
 teams auth switch NAME
 teams auth logout [--profile NAME] [--all]
@@ -78,10 +78,13 @@ registrations can still be selected with
 .B --client-id
 and
 .B --tenant-id.
-A successful delegated login saves those two flags to the profile's
-.B client_id
+A successful delegated login saves those two flags, and
+.B --redirect-uri,
+to the profile's
+.B client_id,
+.B tenant_id
 and
-.B tenant_id,
+.B redirect_uri,
 so the profile's next login reuses them; values from the environment, and a
 client credentials login, are never saved.
 Client credentials always require explicit customer app credentials.
@@ -96,6 +99,14 @@ or
 then the profile
 .B scopes
 field, then the built-in default delegated scopes.
+The browser login redirect URI is
+.B --redirect-uri
+or
+.B TEAMS_CLI_REDIRECT_URI,
+then the profile
+.B redirect_uri
+field, then
+.B http://localhost:8400/callback.
 .B teams auth refresh
 silently redeems the stored refresh token for the resolved scopes, picking up
 newly admin-consented permissions without a browser; without an explicit
@@ -396,6 +407,10 @@ whose value shows in process listings and shell history.
 .TP
 .B TEAMS_CLI_TENANT_ID
 Azure AD tenant ID.
+.TP
+.B TEAMS_CLI_REDIRECT_URI
+Redirect URI for the browser login. Same precedence as
+.B --redirect-uri.
 .TP
 .B TEAMS_CLI_PROFILE
 Named credential profile. Overridden by

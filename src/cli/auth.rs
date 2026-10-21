@@ -33,6 +33,15 @@ pub struct LoginArgs {
     #[arg(long)]
     tenant_id: Option<String>,
 
+    /// Redirect URI for the browser login: the CLI listens on its host and
+    /// port (localhost or a loopback address) and sends it to the identity
+    /// platform, where it must match the app registration. Saved to the
+    /// profile after a successful delegated login. TEAMS_CLI_REDIRECT_URI is
+    /// used when this is absent, but is not saved
+    /// [default: http://localhost:8400/callback]
+    #[arg(long)]
+    redirect_uri: Option<String>,
+
     /// OAuth scopes (space-separated, for delegated flows)
     #[arg(long, env = "TEAMS_CLI_SCOPES")]
     scopes: Option<String>,
@@ -60,6 +69,10 @@ pub enum AuthCommand {
         #[arg(long, env = "TEAMS_CLI_TENANT_ID")]
         tenant_id: Option<String>,
 
+        /// Redirect URI registered on the app for the browser login
+        #[arg(long, env = "TEAMS_CLI_REDIRECT_URI")]
+        redirect_uri: Option<String>,
+
         /// OAuth scopes (space-separated) to include in the consent URL
         #[arg(long, env = "TEAMS_CLI_SCOPES")]
         scopes: Option<String>,
@@ -73,6 +86,10 @@ pub enum AuthCommand {
         /// Azure AD tenant ID or domain
         #[arg(long, env = "TEAMS_CLI_TENANT_ID")]
         tenant_id: Option<String>,
+
+        /// Redirect URI registered on the app for the browser login
+        #[arg(long, env = "TEAMS_CLI_REDIRECT_URI")]
+        redirect_uri: Option<String>,
     },
     /// List stored profiles and the account each one holds
     List,
@@ -211,12 +228,17 @@ fn profile_row(summary: &serde_json::Value, active: &str) -> Vec<String> {
     ]
 }
 
-fn delegated_admin_consent_url(client_id: &str, tenant_id: &str, delegated_scopes: &str) -> String {
+fn delegated_admin_consent_url(
+    client_id: &str,
+    tenant_id: &str,
+    delegated_scopes: &str,
+    redirect_uri: &str,
+) -> String {
     let scopes = graph_admin_consent_scopes(delegated_scopes);
     format!(
         "https://login.microsoftonline.com/{tenant_id}/v2.0/adminconsent?client_id={client_id}&scope={}&redirect_uri={}",
         urlencoding::encode(&scopes),
-        urlencoding::encode(config::DEFAULT_REDIRECT_URI)
+        urlencoding::encode(redirect_uri)
     )
 }
 
@@ -250,8 +272,8 @@ fn login_registration(
     Ok((client_id, tenant_id))
 }
 
-/// Save the IDs given on the command line to the profile, editing only those
-/// two keys in the config file. The file is read again here rather than
+/// Save the IDs and redirect URI given on the command line to the profile,
+/// editing only those three keys in the config file. The file is read again here rather than
 /// reused from startup, because an interactive login can take minutes and
 /// the file may have been edited meanwhile.
 ///
@@ -282,6 +304,7 @@ fn save_registration(args: &LoginArgs, config_path: Option<&str>, profile: &str)
         profile,
         args.client_id.as_deref(),
         args.tenant_id.as_deref(),
+        args.redirect_uri.as_deref(),
     )?;
     match updated {
         Some(updated) => config::write_config_text(&path, &updated).map(|()| true),
@@ -294,7 +317,7 @@ fn save_registration(args: &LoginArgs, config_path: Option<&str>, profile: &str)
 fn save_registration_or_warn(args: &LoginArgs, config_path: Option<&str>, profile: &str) -> bool {
     save_registration(args, config_path, profile).unwrap_or_else(|e| {
         eprintln!(
-            "Warning: signed in, but could not save the client and tenant IDs to profile \
+            "Warning: signed in, but could not save the client ID, tenant ID and redirect URI to profile \
              '{profile}': {e}. Pass them again at the next login."
         );
         false
@@ -338,6 +361,11 @@ async fn login(
     let start = Instant::now();
     config::check_new_profile_name(profile, config)?;
     let (client_id, tenant_id) = login_registration(&args, config, profile)?;
+    // A given redirect URI is saved to the profile after any delegated login,
+    // so it is checked here even when the device code flow does not use it.
+    if let Some(uri) = args.redirect_uri.as_deref() {
+        auth::auth_code_pkce::loopback_addrs(uri)?;
+    }
     let client_secret = if args.client_credentials {
         Some(
             config::resolve_client_secret(args.client_secret.as_deref()).ok_or_else(|| {
@@ -358,7 +386,10 @@ async fn login(
         if args.device_code {
             auth::device_code::authenticate(&client_id, &tenant_id, Some(&scopes)).await?
         } else {
-            auth::auth_code_pkce::authenticate(&client_id, &tenant_id, Some(&scopes)).await?
+            let redirect_uri =
+                config::resolve_redirect_uri(args.redirect_uri.as_deref(), profile, config);
+            auth::auth_code_pkce::authenticate(&client_id, &tenant_id, Some(&scopes), &redirect_uri)
+                .await?
         }
     };
 
@@ -416,6 +447,7 @@ pub async fn run(
         AuthCommand::ConsentUrl {
             client_id,
             tenant_id,
+            redirect_uri,
             scopes,
         } => {
             let start = Instant::now();
@@ -423,14 +455,16 @@ pub async fn run(
                 config::resolve_delegated_client_id(client_id.as_deref(), profile, config)?;
             let tenant_id =
                 config::resolve_delegated_tenant_id(tenant_id.as_deref(), profile, config);
+            let redirect_uri =
+                config::resolve_redirect_uri(redirect_uri.as_deref(), profile, config);
             let scopes = config::resolve_delegated_scopes(scopes.as_deref(), profile, config);
-            let url = delegated_admin_consent_url(&client_id, &tenant_id, &scopes);
+            let url = delegated_admin_consent_url(&client_id, &tenant_id, &scopes, &redirect_uri);
             let msg = serde_json::json!({
                 "admin_consent_url": url,
                 "client_id": client_id,
                 "tenant_id": tenant_id,
                 "scope": scopes,
-                "redirect_uri": config::DEFAULT_REDIRECT_URI,
+                "redirect_uri": redirect_uri,
             });
             output::print_success(format, &msg, start);
             Ok(())
@@ -439,12 +473,15 @@ pub async fn run(
         AuthCommand::Doctor {
             client_id,
             tenant_id,
+            redirect_uri,
         } => {
             let start = Instant::now();
             let client_id =
                 config::resolve_delegated_client_id(client_id.as_deref(), profile, config)?;
             let tenant_id =
                 config::resolve_delegated_tenant_id(tenant_id.as_deref(), profile, config);
+            let redirect_uri =
+                config::resolve_redirect_uri(redirect_uri.as_deref(), profile, config);
             let auth_app = if client_id == config::OSO_PUBLIC_CLIENT_ID {
                 "oso"
             } else {
@@ -455,8 +492,12 @@ pub async fn run(
             let claims = token.as_ref().and_then(|t| t.unverified_claims());
             let warnings = token_warnings(claims.as_ref());
             let resolved_scopes = config::resolve_delegated_scopes(None, profile, config);
-            let admin_consent_url =
-                delegated_admin_consent_url(&client_id, &tenant_id, &resolved_scopes);
+            let admin_consent_url = delegated_admin_consent_url(
+                &client_id,
+                &tenant_id,
+                &resolved_scopes,
+                &redirect_uri,
+            );
             let msg = serde_json::json!({
                 "profile": profile,
                 "auth_app": auth_app,
@@ -465,7 +506,7 @@ pub async fn run(
                 "admin_consent_url": admin_consent_url,
                 "default_delegated_scopes": config::DEFAULT_DELEGATED_SCOPES,
                 "resolved_delegated_scopes": resolved_scopes,
-                "redirect_uri": config::DEFAULT_REDIRECT_URI,
+                "redirect_uri": redirect_uri,
                 "authenticated": token.is_some(),
                 "warnings": warnings,
                 "token": token.as_ref().map(|t| serde_json::json!({
@@ -763,6 +804,7 @@ mod tests {
             client_id: client_id.map(str::to_string),
             client_secret: None,
             tenant_id: client_id.map(|_| "tenant-1".to_string()),
+            redirect_uri: None,
             scopes: None,
         }
     }
@@ -782,6 +824,25 @@ mod tests {
         );
         // Given the same IDs again, the file is already up to date.
         assert!(!save_registration(&args, Some(path), "work").unwrap());
+    }
+
+    #[test]
+    fn a_delegated_login_saves_the_redirect_uri_it_was_given() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let path = path.to_str().unwrap();
+        let mut args = login_args(false, Some("app-1"));
+        assert!(save_registration(&args, Some(path), "work").unwrap());
+        let saved = config::load_config(Some(path)).unwrap();
+        assert_eq!(saved.profiles["work"].redirect_uri, None);
+
+        args.redirect_uri = Some("http://localhost:8400".to_string());
+        assert!(save_registration(&args, Some(path), "work").unwrap());
+        let saved = config::load_config(Some(path)).unwrap();
+        assert_eq!(
+            saved.profiles["work"].redirect_uri.as_deref(),
+            Some("http://localhost:8400")
+        );
     }
 
     /// A client credentials login saves nothing: the profile's next delegated

@@ -210,11 +210,12 @@ teams auth login --device-code \
   --tenant-id <customer-tenant-id>
 ```
 
-After a successful delegated login (browser or device code), a client ID or
-tenant ID given with `--client-id` or `--tenant-id` is saved to the profile's
-`client_id` and `tenant_id` in the config file. The next `teams auth login` for that profile signs in through the
+After a successful delegated login (browser or device code), a client ID,
+tenant ID or redirect URI given with `--client-id`, `--tenant-id` or
+`--redirect-uri` is saved to the profile's `client_id`, `tenant_id` and
+`redirect_uri` in the config file. The next `teams auth login` for that profile signs in through the
 same registration without being told again, instead of falling back to the
-built-in app. Only those two values change; comments, layout and every other
+built-in app. Only those values change; comments, layout and every other
 setting in the file are left as they were, and a symlinked config file stays
 a symlink. A login that fails saves nothing, and a value given again replaces
 the saved one. Saving is best effort: if the file cannot be written, the
@@ -283,8 +284,9 @@ teams --profile customer auth login --device-code
 teams --profile customer auth doctor --output json
 ```
 
-Instead of editing the file, a delegated login given `--client-id` and
-`--tenant-id` writes the profile's `client_id` and `tenant_id` once it
+Instead of editing the file, a delegated login given `--client-id`,
+`--tenant-id` and `--redirect-uri` writes the profile's `client_id`,
+`tenant_id` and `redirect_uri` once it
 succeeds, leaving the rest of the file as it was (see "Customer-owned
 delegated app" above).
 
@@ -292,7 +294,11 @@ BYO delegated app requirements:
 
 - Supported account type: usually single-tenant for locked-down enterprises.
 - Public client flows enabled.
-- Redirect URI for browser flow: `http://localhost:8400/callback`.
+- Redirect URI for browser flow: `http://localhost:8400/callback` by default.
+  `--redirect-uri`, `TEAMS_CLI_REDIRECT_URI` or the profile's `redirect_uri`
+  change it. Entra ignores the port on loopback redirect URIs but matches the
+  path exactly, so an app registered with `http://localhost` needs
+  `--redirect-uri http://localhost:8400`.
 - Delegated Graph permissions required for the features the customer wants.
 - Admin consent granted where required.
 

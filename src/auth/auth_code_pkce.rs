@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use tokio::sync::oneshot;
 
 use super::token::MsTokenResponse;
-use crate::config::{DEFAULT_DELEGATED_SCOPES, DEFAULT_REDIRECT_URI};
+use crate::config::DEFAULT_DELEGATED_SCOPES;
 use crate::error::{Result, TeamsError};
 
 fn random_urlsafe_bytes(len: usize) -> Result<String> {
@@ -43,6 +43,7 @@ fn build_authorize_url(
     scopes: &str,
     state: &str,
     challenge: &str,
+    redirect_uri: &str,
 ) -> String {
     format!(
         "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize?\
@@ -54,9 +55,74 @@ fn build_authorize_url(
          &code_challenge={challenge}\
          &code_challenge_method=S256\
          &prompt=select_account",
-        urlencoding::encode(DEFAULT_REDIRECT_URI),
+        urlencoding::encode(redirect_uri),
         urlencoding::encode(scopes),
     )
+}
+
+/// The loopback socket addresses the redirect URI names. `localhost` can
+/// resolve to ::1 or 127.0.0.1 depending on the browser, so both are
+/// returned and the login listens on each.
+pub(crate) fn loopback_addrs(redirect_uri: &str) -> Result<Vec<SocketAddr>> {
+    let url = url::Url::parse(redirect_uri).map_err(|e| {
+        TeamsError::InvalidInput(format!("Invalid redirect URI '{redirect_uri}': {e}"))
+    })?;
+    let reject = || {
+        TeamsError::InvalidInput(format!(
+            "Redirect URI '{redirect_uri}' must use http and point at localhost or a loopback address"
+        ))
+    };
+    // Only `localhost` and IP literals are resolved, so a typo never becomes a DNS lookup.
+    let host_ok = match url.host() {
+        Some(url::Host::Domain(name)) => name == "localhost",
+        Some(_) => true,
+        None => false,
+    };
+    if url.scheme() != "http" || !host_ok {
+        return Err(reject());
+    }
+    let addrs: Vec<SocketAddr> = url
+        .socket_addrs(|| None)
+        .map_err(|e| {
+            TeamsError::InvalidInput(format!("Invalid redirect URI '{redirect_uri}': {e}"))
+        })?
+        .into_iter()
+        .filter(|addr| addr.ip().is_loopback())
+        .collect();
+    if addrs.is_empty() {
+        return Err(reject());
+    }
+    Ok(addrs)
+}
+
+/// Listen on each address. A machine without IPv6 cannot bind `[::1]`, so one
+/// bound address is enough, but a port held by another process is an error:
+/// the browser could deliver the authorization code to that process.
+async fn bind_loopback(addrs: Vec<SocketAddr>) -> Result<Vec<tokio::net::TcpListener>> {
+    let mut listeners = Vec::new();
+    let mut skipped = None;
+    for addr in addrs {
+        match tokio::net::TcpListener::bind(addr).await {
+            Ok(listener) => listeners.push(listener),
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+                return Err(TeamsError::AuthError(format!(
+                    "Failed to bind loopback server on {addr}: {e}"
+                )))
+            }
+            Err(e) => {
+                tracing::debug!("Not listening on {addr}: {e}");
+                skipped = Some((addr, e));
+            }
+        }
+    }
+    if listeners.is_empty() {
+        let (addr, e) = skipped
+            .ok_or_else(|| TeamsError::AuthError("No loopback address to listen on".into()))?;
+        return Err(TeamsError::AuthError(format!(
+            "Failed to bind loopback server on {addr}: {e}"
+        )));
+    }
+    Ok(listeners)
 }
 
 /// Authenticate using authorization code flow with PKCE.
@@ -65,84 +131,97 @@ pub async fn authenticate(
     client_id: &str,
     tenant_id: &str,
     scopes: Option<&str>,
+    redirect_uri: &str,
 ) -> Result<MsTokenResponse> {
+    let addrs = loopback_addrs(redirect_uri)?;
     let scopes = scopes.unwrap_or(DEFAULT_DELEGATED_SCOPES);
     let (verifier, challenge) = generate_pkce()?;
 
     let state = random_urlsafe_bytes(16)?;
 
-    let auth_url = build_authorize_url(client_id, tenant_id, scopes, &state, &challenge);
+    let auth_url = build_authorize_url(
+        client_id,
+        tenant_id,
+        scopes,
+        &state,
+        &challenge,
+        redirect_uri,
+    );
 
     // Start loopback server
     let (tx, rx) = oneshot::channel::<String>();
-    let expected_state = state.clone();
 
-    let addr: SocketAddr = "127.0.0.1:8400".parse().unwrap();
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .map_err(|e| TeamsError::AuthError(format!("Failed to bind loopback server: {e}")))?;
+    let listeners = bind_loopback(addrs).await?;
 
-    let server_handle = tokio::spawn(async move {
-        use http_body_util::Full;
-        use hyper::body::Incoming;
-        use hyper::service::service_fn;
-        use hyper::{Request, Response};
-        use hyper_util::rt::TokioIo;
+    let tx = Arc::new(Mutex::new(Some(tx)));
+    let mut server_handles = Vec::new();
+    for listener in listeners {
+        let expected_state = state.clone();
+        let tx = Arc::clone(&tx);
+        server_handles.push(tokio::spawn(async move {
+            use http_body_util::Full;
+            use hyper::body::Incoming;
+            use hyper::service::service_fn;
+            use hyper::{Request, Response};
+            use hyper_util::rt::TokioIo;
 
-        let tx = Arc::new(Mutex::new(Some(tx)));
+            if let Ok((stream, _)) = listener.accept().await {
+                let io = TokioIo::new(stream);
+                let expected = expected_state.clone();
+                let tx = Arc::clone(&tx);
 
-        if let Ok((stream, _)) = listener.accept().await {
-            let io = TokioIo::new(stream);
-            let expected = expected_state.clone();
-            let tx = Arc::clone(&tx);
+                let _ = hyper::server::conn::http1::Builder::new()
+                    .serve_connection(
+                        io,
+                        service_fn(move |req: Request<Incoming>| {
+                            let expected = expected.clone();
+                            let tx = Arc::clone(&tx);
+                            async move {
+                                let query = req.uri().query().unwrap_or("");
+                                let params: Vec<(String, String)> =
+                                    url::form_urlencoded::parse(query.as_bytes())
+                                        .into_owned()
+                                        .collect();
 
-            let _ = hyper::server::conn::http1::Builder::new()
-                .serve_connection(
-                    io,
-                    service_fn(move |req: Request<Incoming>| {
-                        let expected = expected.clone();
-                        let tx = Arc::clone(&tx);
-                        async move {
-                            let query = req.uri().query().unwrap_or("");
-                            let params: Vec<(String, String)> =
-                                url::form_urlencoded::parse(query.as_bytes())
-                                    .into_owned()
-                                    .collect();
+                                let code = params
+                                    .iter()
+                                    .find(|(k, _)| k == "code")
+                                    .map(|(_, v)| v.clone());
+                                let state = params
+                                    .iter()
+                                    .find(|(k, _)| k == "state")
+                                    .map(|(_, v)| v.clone());
 
-                            let code = params
-                                .iter()
-                                .find(|(k, _)| k == "code")
-                                .map(|(_, v)| v.clone());
-                            let state = params
-                                .iter()
-                                .find(|(k, _)| k == "state")
-                                .map(|(_, v)| v.clone());
-
-                            if let (Some(code), Some(state)) = (code, state) {
-                                if state == expected {
-                                    if let Some(tx) = tx.lock().unwrap().take() {
-                                        let _ = tx.send(code);
-                                    }
-                                    Ok::<_, hyper::Error>(Response::new(Full::new(Bytes::from(
+                                if let (Some(code), Some(state)) = (code, state) {
+                                    if state == expected {
+                                        if let Some(tx) = tx.lock().unwrap().take() {
+                                            let _ = tx.send(code);
+                                        }
+                                        Ok::<_, hyper::Error>(Response::new(Full::new(Bytes::from(
                                         "Authentication successful! You can close this tab.",
                                     ))))
+                                    } else {
+                                        Ok(Response::new(Full::new(Bytes::from(
+                                            "State mismatch error.",
+                                        ))))
+                                    }
                                 } else {
                                     Ok(Response::new(Full::new(Bytes::from(
-                                        "State mismatch error.",
+                                        "Missing code or state parameter.",
                                     ))))
                                 }
-                            } else {
-                                Ok(Response::new(Full::new(Bytes::from(
-                                    "Missing code or state parameter.",
-                                ))))
                             }
-                        }
-                    }),
-                )
-                .await
-                .ok();
-        }
-    });
+                        }),
+                    )
+                    .await
+                    .ok();
+            }
+        }));
+    }
+    // Only the server tasks hold the sender now, so if every accepted
+    // connection ends without an authorization code, waiting fails instead
+    // of hanging.
+    drop(tx);
 
     // Open browser
     eprintln!("Opening browser for authentication...");
@@ -156,7 +235,9 @@ pub async fn authenticate(
         .await
         .map_err(|_| TeamsError::AuthError("Failed to receive auth code from callback".into()))?;
 
-    server_handle.abort();
+    for handle in server_handles {
+        handle.abort();
+    }
 
     // Exchange code for token
     let token_url = format!("https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token");
@@ -168,7 +249,7 @@ pub async fn authenticate(
             ("grant_type", "authorization_code"),
             ("client_id", client_id),
             ("code", &code),
-            ("redirect_uri", DEFAULT_REDIRECT_URI),
+            ("redirect_uri", redirect_uri),
             ("code_verifier", &verifier),
             ("scope", scopes),
         ])
@@ -203,6 +284,7 @@ mod tests {
             "User.Read offline_access",
             "st4te",
             "ch4llenge",
+            "http://localhost:8400",
         );
 
         assert!(
@@ -210,6 +292,7 @@ mod tests {
         );
         assert!(url.contains("client_id=client-1"));
         assert!(url.contains("&response_type=code"));
+        assert!(url.contains("&redirect_uri=http%3A%2F%2Flocalhost%3A8400"));
         assert!(url.contains("&scope=User.Read%20offline_access"));
         assert!(url.contains("&state=st4te"));
         assert!(url.contains("&code_challenge=ch4llenge"));
@@ -238,8 +321,71 @@ mod tests {
 
     #[test]
     fn authorize_url_forces_account_picker() {
-        let url = build_authorize_url("client-1", "tenant-1", "User.Read", "s", "c");
+        let url = build_authorize_url(
+            "client-1",
+            "tenant-1",
+            "User.Read",
+            "s",
+            "c",
+            "http://localhost:8400",
+        );
 
         assert!(url.contains("&prompt=select_account"));
+    }
+
+    #[test]
+    fn loopback_addrs_follow_the_redirect_uri() {
+        let addrs = loopback_addrs("http://localhost:8400/callback").unwrap();
+        assert!(!addrs.is_empty());
+        assert!(addrs
+            .iter()
+            .all(|a| a.ip().is_loopback() && a.port() == 8400));
+
+        assert_eq!(
+            loopback_addrs("http://127.0.0.1:9400").unwrap(),
+            vec!["127.0.0.1:9400".parse::<SocketAddr>().unwrap()]
+        );
+        assert_eq!(
+            loopback_addrs("http://[::1]:8400").unwrap(),
+            vec!["[::1]:8400".parse::<SocketAddr>().unwrap()]
+        );
+        assert!(loopback_addrs("http://localhost")
+            .unwrap()
+            .iter()
+            .all(|a| a.port() == 80));
+    }
+
+    #[test]
+    fn loopback_addrs_reject_other_uris() {
+        for uri in [
+            "https://localhost:8400",
+            "http://10.0.0.1:8400",
+            "localhost:8400",
+            "not a url",
+            "http://example.invalid:8400",
+        ] {
+            assert_eq!(loopback_addrs(uri).unwrap_err().exit_code(), 2, "{uri}");
+        }
+    }
+
+    /// A busy port is an error, because another process would get the
+    /// authorization code; an address this machine does not have, as `[::1]`
+    /// on a machine without IPv6, is skipped. 192.0.2.1 (TEST-NET-1) is never
+    /// a local address.
+    #[tokio::test]
+    async fn bind_loopback_skips_an_unavailable_address_but_not_a_busy_port() {
+        let held = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let busy = held.local_addr().unwrap();
+        let err = bind_loopback(vec![busy]).await.unwrap_err();
+        assert_eq!(err.exit_code(), 3, "{err}");
+        assert!(err.to_string().contains(&busy.to_string()), "{err}");
+
+        let unavailable: SocketAddr = "192.0.2.1:0".parse().unwrap();
+        let free: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        assert_eq!(
+            bind_loopback(vec![unavailable, free]).await.unwrap().len(),
+            1
+        );
+        assert!(bind_loopback(vec![unavailable]).await.is_err());
     }
 }

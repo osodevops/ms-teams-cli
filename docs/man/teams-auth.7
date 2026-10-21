@@ -62,6 +62,14 @@ field replaces the default delegated scope string for that profile;
 is appended when missing. Use it when a BYO app has admin-consented
 permissions beyond the defaults.
 .PP
+An app whose registered redirect URI has no path, such as
+.B http://localhost,
+needs
+.B redirect_uri = "http://localhost:8400"
+in the profile or
+.B --redirect-uri
+at login.
+.PP
 Then run:
 .PP
 .nf
@@ -70,9 +78,10 @@ teams --profile customer auth doctor --output json
 .fi
 .PP
 Instead of editing the file, a delegated login given
-.B --client-id
-and
+.B --client-id,
 .B --tenant-id
+and
+.B --redirect-uri
 saves them to the profile once it succeeds, leaving the rest of the file as
 it was. Values from
 .B TEAMS_CLI_CLIENT_ID
