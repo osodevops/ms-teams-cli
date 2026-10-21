@@ -1,0 +1,4 @@
+interface:
+  display_name: "Teams CLI Admin"
+  short_description: "Manage Teams teams, channels, tags, apps and tabs"
+  default_prompt: "Use $teams-cli-admin to create or manage Microsoft Teams teams, channels, tags, apps and tabs safely."

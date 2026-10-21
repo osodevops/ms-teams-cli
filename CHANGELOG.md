@@ -9,6 +9,7 @@
 - `teams listen --client-state SECRET` (or `TEAMS_CLI_CLIENT_STATE`) drops notifications whose `clientState` is missing or different, with a warning on stderr that does not include either value. Without it, the listener warns at startup that notifications are not authenticated.
 - `teams listen --bind ADDR` chooses the listening address, and `--port 0` picks a free port; the startup line names the address actually bound.
 - Each `teams listen` line now carries every field Graph sent (`subscriptionExpirationDateTime`, `lifecycleEvent`, `encryptedContent` and so on) and `kind`: `lifecycle` when `lifecycleEvent` is present, else `change`. The README's "Running behind a relay" says what a relay should POST and which statuses to retry.
+- Agent skills for AI agents under `skills/`: `teams-cli-setup`, `teams-cli-messaging`, `teams-cli-admin` and `teams-cli-automation`. Install them with `npx skills add osodevops/ms-teams-cli`.
 
 ### Changed
 

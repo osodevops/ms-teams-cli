@@ -6,6 +6,7 @@ Project website: [msteamscli.com](http://msteamscli.com/)
 
 ## Start here
 
+- [Agent skills](../skills/): installable SKILL.md files for AI agents that drive the CLI.
 - [Quickstarts](quickstarts/README.md): short paths for local setup, agents, agencies, enterprises, and Windows.
 - [Authentication guide](auth.md): commercial auth direction, OSO app defaults, BYO app setup, consent, and app-only limits.
 - [Command reference](command-reference.md): practical syntax for every command group.

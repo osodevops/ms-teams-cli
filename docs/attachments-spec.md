@@ -256,8 +256,8 @@ Ordered, each step compiles and passes tests independently.
    403 from `/shares`, the error message must say: add `Files.Read.All` to the profile
    scopes and run `teams auth refresh`.
 8. **Docs + skill**: update `docs/command-reference.md`, `docs/examples.md`, and the
-   `teams-cli` agent skill so agents learn the pattern: `message get` → see
-   `attachment_items` → `attachments download --dir`.
+   `skills/teams-cli-messaging/SKILL.md` agent skill so agents learn the pattern:
+   `message get` → see `attachment_items` → `attachments download --dir`.
 9. **Tests**: unit tests per step; integration tests (feature `integration`) that list
    and download hosted contents from a known message; a wiremock-style test for the 403
    scope-error message if the client tests already use a mock server (they do —

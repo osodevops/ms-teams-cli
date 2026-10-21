@@ -1,0 +1,4 @@
+interface:
+  display_name: "Teams CLI Setup"
+  short_description: "Install, sign in and configure the teams CLI"
+  default_prompt: "Use $teams-cli-setup to install the teams CLI, sign in to Microsoft Teams and verify auth."

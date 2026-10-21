@@ -83,6 +83,22 @@ scoop install teams
 cargo install --git https://github.com/osodevops/ms-teams-cli
 ```
 
+## Agent Skills
+
+Install the agent skills so Claude, Codex and other AI agents know how to drive `teams`: sign-in and output contract, messaging, team administration, and automation.
+
+```bash
+npx skills add osodevops/ms-teams-cli
+npx skills add osodevops/ms-teams-cli --skill teams-cli-messaging
+```
+
+| Skill | Use it for |
+|-------|------------|
+| `teams-cli-setup` | Install, sign in, profiles, CI auth, JSON envelope and exit codes |
+| `teams-cli-messaging` | Read, send and reply in chats and channels, attachments, files |
+| `teams-cli-admin` | Teams, channels, members, tags, apps and tabs |
+| `teams-cli-automation` | Presence, meetings, notifications, webhooks and polling |
+
 ## Documentation
 
 - [Project website](http://msteamscli.com/)

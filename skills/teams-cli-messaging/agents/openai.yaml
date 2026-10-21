@@ -1,0 +1,4 @@
+interface:
+  display_name: "Teams CLI Messaging"
+  short_description: "Read, send and reply in Teams chats and channels"
+  default_prompt: "Use $teams-cli-messaging to read, send or reply to Microsoft Teams messages and handle attachments."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Teams CLI Automation"
+  short_description: "Presence, meetings, notifications and Teams webhooks"
+  default_prompt: "Use $teams-cli-automation to set presence, manage meetings, send notifications or watch Teams for new messages."
