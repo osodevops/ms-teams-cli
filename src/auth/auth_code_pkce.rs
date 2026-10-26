@@ -20,12 +20,16 @@ fn random_urlsafe_bytes(len: usize) -> Result<String> {
 
 fn generate_pkce() -> Result<(String, String)> {
     let verifier = random_urlsafe_bytes(32)?;
-
-    let mut hasher = Sha256::new();
-    hasher.update(verifier.as_bytes());
-    let challenge = URL_SAFE_NO_PAD.encode(hasher.finalize());
+    let challenge = s256_challenge(&verifier);
 
     Ok((verifier, challenge))
+}
+
+/// The S256 code challenge for a verifier (RFC 7636 section 4.2).
+fn s256_challenge(verifier: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(verifier.as_bytes());
+    URL_SAFE_NO_PAD.encode(hasher.finalize())
 }
 
 /// Build the authorization URL for the browser login.
@@ -210,6 +214,26 @@ mod tests {
         assert!(url.contains("&state=st4te"));
         assert!(url.contains("&code_challenge=ch4llenge"));
         assert!(url.contains("&code_challenge_method=S256"));
+    }
+
+    #[test]
+    fn s256_challenge_matches_rfc7636_example() {
+        // RFC 7636 Appendix B.
+        assert_eq!(
+            s256_challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
+            "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+        );
+    }
+
+    #[test]
+    fn generated_verifier_is_43_unreserved_chars() {
+        let (verifier, challenge) = generate_pkce().unwrap();
+
+        assert_eq!(verifier.len(), 43);
+        assert!(verifier
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+        assert_eq!(challenge, s256_challenge(&verifier));
     }
 
     #[test]
