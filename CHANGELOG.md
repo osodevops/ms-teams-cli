@@ -5,6 +5,7 @@
 ### Changed
 
 - Updated Rust dependencies (`tokio` 1.54.1, `serde_json` 1.0.154, `uuid` 1.28.0, `webbrowser` 1.2.5) and the CI and release workflows' `Swatinem/rust-cache` pin to v2.9.3. `rust-version` in `Cargo.toml` is now 1.89, the oldest Rust the dependencies build with; it said 1.75.
+- Updated `sha2` to 0.11.1 (it computes the PKCE code challenge for browser login). The challenge is now unit-tested against the RFC 7636 example, so a hashing or encoding change cannot slip through as failed logins.
 
 ### Fixed
 
