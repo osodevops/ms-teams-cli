@@ -259,8 +259,8 @@ default scope set.
 
 The browser login's redirect URI follows it too: `--redirect-uri` (or
 `TEAMS_CLI_REDIRECT_URI`), then the profile's `redirect_uri`, then
-`http://localhost/callback`. The CLI listens on the URI's host and port,
-accepts the callback on any path, and the URI must be registered on the app.
+`http://localhost/callback`. The CLI listens on the URI's host and port for
+the callback on the URI's path, and the URI must be registered on the app.
 A URI without a port gets a free port from the OS at each login; the identity
 platform ignores the port of a localhost redirect URI, so the registered URI
 needs none.

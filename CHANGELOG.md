@@ -4,21 +4,18 @@
 
 ### Added
 
-- `--redirect-uri`, `TEAMS_CLI_REDIRECT_URI` and the profile's `redirect_uri` select the browser login's redirect URI for `auth login`, `auth consent-url` and `auth doctor`. The login listens on the URI's host and port (both loopback addresses for `localhost`) and accepts the callback on any path; the flag is saved to the profile with the IDs. A redirect URI without a port gets a free port from the OS at each login, as MSAL does; the identity platform allows this because it ignores the port of a localhost redirect URI, so `--redirect-uri http://localhost` works for an app registered that way.
+- `--redirect-uri`, `TEAMS_CLI_REDIRECT_URI` and the profile's `redirect_uri` select the browser login's redirect URI for `auth login`, `auth consent-url` and `auth doctor`. The login listens on the URI's host and port (both loopback addresses for `localhost`) for a request to the URI's path carrying the login's `state`; the flag is saved to the profile with the IDs. A redirect URI without a port gets a free port from the OS at each login, as MSAL does; the identity platform allows this because it ignores the port of a localhost redirect URI, so `--redirect-uri http://localhost` works for an app registered that way.
 
 ### Changed
 
 - The default redirect URI is now `http://localhost/callback` on a free port instead of `http://localhost:8400/callback`, so a busy port 8400 no longer blocks login. App registrations with `http://localhost:8400/callback` keep working because the port is ignored.
-
-### Changed
-
 - Updated Rust dependencies (`tokio` 1.54.1, `serde_json` 1.0.154, `uuid` 1.28.0, `webbrowser` 1.2.5) and the CI and release workflows' `Swatinem/rust-cache` pin to v2.9.3. `rust-version` in `Cargo.toml` is now 1.89, the oldest Rust the dependencies build with; it said 1.75.
 - Updated `sha2` to 0.11.1 (it computes the PKCE code challenge for browser login). The challenge is now unit-tested against the RFC 7636 example, so a hashing or encoding change cannot slip through as failed logins.
 
 ### Fixed
 
+- The browser login keeps serving its loopback redirect URI until the callback arrives. It served one connection, so a browser's speculative connection or a second request could leave it waiting forever or failing with "Failed to receive auth code from callback". A redirect carrying the identity platform's `error` (a declined consent, say) now fails the login at once with `error` and `error_description` (exit code 3) instead of that generic message, requests to other paths or with another `state` are ignored, and the login gives up after 10 minutes with no callback.
 - Updated `rustls-webpki` to 0.103.16 and `webpki-roots` to 1.0.11 for RUSTSEC-2026-0382 and RUSTSEC-2026-0381, under which certificates issued by distrusted intermediates could still be accepted. The `tokio` update also clears RUSTSEC-2026-0386 (unsound `AsyncFd` constructors).
-
 
 ## v0.10.0 - 2026-10-15
 

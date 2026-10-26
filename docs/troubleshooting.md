@@ -220,6 +220,10 @@ Check:
 - BYO app registration includes that redirect URI. `AADSTS50011` means the URI is not registered on the app: register it, or pass the registered one.
 - Use `--device-code` if a browser callback is not possible.
 
+If you decline consent or the identity platform refuses the sign-in, the
+login fails at once with its `error` and `error_description` (exit code 3).
+With no callback at all, it gives up after 10 minutes.
+
 ## Rate limiting
 
 Exit code `6` means rate limited after retries.
