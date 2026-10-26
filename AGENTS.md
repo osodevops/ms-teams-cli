@@ -34,6 +34,7 @@ cargo run -- team list --output json
 - `docs/teams-cli-prd.md` and `README.md` describe intended product behavior and command surface.
 - `docs/README.md` is the documentation index for quickstarts, auth, commands, examples, FAQ, troubleshooting, use cases, and release readiness.
 - `docs/auth-implementation-plan.md` is the commercial auth direction: delegated Graph for CLI user actions, BYO app support for locked-down tenants, and Teams bot proactive messaging for unattended posting.
+- `skills/<name>/SKILL.md` are installable agent skills (`npx skills add osodevops/ms-teams-cli`), each with `agents/openai.yaml` metadata for Codex.
 - `docs/man/` contains shipped man pages:
   - `teams.1` for command reference.
   - `teams-config.5` for config file format.
@@ -180,7 +181,7 @@ CI runs on GitHub Actions:
 - Most tests do not hit Microsoft Graph. Add mocked tests for API behavior instead of requiring live credentials.
 - macOS binds keychain access grants to the exact binary signature, so every local build is a "new" application and triggers a fresh keychain prompt when it touches stored tokens. Set `TEAMS_CLI_DISABLE_KEYRING=1` in tests (the CLI test harness already does), and note that debug builds use the separate `teams-cli-dev` storage namespace, so they never touch an installed release's items, though each rebuild is still prompted for its own (re-signing with a self-signed certificate does not help; see the macOS keychain section in `docs/troubleshooting.md`). For an unattended process, `TEAMS_CLI_TOKEN_STORE=file` keeps tokens in `0600` files under the config directory instead, with no keychain involved.
 - Keep global option names reserved. In particular, command-specific file paths must not reuse global `--output`, which is the JSON/human/plain output selector.
-- Keep `README.md`, `docs/man/teams.1`, and CLI help in sync. If a documented flag form exists in README, add a CLI regression test for it.
+- Keep `README.md`, `docs/man/teams.1`, the agent skills in `skills/`, and CLI help in sync. If a documented flag form exists in README, add a CLI regression test for it. Every `teams` line in a skill's code blocks must parse (`agent_skill_commands_parse` in `src/cli/mod.rs` checks this).
 - When verifying whether a PR is good to merge, check whether it is intended to release. Release automation is version-bump driven: a feature PR without a `Cargo.toml` package version change only runs CI on `main`; a release needs `Cargo.toml` and the root `teams-cli` entry in `Cargo.lock` bumped together, plus a matching `CHANGELOG.md` entry.
 - `cargo audit` may report advisory warnings that are not failing vulnerabilities. Treat actual vulnerabilities as release blockers and document any warning accepted for release.
 

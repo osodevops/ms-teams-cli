@@ -62,20 +62,22 @@ teams notify send-to-chat <chat-id> --topic "Deploy" --activity-type <activity-t
 
 ## Change notifications
 
-Graph pushes events to a public HTTPS URL. `teams listen` is plain HTTP on localhost, so put an HTTPS reverse proxy or tunnel in front of it.
+Graph pushes events to a public HTTPS URL. `teams listen` is plain HTTP bound to `127.0.0.1`, so put an HTTPS tunnel or reverse proxy in front of it. Pass `--bind 0.0.0.0` only when the proxy runs on another host.
 
 ```bash
+export TEAMS_CLI_CLIENT_STATE="$(openssl rand -hex 16)"
 teams listen --port 8080
-teams subscribe create --resource <resource-path> --change-type created --webhook-url <https-url> --expiration 2026-01-01T12:00:00Z --client-state <random-secret>
+teams subscribe create --resource <resource-path> --change-type created --webhook-url <https-url>/webhook --lifecycle-url <https-url>/lifecycle --expiration 2026-01-01T12:00:00Z --client-state "$TEAMS_CLI_CLIENT_STATE"
 teams subscribe list --output json
 teams subscribe renew <subscription-id> --expiration 2026-01-02T12:00:00Z
 teams subscribe delete <subscription-id>
 ```
 
-- `listen` prints each notification as one JSON object per line (NDJSON). Read it line by line, and keep other output off that stream.
-- Graph validates the webhook URL when you create the subscription, so start `listen` and the tunnel first.
-- Use a random `--client-state` and compare it on every notification.
-- Subscriptions expire quickly: Teams message, chat and presence resources last at most one hour, which is also the default when `--expiration` is omitted. Renew before `expirationDateTime`, or re-create.
+- `listen` prints each notification as one JSON object per line (NDJSON), without `clientState`. Read it line by line, and keep other output off that stream. `kind` is `change`, or `lifecycle` for a `lifecycleEvent`.
+- Give `listen` (through `TEAMS_CLI_CLIENT_STATE`, which stays out of process listings) the same secret as `subscribe create --client-state`. It drops notifications without it; without a secret, anyone who reaches the port can inject lines.
+- Graph validates the webhook URL and the lifecycle URL when you create the subscription, so start `listen` and the tunnel first. `listen` answers on `/`, `/webhook` and `/lifecycle`.
+- Teams chat and channel message subscriptions last up to three days, presence up to one hour; Graph raises anything under 45 minutes to 45. Over one hour, a Teams subscription needs `--lifecycle-url`. Without `--expiration` it lasts one hour. Renew before `expirationDateTime`.
+- Lifecycle events: on `reauthorizationRequired`, run `subscribe renew`; on `subscriptionRemoved`, create the subscription again; on `missed`, catch up with `message list`.
 - Message resources need extra permissions, and some need admin consent. See `teams subscribe --help` and the Graph docs.
 - Delete subscriptions you created when done. `subscribe delete` stops delivery: confirm the id and its `resource` from `subscribe list` with the user first. There is no `subscribe get`.
 

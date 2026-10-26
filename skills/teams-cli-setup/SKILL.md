@@ -43,9 +43,10 @@ Bring your own Entra app when a tenant blocks the default app:
 
 ```bash
 teams auth login --device-code --client-id <client-id> --tenant-id <tenant-id>
+teams auth login --client-id <client-id> --tenant-id <tenant-id> --redirect-uri http://localhost
 ```
 
-A successful delegated login saves the client and tenant IDs in the profile, so later logins reuse them. Environment variables are not saved.
+The browser login needs a loopback redirect URI registered on the app (the default is `http://localhost/callback`). Pass the registered one with `--redirect-uri`; without a port, a free one is picked at each login. A successful delegated login saves the client ID, tenant ID and redirect URI in the profile, so later logins reuse them. Environment variables are not saved.
 
 ## Sessions and profiles
 
@@ -103,7 +104,8 @@ List commands return one page. Read `metadata.has_more`; when true, `metadata.ne
 - macOS keychain prompts on every run: each unsigned build is a new app. Use a release build or `TEAMS_CLI_TOKEN_STORE=file`.
 - Windows or Linux keyring errors (exit 10): unlock or install a keyring service, or use `TEAMS_CLI_TOKEN_STORE=file`.
 - Exit 6: honor the wait, avoid parallel fan-out into large tenants.
-- Browser callback fails: use `--device-code`.
+- The browser page shows `AADSTS50011`: the redirect URI is not registered on the app, and the CLI keeps waiting. Stop it, then pass the registered URI with `--redirect-uri`, or use `--device-code`.
+- Browser login fails with `Sign-in failed: <error>`: the user declined, or the tenant blocked the app. Read the description; `auth consent-url` helps when admin consent is missing. With no callback at all, the login gives up after 10 minutes.
 
 Full details: https://github.com/osodevops/ms-teams-cli/tree/main/docs (`troubleshooting.md`), and `man teams-agent-contract`.
 

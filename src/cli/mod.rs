@@ -270,3 +270,105 @@ fn generate_completions(shell: clap_complete::Shell) -> Result<()> {
     crate::output::write_stdout(&output);
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Cli;
+    use clap::Parser;
+
+    /// Split a shell command line on whitespace, honouring double quotes.
+    fn shell_words(line: &str) -> Vec<String> {
+        let mut words = Vec::new();
+        let mut word = String::new();
+        let mut quoted = false;
+        let mut in_word = false;
+        for c in line.chars() {
+            match c {
+                '"' => {
+                    quoted = !quoted;
+                    in_word = true;
+                }
+                c if c.is_whitespace() && !quoted => {
+                    if in_word {
+                        words.push(std::mem::take(&mut word));
+                        in_word = false;
+                    }
+                }
+                c => {
+                    word.push(c);
+                    in_word = true;
+                }
+            }
+        }
+        if in_word {
+            words.push(word);
+        }
+        words
+    }
+
+    /// Replace each `<placeholder>` with a value of the right shape.
+    fn fill_placeholders(line: &str) -> String {
+        let mut out = String::new();
+        let mut rest = line;
+        while let Some(start) = rest.find('<') {
+            let Some(len) = rest[start..].find('>') else {
+                break;
+            };
+            let name = &rest[start + 1..start + len];
+            out.push_str(&rest[..start]);
+            out.push_str(if name.contains("url") {
+                "https://example.com/x"
+            } else {
+                "x1"
+            });
+            rest = &rest[start + len + 1..];
+        }
+        out.push_str(rest);
+        out
+    }
+
+    /// Every `teams` line in a fenced block of an agent skill
+    /// (`skills/*/SKILL.md`) has to parse, so renaming a flag or subcommand
+    /// cannot leave the skills teaching agents a command that fails.
+    #[test]
+    fn agent_skill_commands_parse() {
+        let skills = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("skills");
+        let mut checked = 0;
+        for entry in std::fs::read_dir(&skills).unwrap() {
+            let path = entry.unwrap().path().join("SKILL.md");
+            let text = std::fs::read_to_string(&path).unwrap();
+            let mut in_block = false;
+            for (n, line) in text.lines().enumerate() {
+                if line.starts_with("```") {
+                    in_block = !in_block;
+                    continue;
+                }
+                if !in_block || !line.starts_with("teams ") {
+                    continue;
+                }
+                if let Err(e) = Cli::try_parse_from(shell_words(&fill_placeholders(line))) {
+                    panic!("{}:{}: {line}\n{e}", path.display(), n + 1);
+                }
+                checked += 1;
+            }
+        }
+        assert!(checked >= 100, "found only {checked} skill commands");
+    }
+
+    #[test]
+    fn shell_words_honours_double_quotes() {
+        assert_eq!(
+            shell_words(r#"teams message send --body "Build is green" --chat c"#),
+            [
+                "teams",
+                "message",
+                "send",
+                "--body",
+                "Build is green",
+                "--chat",
+                "c"
+            ]
+        );
+        assert_eq!(shell_words(r#"a "" b"#), ["a", "", "b"]);
+    }
+}
