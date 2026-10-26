@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Changed
+
+- Updated Rust dependencies (`tokio` 1.54.1, `serde_json` 1.0.154, `uuid` 1.28.0, `webbrowser` 1.2.5) and the CI and release workflows' `Swatinem/rust-cache` pin to v2.9.3. `rust-version` in `Cargo.toml` is now 1.89, the oldest Rust the dependencies build with; it said 1.75.
+
+### Fixed
+
+- Updated `rustls-webpki` to 0.103.16 and `webpki-roots` to 1.0.11 for RUSTSEC-2026-0382 and RUSTSEC-2026-0381, under which certificates issued by distrusted intermediates could still be accepted. The `tokio` update also clears RUSTSEC-2026-0386 (unsound `AsyncFd` constructors).
+
 ## v0.10.0 - 2026-10-15
 
 ### Added
