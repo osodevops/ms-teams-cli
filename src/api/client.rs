@@ -1587,8 +1587,11 @@ mod tests {
     /// connection closing; it must still be read back, not parsed.
     #[tokio::test]
     async fn patch_with_an_empty_body_of_unknown_length_reads_the_resource_back() {
+        // The server closes every connection, so the chunked reply says so too.
+        // Without `Connection: close` the client pools it and can send the
+        // read-back GET down the socket just as the server closes it.
         let replies: [&'static [u8]; 2] = [
-            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n",
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n0\r\n\r\n",
             b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n",
         ];
         for reply in replies {
