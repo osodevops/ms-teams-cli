@@ -2,7 +2,7 @@
 name = "teams-cli"
 version = "0.10.0"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.89"
 license = "MIT"
 authors = ["OSO DevOps"]
 description = "Microsoft Teams CLI for AI agents — structured JSON output, deterministic exit codes, headless auth, real-time webhooks"
