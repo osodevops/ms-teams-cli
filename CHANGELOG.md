@@ -2,9 +2,7 @@
 
 ## Unreleased
 
-### Fixed
-
-- `teams subscribe list` failed with HTTP 400 ("Query option 'Top' is not allowed"), because Graph rejects `$top` on `/subscriptions`. It now pages by `@odata.nextLink` alone, as `channel list` and `chat members list` do, and ignores `--page-size`.
+## v0.11.0 - 2026-10-27
 
 ### Added
 
@@ -31,6 +29,7 @@
 - `teams listen` on a port already in use exits with code 10 (`CONFIG_ERROR`), naming the address and the OS error, instead of reporting an authentication failure (exit code 3).
 - The browser login keeps serving its loopback redirect URI until the callback arrives. It served one connection, so a browser's speculative connection or a second request could leave it waiting forever or failing with "Failed to receive auth code from callback". A redirect carrying the identity platform's `error` (a declined consent, say) now fails the login at once with `error` and `error_description` (exit code 3) instead of that generic message, requests to other paths or with another `state` are ignored, and the login gives up after 10 minutes with no callback.
 - Updated `rustls-webpki` to 0.103.16 and `webpki-roots` to 1.0.11 for RUSTSEC-2026-0382 and RUSTSEC-2026-0381, under which certificates issued by distrusted intermediates could still be accepted. The `tokio` update also clears RUSTSEC-2026-0386 (unsound `AsyncFd` constructors).
+- `teams subscribe list` failed with HTTP 400 ("Query option 'Top' is not allowed"), because Graph rejects `$top` on `/subscriptions`. It now pages by `@odata.nextLink` alone, as `channel list` and `chat members list` do, and ignores `--page-size`.
 
 ## v0.10.0 - 2026-10-15
 
