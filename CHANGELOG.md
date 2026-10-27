@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- `teams subscribe list` failed with HTTP 400 ("Query option 'Top' is not allowed"), because Graph rejects `$top` on `/subscriptions`. It now pages by `@odata.nextLink` alone, as `channel list` and `chat members list` do, and ignores `--page-size`.
+
 ### Added
 
 - `--redirect-uri`, `TEAMS_CLI_REDIRECT_URI` and the profile's `redirect_uri` select the browser login's redirect URI for `auth login`, `auth consent-url` and `auth doctor`. The login listens on the URI's host and port (both loopback addresses for `localhost`) for a request to the URI's path carrying the login's `state`; the flag is saved to the profile with the IDs. A redirect URI without a port gets a free port from the OS at each login, as MSAL does; the identity platform allows this because it ignores the port of a localhost redirect URI, so `--redirect-uri http://localhost` works for an app registered that way.
