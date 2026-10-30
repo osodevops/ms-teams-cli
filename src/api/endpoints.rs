@@ -90,25 +90,9 @@ pub fn channel_message_replies(team_id: &str, channel_id: &str, message_id: &str
     format!("{GRAPH_V1}/teams/{team_id}/channels/{channel_id}/messages/{message_id}/replies")
 }
 
-pub fn message_set_reaction(team_id: &str, channel_id: &str, message_id: &str) -> String {
-    format!("{GRAPH_V1}/teams/{team_id}/channels/{channel_id}/messages/{message_id}/setReaction")
-}
-
-pub fn message_unset_reaction(team_id: &str, channel_id: &str, message_id: &str) -> String {
-    format!("{GRAPH_V1}/teams/{team_id}/channels/{channel_id}/messages/{message_id}/unsetReaction")
-}
-
 // --- Chat Messages ---
 pub fn chat_messages(chat_id: &str) -> String {
     format!("{GRAPH_V1}/chats/{chat_id}/messages")
-}
-
-pub fn chat_message_set_reaction(chat_id: &str, message_id: &str) -> String {
-    format!("{GRAPH_V1}/chats/{chat_id}/messages/{message_id}/setReaction")
-}
-
-pub fn chat_message_unset_reaction(chat_id: &str, message_id: &str) -> String {
-    format!("{GRAPH_V1}/chats/{chat_id}/messages/{message_id}/unsetReaction")
 }
 
 pub fn chat_message(chat_id: &str, message_id: &str) -> String {

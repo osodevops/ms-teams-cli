@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Added
+
+- `teams message update`, `get`, `react` and `unreact` take `--reply REPLY_ID` to target a reply in a channel thread, as `delete` and `undelete` already did: the message ID is then the parent post and the request goes to `.../messages/{parent}/replies/{reply}`. `--reply` with `--chat` is a usage error (exit code 2).
+- `teams message update --stdin` reads the new body from standard input, like `send` and `reply`.
+- `--mention` bodies can place each mention with `{@N}`, `N` being the 0-based `--mention` flag: `--mention sophie@contoso.com --body "Hey {@0}, could you review this?"` sends `Hey @Sophie Daniels, could you review this?` instead of prepending the mention. `{@}` is the only mention; `{{@0}}` is the literal text. A person placed twice gets two `<at>` elements and two `mentions` entries. A token without a matching `--mention`, or a `--mention` the body does not place, is invalid input (exit code 2). Works on `send`, `reply` and `update`; a body without tokens is sent as before.
+- `teams message update --mention USER` (repeatable) sends the body and the synchronized `mentions` array in one PATCH, so an edit can add a mention or keep an existing one, on chat messages, channel posts and replies.
+
+### Changed
+
+- Message bodies now read `{@N}` and `{@}` as mention tokens, with or without `--mention`: such a body without `--mention` exits with code 2 instead of being sent as typed, and `{{@N}}` / `{{@}}` are sent as `{@N}` / `{@}`. Other braces are unaffected.
+- A 403 from `message update` on a channel post or reply now names the `ChannelMessage.ReadWrite` scope, as `message delete` does. A 404 on a reply names both the parent and the reply ID.
+
 ## v0.11.0 - 2026-10-27
 
 ### Added

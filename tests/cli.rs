@@ -818,6 +818,55 @@ fn message_send_help_advertises_repeatable_mention_flag() {
 }
 
 #[test]
+fn message_update_help_advertises_repeatable_mention_flag() {
+    teams()
+        .args(["message", "update", "--help"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("--mention <USER>")
+                .and(predicate::str::contains("(repeatable)"))
+                .and(predicate::str::contains("[--mention <USER>]...")),
+        );
+}
+
+/// Mention placement errors are invalid input (exit code 2), raised before
+/// any request: here a token with no `--mention` to place.
+#[test]
+fn mention_token_without_mention_is_invalid_input() {
+    for args in [
+        vec![
+            "message",
+            "send",
+            "--chat",
+            "19:abc@thread.v2",
+            "--body",
+            "Hey {@0}",
+        ],
+        vec![
+            "message",
+            "update",
+            "--chat",
+            "19:abc@thread.v2",
+            "1",
+            "--body",
+            "Hey {@}",
+        ],
+    ] {
+        teams()
+            .env("TEAMS_CLI_ACCESS_TOKEN", "not-a-real-token")
+            .args(&args)
+            .args(["--output", "json"])
+            .assert()
+            .code(2)
+            .stdout(
+                predicate::str::contains("INVALID_INPUT")
+                    .and(predicate::str::contains("no --mention")),
+            );
+    }
+}
+
+#[test]
 fn message_send_help_advertises_subject_flag() {
     teams()
         .args(["message", "send", "--help"])
@@ -1032,6 +1081,27 @@ fn message_delete_and_undelete_accept_chat_and_reply_targets() {
                     .and(predicate::str::contains("--message <MESSAGE>")),
             );
     }
+}
+
+#[test]
+fn message_update_get_and_reactions_accept_reply_targets() {
+    for sub in ["update", "get", "react", "unreact"] {
+        teams()
+            .args(["message", sub, "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("--reply <REPLY>"));
+    }
+    teams()
+        .args(["message", "update", "--help"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains(
+                "teams message update (--team <TEAM> --channel <CHANNEL> [--reply <REPLY>] | --chat <CHAT>)",
+            )
+            .and(predicate::str::contains("--stdin")),
+        );
 }
 
 /// Deletion must be confirmed explicitly. Without `--yes` the command is

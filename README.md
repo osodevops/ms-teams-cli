@@ -414,6 +414,7 @@ teams message send --team <team-id> --channel <channel-id> --body "Hello"
 teams message send --chat <chat-id> --body "Hello"
 teams message send --team <team-id> --channel <channel-id> --body "<h1>Rich</h1>" --content-type html
 teams message send --chat <chat-id> --mention <user-id-or-upn> --body "Please review and send the drafts."
+teams message send --chat <chat-id> --mention <user-id-or-upn> --body "Hey {@0}, could you review this?"
 teams message send --chat <chat-id> --quote <msg-id> --body "Yes, that works."
 teams message send --team <team-id> --channel <channel-id> --mention <user-id> --mention <user-id> --body "Deploy is going out now."
 teams message send --team <team-id> --channel <channel-id> --subject "Release plan" --body "Details inside."
@@ -422,22 +423,26 @@ teams message list --team <team-id> --channel <channel-id>
 teams message list --team <team-id> --channel <channel-id> --message-id <root-message-id> --all-pages
 teams message list --chat <chat-id>
 teams message get --team <team-id> --channel <channel-id> --message <msg-id>
+teams message get --team <team-id> --channel <channel-id> --reply <reply-id> <parent-msg-id>
 teams message attachments delete --chat <chat-id> --message <msg-id> [--index N] --yes
 teams message reply --team <team-id> --channel <channel-id> --message <msg-id> --mention <user-id-or-upn> --body "Thanks!"
 teams message update --team <team-id> --channel <channel-id> --message <msg-id> --body "Corrected"
 teams message update --chat <chat-id> --message <msg-id> --body "Corrected"
+teams message update --chat <chat-id> --message <msg-id> --mention <user-id-or-upn> --body "Corrected, {@0}"
+teams message update --team <team-id> --channel <channel-id> --reply <reply-id> <parent-msg-id> --content-type html --body "<p>Corrected</p>"
 teams message delete --chat <chat-id> --message <msg-id> --yes
 teams message delete --team <team-id> --channel <channel-id> --message <msg-id> --yes
 teams message undelete --chat <chat-id> --message <msg-id>
 teams message react --team <team-id> --channel <channel-id> --message <msg-id> --reaction like
 teams message unreact --team <team-id> --channel <channel-id> --message <msg-id> --reaction like
 teams message react --chat <chat-id> --message <msg-id> --reaction eyes
+teams message react --team <team-id> --channel <channel-id> --reply <reply-id> --message <parent-msg-id> --reaction like
 teams message unreact --chat <chat-id> --message <msg-id> --reaction 👀
 teams message pin --team <team-id> --channel <channel-id> --message <msg-id>
 teams message unpin --team <team-id> --channel <channel-id> --pinned-message-id <id>
 ```
 
-`message list --message-id ROOT_MESSAGE_ID` lists the replies under that channel thread root. The global `--page-size` and `--all-pages` options apply to the replies collection.
+`message list --message-id ROOT_MESSAGE_ID` lists the replies under that channel thread root. To act on one reply, `message get`, `update`, `react`, `unreact`, `delete` and `undelete` take `--reply REPLY_ID` with `--team` and `--channel`; the message ID is then the parent post. The global `--page-size` and `--all-pages` options apply to the replies collection.
 
 `message send --chat CHAT_ID --attach FILE` uploads to your OneDrive and attempts
 to share the file with the chat's other members without notification email.
@@ -453,14 +458,26 @@ your own OneDrive are deleted; inline images, files shared by others and
 channel files are skipped with a reason. The message and its file card stay;
 use `message delete` for the message.
 
-The `--mention USER` flag on `message send` and `message reply` tags a person as a real Teams @mention — the kind that pings
+The `--mention USER` flag on `message send`, `message reply` and `message update` tags a person as a real Teams @mention — the kind that pings
 them, not literal `@Name` text. The flag is repeatable and `USER` may be an Entra object ID
 or UPN; the display name is resolved through Microsoft Graph. It works for chat sends,
 channel sends, and channel replies. Graph requires an HTML body plus a synchronized
 `mentions` array, so the CLI builds both: a plain-text body is safely converted to HTML (escaped, line breaks
 preserved), the `<at>` elements are prepended in flag order, and a mention by itself counts
-as a body (`--body` optional). Raw `<at>` markup typed into an HTML body is rejected with
+as a body (`--body` optional on send and reply). Raw `<at>` markup typed into an HTML body is rejected with
 exit code 2 before anything is sent.
+
+To place a mention inside the sentence, write `{@N}` in the body, `N` being the 0-based
+position of the `--mention` flag: `--mention sophie@contoso.com --body "Hey {@0}, could you
+review this?"`. `{@}` means `{@0}` when there is one `--mention`. It works for text and HTML
+bodies; a person placed twice gets two `<at>` elements. With tokens, every `--mention` must be
+placed and every token must match a `--mention`, or the command exits with code 2. Write
+`{{@0}}` for the literal text `{@0}`, with or without `--mention`. A body with no `{@N}` or
+`{@}` tokens is sent as before.
+
+`message update --mention USER` sends the body and the `mentions` array together, so an edit
+can add a mention or keep an existing one. The edit replaces the body: repeat `--mention`
+for each mention that should stay.
 
 `message send --subject TEXT` sets the subject line on a channel root message — the bold
 title Teams shows above the body, the same field the Teams client offers behind "Add a
@@ -490,6 +507,13 @@ teams message send --team <team-id> --channel <channel-id> \
 teams message reply --team <team-id> --channel <channel-id> \
   --message-id <root-message-id> --mention sophie@example.com \
   --body "I have picked this up."
+
+teams message send --chat <chat-id> \
+  --mention sophie@example.com --mention <user-id> \
+  --body "Hey {@0}, could you review this? cc {@1}"
+
+teams message update --chat <chat-id> <msg-id> \
+  --mention sophie@example.com --body "Hey {@0}, could you review this today?"
 ```
 
 Reactions accept either a channel (`--team` with `--channel`) or a chat (`--chat`), never both.
