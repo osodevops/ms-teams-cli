@@ -177,7 +177,7 @@ teams channel members remove TEAM_ID CHANNEL_ID MEMBER_ID
 .nf
 teams message send (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) [--body TEXT | --stdin] [--content-type text|html] [--adaptive-card PATH] [--image PATH]... [--attach PATH]... [--mention USER]... [--subject TEXT] [--quote MESSAGE_ID]...
 teams message list (--team TEAM_ID --channel CHANNEL_ID [--message-id ROOT_MESSAGE_ID] | --chat CHAT_ID)
-teams message get --team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] (MESSAGE_ID | --message MESSAGE_ID) [--with-attachments]
+teams message get (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID) [--with-attachments]
 teams message attachments list (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID)
 teams message attachments download (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID) [--index N] [--dir DIR | --path FILE]
 teams message attachments delete (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID) [--index N] --yes
@@ -188,9 +188,25 @@ teams message delete (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | -
 teams message undelete (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID)
 teams message react (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) --message-id MESSAGE_ID (REACTION | --reaction REACTION)
 teams message unreact (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) --message-id MESSAGE_ID (REACTION | --reaction REACTION)
-teams message pin --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID)
-teams message unpin --team TEAM_ID --channel CHANNEL_ID (PINNED_MESSAGE_ID | --pinned-message-id PINNED_MESSAGE_ID)
+teams message pin --chat CHAT_ID (MESSAGE_ID | --message MESSAGE_ID)
+teams message unpin --chat CHAT_ID (MESSAGE_ID | --message MESSAGE_ID)
 .fi
+.PP
+.B message pin
+and
+.B unpin
+work in chats only: Microsoft Graph has no pinned messages for channel posts,
+so
+.B --team
+and
+.B --channel
+are refused with exit code 2. In a chat the pinned-message ID is the message
+ID, so unpin takes the message ID;
+.B --pinned-message-id
+remains an alias of
+.B --message.
+Pinning a pinned message again succeeds without effect; unpinning a message
+that is not pinned exits with code 5.
 .PP
 Microsoft Graph expects a reaction as an emoji character, so a reaction may be
 given as the character itself, for example

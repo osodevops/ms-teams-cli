@@ -108,7 +108,7 @@ teams channel members remove TEAM_ID CHANNEL_ID MEMBER_ID
 ```bash
 teams message send (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) [--body TEXT | --stdin] [--content-type text|html] [--adaptive-card PATH] [--image PATH]... [--attach PATH]... [--mention USER]... [--subject TEXT] [--quote MESSAGE_ID]...
 teams message list (--team TEAM_ID --channel CHANNEL_ID [--message-id ROOT_MESSAGE_ID] | --chat CHAT_ID)
-teams message get --team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] (MESSAGE_ID | --message MESSAGE_ID) [--with-attachments]
+teams message get (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID) [--with-attachments]
 teams message attachments list (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID)
 teams message attachments download (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID) [--index N] [--dir DIR | --path FILE]
 teams message attachments delete (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID) [--index N] --yes
@@ -118,8 +118,8 @@ teams message delete (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | -
 teams message undelete (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID)
 teams message react (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) --message-id MESSAGE_ID (REACTION | --reaction REACTION)
 teams message unreact (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) --message-id MESSAGE_ID (REACTION | --reaction REACTION)
-teams message pin --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID)
-teams message unpin --team TEAM_ID --channel CHANNEL_ID (PINNED_MESSAGE_ID | --pinned-message-id PINNED_MESSAGE_ID)
+teams message pin --chat CHAT_ID (MESSAGE_ID | --message MESSAGE_ID)
+teams message unpin --chat CHAT_ID (MESSAGE_ID | --message MESSAGE_ID)
 ```
 
 `--adaptive-card` may be used without `--body`: Graph requires the body to
@@ -135,6 +135,10 @@ Normal message mutation requires delegated auth. App-only/client-credentials tok
 `REACTION` is an emoji character or one of the names the CLI translates for you (`like`, `heart`, `laugh`, `surprised`, `sad`, `angry`, `thumbsup`, `thumbsdown`, `eyes`, `tada`, `rocket`, `fire`). Graph only accepts the emoji character on writes.
 
 `--reply REPLY_ID` on `get`, `update`, `react`, `unreact`, `delete`, `undelete` and `attachments` targets a reply in a channel thread: `MESSAGE_ID` is then the parent post, and the request goes to `.../messages/MESSAGE_ID/replies/REPLY_ID`. It needs `--team` and `--channel`; with `--chat` it is a usage error (exit code 2). A 404 on a reply names both the parent and the reply ID, since Graph does not say which one is missing.
+
+`message get --chat CHAT_ID` reads one chat message (`Chat.ReadWrite` or `ChatMessage.Read`); channel reads need `ChannelMessage.Read.All`.
+
+`message pin` and `unpin` work in chats only. Microsoft Graph has pinned messages on chats but not on channels (the channel route answers 400 "Resource not found for the segment 'pinnedMessages'"), so `--team`/`--channel` is refused with exit code 2 before anything is sent. In a chat the pinned-message ID is the message ID, so `unpin` takes the message ID, the same one `pin` was given; `--pinned-message-id` remains an alias of `--message`. Pinning a pinned message again succeeds without effect. Unpinning a message that is not pinned is a not-found error (exit code 5) naming the message and chat. Pinning needs `ChatMessage.Send`, unpinning `Chat.ReadWrite`, both in the default scopes.
 
 `message update` edits your own message in place (Graph lets a delegated caller change any property except `policyViolation`); `--stdin` reads the new body from standard input. Channel edits (posts and replies) need the `ChannelMessage.ReadWrite` delegated scope, chat edits need `Chat.ReadWrite`. A 403 on a channel edit names the missing scope, as `message delete` does. Graph returns no content on success, so the command reads the message back and prints it; if that read fails the edit has still been applied and the output is `{"id": ..., "updated": true, "readBackError": ...}`.
 
