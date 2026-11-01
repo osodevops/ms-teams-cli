@@ -11,7 +11,8 @@
 
 ### Changed
 
-- Message bodies now read `{@N}` and `{@}` as mention tokens, with or without `--mention`: such a body without `--mention` exits with code 2 instead of being sent as typed, and `{{@N}}` / `{{@}}` are sent as `{@N}` / `{@}`. Other braces are unaffected.
+- Message bodies now read `{@N}` and `{@}` as mention tokens, with or without `--mention`: such a body without `--mention` exits with code 2 instead of being sent as typed, and `{{@N}}` / `{{@}}` are sent as `{@N}` / `{@}`. Other braces are unaffected. Tokens are checked against the `--mention` flags before any of them is looked up, so a token typo exits 2 without a Graph call.
+- `teams message update` with an HTML body now rejects raw `<at>` markup (exit code 2), as `send` and `reply` already did; it used to be sent in a PATCH with no `mentions`. Use `--mention` instead.
 - A 403 from `message update` on a channel post or reply now names the `ChannelMessage.ReadWrite` scope, as `message delete` does. A 404 on a reply names both the parent and the reply ID.
 
 ## v0.11.0 - 2026-10-27

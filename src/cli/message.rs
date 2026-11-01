@@ -410,7 +410,7 @@ pub async fn run(
             // A mention alone is a valid non-empty body, so it lifts the
             // media-only exception the same way --image/--attach do.
             let content = resolve_body_or_media(body, stdin, has_media || !mention.is_empty())?;
-            let identities = resolve_mentions(&client, &mention).await?;
+            let identities = resolve_mentions(&client, &mention, &content).await?;
             let mut req = build_send_request_with_mentions(
                 content,
                 &content_type,
@@ -563,7 +563,7 @@ pub async fn run(
             // A mention alone is a valid non-empty body, so it lifts the
             // requirement for --body or --stdin, exactly as it does on send.
             let content = resolve_body_or_media(body, stdin, has_media || !mention.is_empty())?;
-            let identities = resolve_mentions(&client, &mention).await?;
+            let identities = resolve_mentions(&client, &mention, &content).await?;
             let mut req =
                 build_send_request_with_mentions(content, &content_type, None, &identities)?;
             super::message_media::apply_media(
@@ -718,7 +718,7 @@ pub async fn run(
             // Graph takes the body and the `mentions` array together on the
             // PATCH, so an edit that keeps or adds a mention re-sends both.
             let content = resolve_body(body, stdin)?;
-            let identities = resolve_mentions(&client, &mention).await?;
+            let identities = resolve_mentions(&client, &mention, &content).await?;
             let req = build_send_request_with_mentions(content, &content_type, None, &identities)?;
             api::messages::update_message(&client, &target, &req)
                 .await
@@ -995,10 +995,16 @@ struct MentionIdentity {
 /// a canonical id and display name for each. The result stays in flag order,
 /// duplicates included, so `{@N}` in the body can name the N-th flag;
 /// [`apply_mentions`] treats flags that resolve to one person as one mention.
+///
+/// The body's tokens are checked against the flag count first, so a token
+/// typo exits 2 without a user lookup, and is not reported as whatever error
+/// the lookup would have hit.
 async fn resolve_mentions(
     client: &GraphClient,
     mentions: &[String],
+    body: &str,
 ) -> Result<Vec<MentionIdentity>> {
+    check_mention_tokens(body, mentions.len())?;
     let mut resolved = Vec::with_capacity(mentions.len());
     for value in mentions {
         let user = api::users::get_user(client, value).await?;
@@ -1077,6 +1083,28 @@ fn split_mention_tokens(body: &str) -> Vec<BodyPart<'_>> {
     parts
 }
 
+/// Check every token in `body` against `flags` `--mention` flags, without the
+/// resolved identities. Whether each person is placed depends on who the flags
+/// resolve to (two flags can be one person), so [`apply_mentions`] checks that.
+fn check_mention_tokens(body: &str, flags: usize) -> Result<()> {
+    for part in split_mention_tokens(body) {
+        if let BodyPart::Mention(token) = part {
+            if flags == 0 {
+                return Err(token_without_mention(token));
+            }
+            mention_flag(token, flags)?;
+        }
+    }
+    Ok(())
+}
+
+fn token_without_mention(token: &str) -> TeamsError {
+    TeamsError::InvalidInput(format!(
+        "{token} places a mention, but no --mention was given; \
+         write {{{token}}} for the literal text"
+    ))
+}
+
 /// The flag index a token names: `{@N}` is N, `{@}` the only flag.
 fn mention_flag(token: &str, flags: usize) -> Result<usize> {
     let digits = &token[2..token.len() - 1];
@@ -1148,10 +1176,7 @@ fn apply_mentions(req: &mut SendMessageRequest, identities: &[MentionIdentity]) 
 
     if identities.is_empty() {
         if let Some(token) = tokens.first() {
-            return Err(TeamsError::InvalidInput(format!(
-                "{token} places a mention, but no --mention was given; \
-                 write {{{token}}} for the literal text"
-            )));
+            return Err(token_without_mention(token));
         }
         let literal = match parts.into_iter().next() {
             Some(BodyPart::Text(text)) => text,
@@ -1823,6 +1848,35 @@ mod tests {
             &[identity("oid-1", "Sophie")],
         );
         assert!(err.contains("--mention"), "{err}");
+    }
+
+    /// The pre-lookup check needs only the flag count. It rejects what no set
+    /// of resolved users could fix and leaves "every person placed" to
+    /// `apply_mentions`, since two flags may resolve to one person.
+    #[test]
+    fn token_check_before_lookup_uses_the_flag_count() {
+        for (body, flags) in [
+            ("no tokens {0} {@x} {{@0}}", 0),
+            ("Hey {@0}", 1),
+            ("Hey {@}", 1),
+            ("{@1} then {@0}", 2),
+            // Unplaced flags are not this check's business.
+            ("only {@0}", 3),
+        ] {
+            assert!(
+                check_mention_tokens(body, flags).is_ok(),
+                "{body} / {flags}"
+            );
+        }
+        for (body, flags, expected) in [
+            ("Hey {@0}", 0, "no --mention was given"),
+            ("Hey {@}", 2, "{@} is only for a single --mention"),
+            ("Hey {@2}", 2, "{@2} has no matching --mention"),
+        ] {
+            let err = check_mention_tokens(body, flags).unwrap_err();
+            assert!(matches!(err, TeamsError::InvalidInput(_)), "{err:?}");
+            assert!(err.to_string().contains(expected), "{body}: {err}");
+        }
     }
 
     /// Once tokens place mentions, one left out would silently vanish.
