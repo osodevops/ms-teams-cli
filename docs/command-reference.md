@@ -108,16 +108,16 @@ teams channel members remove TEAM_ID CHANNEL_ID MEMBER_ID
 ```bash
 teams message send (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) [--body TEXT | --stdin] [--content-type text|html] [--adaptive-card PATH] [--image PATH]... [--attach PATH]... [--mention USER]... [--subject TEXT] [--quote MESSAGE_ID]...
 teams message list (--team TEAM_ID --channel CHANNEL_ID [--message-id ROOT_MESSAGE_ID] | --chat CHAT_ID)
-teams message get --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID) [--with-attachments]
+teams message get --team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] (MESSAGE_ID | --message MESSAGE_ID) [--with-attachments]
 teams message attachments list (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID)
 teams message attachments download (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID) [--index N] [--dir DIR | --path FILE]
 teams message attachments delete (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID) [--index N] --yes
 teams message reply --team TEAM_ID --channel CHANNEL_ID --message-id MESSAGE_ID [--body TEXT | --stdin] [--content-type text|html] [--image PATH]... [--attach PATH]... [--mention USER]...
-teams message update (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID) --body TEXT [--content-type text|html]
+teams message update (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID) (--body TEXT | --stdin) [--content-type text|html] [--mention USER]...
 teams message delete (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID) --yes
 teams message undelete (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) (MESSAGE_ID | --message MESSAGE_ID)
-teams message react (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) --message-id MESSAGE_ID (REACTION | --reaction REACTION)
-teams message unreact (--team TEAM_ID --channel CHANNEL_ID | --chat CHAT_ID) --message-id MESSAGE_ID (REACTION | --reaction REACTION)
+teams message react (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) --message-id MESSAGE_ID (REACTION | --reaction REACTION)
+teams message unreact (--team TEAM_ID --channel CHANNEL_ID [--reply REPLY_ID] | --chat CHAT_ID) --message-id MESSAGE_ID (REACTION | --reaction REACTION)
 teams message pin --team TEAM_ID --channel CHANNEL_ID (MESSAGE_ID | --message MESSAGE_ID)
 teams message unpin --team TEAM_ID --channel CHANNEL_ID (PINNED_MESSAGE_ID | --pinned-message-id PINNED_MESSAGE_ID)
 ```
@@ -134,11 +134,17 @@ Normal message mutation requires delegated auth. App-only/client-credentials tok
 
 `REACTION` is an emoji character or one of the names the CLI translates for you (`like`, `heart`, `laugh`, `surprised`, `sad`, `angry`, `thumbsup`, `thumbsdown`, `eyes`, `tada`, `rocket`, `fire`). Graph only accepts the emoji character on writes.
 
-`message update` edits your own message in place (Graph lets a delegated caller change any property except `policyViolation`); channel edits need the `ChannelMessage.ReadWrite` delegated scope, chat edits need `Chat.ReadWrite`. Graph returns no content on success, so the command reads the message back and prints it; if that read fails the edit has still been applied and the output is `{"id": ..., "updated": true, "readBackError": ...}`.
+`--reply REPLY_ID` on `get`, `update`, `react`, `unreact`, `delete`, `undelete` and `attachments` targets a reply in a channel thread: `MESSAGE_ID` is then the parent post, and the request goes to `.../messages/MESSAGE_ID/replies/REPLY_ID`. It needs `--team` and `--channel`; with `--chat` it is a usage error (exit code 2). A 404 on a reply names both the parent and the reply ID, since Graph does not say which one is missing.
+
+`message update` edits your own message in place (Graph lets a delegated caller change any property except `policyViolation`); `--stdin` reads the new body from standard input. Channel edits (posts and replies) need the `ChannelMessage.ReadWrite` delegated scope, chat edits need `Chat.ReadWrite`. A 403 on a channel edit names the missing scope, as `message delete` does. Graph returns no content on success, so the command reads the message back and prints it; if that read fails the edit has still been applied and the output is `{"id": ..., "updated": true, "readBackError": ...}`.
 
 `--image` sends a picture the way pasting a screenshot does — the bytes travel inside the message itself (a Graph "hosted content"), so it needs no scopes beyond sending messages. `--attach` uploads the file to real storage first (your OneDrive's `Microsoft Teams Chat Files` for chats, the team's SharePoint library for channels) and links it from the message; that upload needs `Files.ReadWrite` (chats) or `Files.ReadWrite.All` (channels). For chats, the CLI attempts to grant the other members read access with the drive item's `invite` action (no notification email). Recipient discovery also needs `User.Read` and a chat-member read scope such as `Chat.ReadBasic`. Object IDs are used only when the roster confirms the sender and recipient share a tenant; foreign or unknown tenants use email. Lookup failures, members without a usable address, and grant failures warn on stderr with manual-sharing guidance; lookup or sharing failures do not stop upload/send. Both flags repeat for multiple files, and `--body` becomes optional when either is present. Inline images are capped at 3MB each; attachments use Graph's 250MB simple-upload limit.
 
-`--mention USER` tags a person as a real Teams @mention (the kind that pings them) in chat sends, channel sends, and channel replies. It is repeatable, and `USER` may be an Entra object ID or a UPN — the CLI resolves the display name through Microsoft Graph. A mention needs an HTML body plus a synchronized `mentions` array; the CLI builds both for you: a plain-text body is safely converted to HTML (escaped, line breaks preserved as `<br>`) and the `<at>` elements are prepended to your body in flag order. A mention by itself counts as a body, so `--mention USER` without `--body` works. Raw `<at>` markup typed directly into an HTML body is rejected with exit code 2 before anything is sent, because Graph does not turn it into a real mention.
+`--mention USER` tags a person as a real Teams @mention (the kind that pings them) in chat sends, channel sends, channel replies, and edits (`message update`). It is repeatable, and `USER` may be an Entra object ID or a UPN — the CLI resolves the display name through Microsoft Graph. A mention needs an HTML body plus a synchronized `mentions` array; the CLI builds both for you: a plain-text body is safely converted to HTML (escaped, line breaks preserved as `<br>`) and the `<at>` elements are placed in your body. A mention by itself counts as a body for `send` and `reply`, so `--mention USER` without `--body` works there. Raw `<at>` markup typed directly into an HTML body is rejected with exit code 2 before anything is sent, because Graph does not turn it into a real mention.
+
+By default the `<at>` elements are prepended to your body in flag order. To put a mention where it belongs in the sentence, write `{@N}` in the body, where `N` is the 0-based position of the `--mention` flag: `--mention sophie@contoso.com --body "Hey {@0}, could you review this?"` sends `Hey <at id="0">Sophie Daniels</at>, could you review this?`. `{@}` stands for `{@0}` when there is exactly one `--mention`. Tokens work in text bodies (escaped and promoted to HTML first) and HTML bodies alike. A mention may be placed more than once; each occurrence gets its own `<at id>` and `mentions` entry, numbered in order of appearance. Once a body uses tokens, every person must be placed: a token past the last `--mention`, a `--mention` with no token, `{@}` with several mentions, or a token with no `--mention` at all is rejected with exit code 2 before anything is sent. `{@N}` always counts flags, so two flags that resolve to the same person (a UPN and an object ID, say) are one person, and placing either places them. To send the literal text `{@0}`, double the braces: `{{@0}}` (and `{{@}}`). Tokens are read in every body, with or without `--mention`; text with no `{@N}` or `{@}` in it is sent as before. Tokens are replaced wherever they stand in an HTML body, including inside attributes.
+
+`message update --mention USER` re-sends the body and the `mentions` array together in the PATCH, as Graph requires, so an edit can add a mention or keep one the message already had. The edit replaces the whole body: pass `--mention` again for every mention that should survive.
 
 ```bash
 # Tag someone in a chat
@@ -152,6 +158,14 @@ teams message send --team TEAM_ID --channel CHANNEL_ID \
 # Tag someone in a channel reply
 teams message reply --team TEAM_ID --channel CHANNEL_ID --message-id ROOT_MESSAGE_ID \
   --mention sophie@example.com --body "I have picked this up."
+
+# Place the mention inside the sentence
+teams message send --chat 19:abc@thread.v2 \
+  --mention sophie@example.com --body "Hey {@0}, could you review this?"
+
+# Edit a message and keep its mention
+teams message update --chat 19:abc@thread.v2 MESSAGE_ID \
+  --mention sophie@example.com --body "Hey {@0}, could you review this today?"
 ```
 
 `--subject TEXT` sets the subject line on a channel root message — the bold title Teams renders above the body, the same field the client offers behind "Add a subject". Channel sends only: chat messages have no subject, so `--subject` with `--chat` (or without `--channel`) is rejected with exit code 2 before anything is sent. The stored subject comes back on `message list` and `message get`. Human lists include a Subject column. Plain lists collect columns across all messages, so a titled message keeps its subject even when the first message is untitled; missing values are blank. JSON omits absent subjects.

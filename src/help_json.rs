@@ -248,7 +248,7 @@ mod tests {
     #[test]
     fn newly_added_flags_reach_the_dump() {
         let commands = tree().commands;
-        for subcommand in ["send", "reply"] {
+        for subcommand in ["send", "reply", "update"] {
             let command = find(&commands, &["message", subcommand]);
             let mention = command
                 .flags
