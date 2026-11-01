@@ -82,15 +82,21 @@ pub enum MessageCommand {
         message_id: Option<String>,
     },
     /// Get a specific message
+    #[command(
+        override_usage = "teams message get (--team <TEAM> --channel <CHANNEL> [--reply <REPLY>] | --chat <CHAT>) (MESSAGE_ID | --message <MESSAGE>) [--with-attachments]"
+    )]
     Get {
-        /// Team ID
-        #[arg(long)]
-        team: String,
-        /// Channel ID
-        #[arg(long)]
-        channel: String,
+        /// Team ID (for channel messages; requires --channel)
+        #[arg(long, requires = "channel", conflicts_with = "chat")]
+        team: Option<String>,
+        /// Channel ID (for channel messages; requires --team)
+        #[arg(long, requires = "team", conflicts_with = "chat")]
+        channel: Option<String>,
+        /// Chat ID (for chat messages)
+        #[arg(long, required_unless_present = "team")]
+        chat: Option<String>,
         /// Reply ID, to target a reply in a channel thread (MESSAGE_ID is then the parent post)
-        #[arg(long)]
+        #[arg(long, requires = "team", conflicts_with = "chat")]
         reply: Option<String>,
         /// Message ID
         #[arg(required_unless_present = "message", conflicts_with = "message")]
@@ -212,14 +218,20 @@ pub enum MessageCommand {
         )]
         reaction_flag: Option<String>,
     },
-    /// Pin a message in a channel
+    /// Pin a message in a chat (Microsoft Graph cannot pin channel posts)
+    #[command(
+        override_usage = "teams message pin --chat <CHAT> (MESSAGE_ID | --message <MESSAGE>)"
+    )]
     Pin {
-        /// Team ID
-        #[arg(long)]
-        team: String,
-        /// Channel ID
-        #[arg(long)]
-        channel: String,
+        /// Chat ID
+        #[arg(long, required_unless_present_any = ["team", "channel"])]
+        chat: Option<String>,
+        /// Not supported; kept so a channel pin gets an explanation, not a parse error
+        #[arg(long, hide = true, conflicts_with = "chat")]
+        team: Option<String>,
+        /// Not supported; kept so a channel pin gets an explanation, not a parse error
+        #[arg(long, hide = true, conflicts_with = "chat")]
+        channel: Option<String>,
         /// Message ID to pin
         #[arg(required_unless_present = "message", conflicts_with = "message")]
         message_id: Option<String>,
@@ -232,28 +244,32 @@ pub enum MessageCommand {
         )]
         message: Option<String>,
     },
-    /// Unpin a message from a channel
+    /// Unpin a message from a chat
+    #[command(
+        override_usage = "teams message unpin --chat <CHAT> (MESSAGE_ID | --message <MESSAGE>)"
+    )]
     Unpin {
-        /// Team ID
-        #[arg(long)]
-        team: String,
-        /// Channel ID
-        #[arg(long)]
-        channel: String,
-        /// Pinned message ID to remove
+        /// Chat ID
+        #[arg(long, required_unless_present_any = ["team", "channel"])]
+        chat: Option<String>,
+        /// Not supported; kept so a channel unpin gets an explanation, not a parse error
+        #[arg(long, hide = true, conflicts_with = "chat")]
+        team: Option<String>,
+        /// Not supported; kept so a channel unpin gets an explanation, not a parse error
+        #[arg(long, hide = true, conflicts_with = "chat")]
+        channel: Option<String>,
+        /// ID of the pinned message (in a chat, the pinned-message ID is the message ID)
+        #[arg(required_unless_present = "message", conflicts_with = "message")]
+        message_id: Option<String>,
+        /// ID of the pinned message (in a chat, the pinned-message ID is the message ID)
         #[arg(
-            required_unless_present = "pinned_message",
-            conflicts_with = "pinned_message"
+            long = "message",
+            alias = "message-id",
+            visible_alias = "pinned-message-id",
+            required_unless_present = "message_id",
+            conflicts_with = "message_id"
         )]
-        pinned_message_id: Option<String>,
-        /// Pinned message ID to remove
-        #[arg(
-            long = "pinned-message-id",
-            value_name = "PINNED_MESSAGE_ID",
-            required_unless_present = "pinned_message_id",
-            conflicts_with = "pinned_message_id"
-        )]
-        pinned_message: Option<String>,
+        message: Option<String>,
     },
     /// Delete your own message (a soft delete; undo it with `message undelete`)
     #[command(
@@ -381,6 +397,21 @@ pub async fn run(
         return Err(TeamsError::InvalidInput(
             "Deleting attachments needs explicit confirmation: add --yes".into(),
         ));
+    }
+    // Graph has pinned messages on chats only: on a channel the
+    // `pinnedMessages` segment does not exist (400 "Resource not found for the
+    // segment"), so a channel pin could never work. Say so before a token is
+    // needed rather than send a request that cannot succeed.
+    if let MessageCommand::Pin { team, channel, .. } | MessageCommand::Unpin { team, channel, .. } =
+        &cmd
+    {
+        if team.is_some() || channel.is_some() {
+            return Err(TeamsError::InvalidInput(
+                "Microsoft Graph can pin messages only in chats, not channel posts: use \
+                 --chat CHAT_ID instead of --team/--channel"
+                    .into(),
+            ));
+        }
     }
 
     let token = auth::resolve_token(profile).await?;
@@ -517,6 +548,7 @@ pub async fn run(
         MessageCommand::Get {
             team,
             channel,
+            chat,
             reply,
             message_id,
             message,
@@ -524,8 +556,7 @@ pub async fn run(
         } => {
             let start = Instant::now();
             let message_id = resolve_id(message_id, message, "--message or <MESSAGE_ID>")?;
-            let message_ref =
-                resolve_message_ref(Some(team), Some(channel), None, reply, message_id)?;
+            let message_ref = resolve_message_ref(team, channel, chat, reply, message_id)?;
             let msg = api::messages::get_message(&client, &message_ref).await?;
             if with_attachments {
                 let hosted = api::messages::list_hosted_contents(&client, &message_ref).await?;
@@ -622,34 +653,32 @@ pub async fn run(
         }
 
         MessageCommand::Pin {
-            team,
-            channel,
+            chat,
             message_id,
             message,
+            ..
         } => {
             let start = Instant::now();
             auth::require_delegated_token(&client.token, "Pinning Teams messages")?;
+            let chat_id = require_pin_chat(chat)?;
             let message_id = resolve_id(message_id, message, "--message or <MESSAGE_ID>")?;
-            let pinned = api::messages::pin_message(&client, &team, &channel, &message_id).await?;
+            let pinned = api::messages::pin_chat_message(&client, &chat_id, &message_id).await?;
             output::print_success(format, &pinned, start);
             Ok(())
         }
 
         MessageCommand::Unpin {
-            team,
-            channel,
-            pinned_message_id,
-            pinned_message,
+            chat,
+            message_id,
+            message,
+            ..
         } => {
             let start = Instant::now();
             auth::require_delegated_token(&client.token, "Unpinning Teams messages")?;
-            let pinned_message_id = resolve_id(
-                pinned_message_id,
-                pinned_message,
-                "--pinned-message-id or <PINNED_MESSAGE_ID>",
-            )?;
-            api::messages::unpin_message(&client, &team, &channel, &pinned_message_id).await?;
-            let result = serde_json::json!({"status": "unpinned"});
+            let chat_id = require_pin_chat(chat)?;
+            let message_id = resolve_id(message_id, message, "--message or <MESSAGE_ID>")?;
+            api::messages::unpin_chat_message(&client, &chat_id, &message_id).await?;
+            let result = serde_json::json!({"status": "unpinned", "id": message_id});
             output::print_success(format, &result, start);
             Ok(())
         }
@@ -848,6 +877,13 @@ fn reaction_type_for(reaction: &str) -> String {
         .iter()
         .find(|(name, _)| *name == reaction)
         .map_or_else(|| reaction.to_string(), |(_, emoji)| (*emoji).to_string())
+}
+
+/// The chat a pin or unpin targets. `run` refuses `--team`/`--channel` before
+/// a token is resolved and clap requires `--chat` otherwise, so this is the
+/// residual unwrap.
+fn require_pin_chat(chat: Option<String>) -> Result<String> {
+    chat.ok_or_else(|| TeamsError::InvalidInput("--chat is required".into()))
 }
 
 /// Turn the `--team`/`--channel`/`--chat`/`--reply` flags shared by the

@@ -136,12 +136,13 @@ pub fn me_chat_message_action(chat_id: &str, message_id: &str, action: &str) -> 
 }
 
 // --- Pinned Messages ---
-pub fn channel_pinned_messages(team_id: &str, channel_id: &str) -> String {
-    format!("{GRAPH_V1}/teams/{team_id}/channels/{channel_id}/pinnedMessages")
+// Chats only: Graph has no `pinnedMessages` segment on channels.
+pub fn chat_pinned_messages(chat_id: &str) -> String {
+    format!("{GRAPH_V1}/chats/{chat_id}/pinnedMessages")
 }
 
-pub fn channel_pinned_message(team_id: &str, channel_id: &str, pinned_message_id: &str) -> String {
-    format!("{GRAPH_V1}/teams/{team_id}/channels/{channel_id}/pinnedMessages/{pinned_message_id}")
+pub fn chat_pinned_message(chat_id: &str, pinned_message_id: &str) -> String {
+    format!("{GRAPH_V1}/chats/{chat_id}/pinnedMessages/{pinned_message_id}")
 }
 
 // --- Chats ---

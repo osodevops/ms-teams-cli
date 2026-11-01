@@ -1338,13 +1338,76 @@ fn message_documented_flags_are_available() {
         .success()
         .stdout(predicate::str::contains("--reaction <REACTION>"));
 
+    // In a chat the pinned-message ID is the message ID, so unpin takes the
+    // same `--message` as pin and keeps `--pinned-message-id` as an alias.
     teams()
         .args(["message", "unpin", "--help"])
         .assert()
         .success()
+        .stdout(
+            predicate::str::contains("--message <MESSAGE>")
+                .and(predicate::str::contains("--pinned-message-id")),
+        );
+}
+
+/// Graph pins messages in chats only, so pin and unpin advertise `--chat` and
+/// hide the channel flags they keep for the explanation below.
+#[test]
+fn message_pin_and_unpin_target_chats() {
+    for sub in ["pin", "unpin"] {
+        teams()
+            .args(["message", sub, "--help"])
+            .assert()
+            .success()
+            .stdout(
+                predicate::str::contains(format!(
+                    "teams message {sub} --chat <CHAT> (MESSAGE_ID | --message <MESSAGE>)"
+                ))
+                .and(predicate::str::contains("--team").not())
+                .and(predicate::str::contains("--channel").not()),
+            );
+    }
+}
+
+/// The channel `pinnedMessages` route does not exist in Graph (400 "Resource
+/// not found for the segment"), so a channel pin is refused with an
+/// explanation before any token is needed: no credentials are set here.
+#[test]
+fn channel_pin_is_refused_before_credentials() {
+    for args in [
+        &["pin", "--team", "T", "--channel", "C", "M"][..],
+        &["unpin", "--team", "T", "--channel", "C", "M"],
+        &["pin", "--team", "T", "M"],
+    ] {
+        teams()
+            .arg("message")
+            .args(args)
+            .args(["--output", "json"])
+            .assert()
+            .code(2)
+            .stdout(
+                predicate::str::contains("INVALID_INPUT")
+                    .and(predicate::str::contains("only in chats"))
+                    .and(predicate::str::contains("--chat CHAT_ID")),
+            );
+    }
+}
+
+#[test]
+fn message_get_accepts_chat_targets() {
+    teams()
+        .args(["message", "get", "--help"])
+        .assert()
+        .success()
         .stdout(predicate::str::contains(
-            "--pinned-message-id <PINNED_MESSAGE_ID>",
+            "teams message get (--team <TEAM> --channel <CHANNEL> [--reply <REPLY>] | --chat <CHAT>)",
         ));
+    // A reply exists only in a channel thread.
+    teams()
+        .args(["message", "get", "--chat", "19:x", "--reply", "R", "P"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("cannot be used with"));
 }
 
 #[test]

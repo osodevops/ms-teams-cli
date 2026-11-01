@@ -39,12 +39,13 @@ teams message list --team <team-id> --channel <channel-id> --output json
 teams message list --team <team-id> --channel <channel-id> --message-id <message-id> --output json
 teams message get --team <team-id> --channel <channel-id> <message-id> --output json
 teams message get --team <team-id> --channel <channel-id> --reply <reply-id> <message-id> --output json
+teams message get --chat <chat-id> <message-id> --output json
 ```
 
 - `message list` returns one page. Check `metadata.has_more`, or add `--all-pages` to get everything.
 - `--message-id` lists the replies in a channel thread instead of the thread roots.
 - There are no date or text filters on `message list`. Filter the JSON yourself, or use `search messages`.
-- `message get` is for channel messages; `--reply` reads one reply, with the parent post as `<message-id>`. Read a single chat message from `message list --chat`.
+- `message get` reads one chat or channel message; `--reply` reads one channel reply, with the parent post as `<message-id>`.
 - Some meeting chats list but reject reads (403) once you left the roster. Skip them.
 
 ## Write
@@ -64,8 +65,8 @@ teams message update --chat <chat-id> <message-id> --mention <user-email> --body
 teams message react --chat <chat-id> --message-id <message-id> like
 teams message react --team <team-id> --channel <channel-id> --reply <reply-id> --message-id <message-id> like
 teams message unreact --chat <chat-id> --message-id <message-id> like
-teams message pin --team <team-id> --channel <channel-id> <message-id>
-teams message unpin --team <team-id> --channel <channel-id> <pinned-message-id>
+teams message pin --chat <chat-id> <message-id>
+teams message unpin --chat <chat-id> <message-id>
 ```
 
 - Content is `text` by default. `--content-type html` sends HTML; there is no markdown option. Use `--stdin` for long or multi-line bodies.
@@ -76,7 +77,7 @@ teams message unpin --team <team-id> --channel <channel-id> <pinned-message-id>
 - Replies exist for channel threads. In a chat, send a normal message or use `--quote`.
 - A send that fails with exit 7 or 8 may still have posted. List recent messages before re-sending.
 - `--reply <reply-id>` targets a reply in a channel thread for `update`, `react` and `unreact`; `<message-id>` is then the parent post. Channel only.
-- `pin` and `unpin` are channel only. `unpin` takes the pinned-message id, not the message id.
+- `pin` and `unpin` are chat only: Graph cannot pin channel posts, so `--team`/`--channel` exits 2. `unpin` takes the message id. Unpinning a message that is not pinned exits 5.
 
 ## Delete and restore
 

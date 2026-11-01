@@ -416,38 +416,66 @@ async fn set_reaction_at(client: &GraphClient, url: &str, reaction: &str) -> Res
 
 // --- Pinned Messages ---
 
-pub async fn pin_message(
+/// Pin a chat message. Graph has pinned messages on chats only; the channel
+/// equivalent of this path does not exist. The pinned-message ID Graph
+/// returns is the message ID, and pinning a pinned message again is a no-op.
+pub async fn pin_chat_message(
     client: &GraphClient,
-    team_id: &str,
-    channel_id: &str,
+    chat_id: &str,
     message_id: &str,
 ) -> Result<PinnedMessage> {
-    let req = PinMessageRequest {
-        message_odata_bind: format!(
-            "https://graph.microsoft.com/v1.0/teams('{team_id}')/channels('{channel_id}')/messages('{message_id}')"
-        ),
-    };
-    client
-        .post(
-            &endpoints::channel_pinned_messages(team_id, channel_id),
-            &req,
-        )
-        .await
+    pin_chat_message_at(
+        client,
+        &endpoints::chat_pinned_messages(chat_id),
+        chat_id,
+        message_id,
+    )
+    .await
 }
 
-pub async fn unpin_message(
+async fn pin_chat_message_at(
     client: &GraphClient,
-    team_id: &str,
-    channel_id: &str,
-    pinned_message_id: &str,
+    url: &str,
+    chat_id: &str,
+    message_id: &str,
+) -> Result<PinnedMessage> {
+    // The bind names the message by its canonical Graph URL, whatever host the
+    // request itself goes to.
+    let req = PinMessageRequest {
+        message_odata_bind: endpoints::chat_message(chat_id, message_id),
+    };
+    client.post(url, &req).await
+}
+
+/// Unpin a chat message by its pinned-message ID, which is the message ID.
+pub async fn unpin_chat_message(
+    client: &GraphClient,
+    chat_id: &str,
+    message_id: &str,
 ) -> Result<()> {
-    client
-        .delete(&endpoints::channel_pinned_message(
-            team_id,
-            channel_id,
-            pinned_message_id,
-        ))
-        .await
+    unpin_chat_message_at(
+        client,
+        &endpoints::chat_pinned_message(chat_id, message_id),
+        chat_id,
+        message_id,
+    )
+    .await
+}
+
+/// Graph's 404 here is a bare `NotFound`, also for a message that is simply
+/// not pinned, so say which message and chat were meant.
+async fn unpin_chat_message_at(
+    client: &GraphClient,
+    url: &str,
+    chat_id: &str,
+    message_id: &str,
+) -> Result<()> {
+    client.delete(url).await.map_err(|err| match err {
+        TeamsError::NotFound(body) => TeamsError::NotFound(format!(
+            "message {message_id} is not pinned in chat {chat_id}: {body}"
+        )),
+        other => other,
+    })
 }
 
 #[cfg(test)]
@@ -843,6 +871,89 @@ mod tests {
                 .await
                 .unwrap();
         }
+    }
+
+    /// Shapes observed live on 2026-11-01: the POST binds the message by its
+    /// canonical v1.0 URL and gets 201 with the message ID as the pinned ID.
+    #[tokio::test]
+    async fn pin_chat_message_binds_the_canonical_message_url() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/chats/19:abc@thread.v2/pinnedMessages"))
+            .and(body_json(serde_json::json!({
+                "message@odata.bind":
+                    "https://graph.microsoft.com/v1.0/chats/19:abc@thread.v2/messages/1700000000000"
+            })))
+            .respond_with(
+                ResponseTemplate::new(201)
+                    .set_body_json(serde_json::json!({"id": "1700000000000"})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let pinned = pin_chat_message_at(
+            &test_client(),
+            &format!("{}/chats/19:abc@thread.v2/pinnedMessages", server.uri()),
+            "19:abc@thread.v2",
+            "1700000000000",
+        )
+        .await
+        .unwrap();
+        assert_eq!(pinned.id.as_deref(), Some("1700000000000"));
+    }
+
+    #[test]
+    fn pinned_message_endpoints_are_on_chats() {
+        assert_eq!(
+            endpoints::chat_pinned_messages("19:abc@thread.v2"),
+            "https://graph.microsoft.com/v1.0/chats/19:abc@thread.v2/pinnedMessages"
+        );
+        assert_eq!(
+            endpoints::chat_pinned_message("19:abc@thread.v2", "1700000000000"),
+            "https://graph.microsoft.com/v1.0/chats/19:abc@thread.v2/pinnedMessages/1700000000000"
+        );
+    }
+
+    /// Unpinning answers 204; a message that is not pinned gets a bare 404,
+    /// which the error turns into one naming the message and the chat.
+    #[tokio::test]
+    async fn unpin_chat_message_accepts_no_content_and_explains_a_404() {
+        let server = MockServer::start().await;
+        Mock::given(method("DELETE"))
+            .and(path("/chats/19:abc@thread.v2/pinnedMessages/pinned"))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("DELETE"))
+            .and(path("/chats/19:abc@thread.v2/pinnedMessages/loose"))
+            .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
+                "error": {"code": "NotFound", "message": "NotFound"}
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let url = |id: &str| {
+            format!(
+                "{}/chats/19:abc@thread.v2/pinnedMessages/{id}",
+                server.uri()
+            )
+        };
+        unpin_chat_message_at(&test_client(), &url("pinned"), "19:abc@thread.v2", "pinned")
+            .await
+            .unwrap();
+        let err = unpin_chat_message_at(&test_client(), &url("loose"), "19:abc@thread.v2", "loose")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, TeamsError::NotFound(_)), "{err:?}");
+        assert!(
+            err.to_string()
+                .contains("message loose is not pinned in chat 19:abc@thread.v2"),
+            "{err}"
+        );
+        assert_eq!(err.exit_code(), 5);
     }
 
     #[tokio::test]
