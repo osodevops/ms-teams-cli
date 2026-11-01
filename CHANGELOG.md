@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.12.0 - 2026-11-01
+
 ### Added
 
 - `teams message update`, `get`, `react` and `unreact` take `--reply REPLY_ID` to target a reply in a channel thread, as `delete` and `undelete` already did: the message ID is then the parent post and the request goes to `.../messages/{parent}/replies/{reply}`. `--reply` with `--chat` is a usage error (exit code 2).
