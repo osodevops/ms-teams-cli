@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- HTTPS requests now trust the operating system's certificate store (the macOS keychain, the Windows certificate store, the system CA bundle on Linux) as well as the built-in public roots. Behind a proxy that inspects TLS and re-signs certificates with an organisation's own root CA, every request to an inspected host used to fail with `NETWORK_ERROR` (rustls `UnknownIssuer`) even though the OS trusted that root. `SSL_CERT_FILE` and `SSL_CERT_DIR` are honoured on every platform and are read instead of the OS store.
+
 ## v0.12.0 - 2026-11-01
 
 ### Added

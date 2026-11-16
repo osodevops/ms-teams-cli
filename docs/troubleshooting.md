@@ -224,6 +224,26 @@ If you decline consent or the identity platform refuses the sign-in, the
 login fails at once with its `error` and `error_description` (exit code 3).
 With no callback at all, it gives up after 10 minutes.
 
+## `NETWORK_ERROR` behind a TLS-inspecting proxy
+
+A proxy that inspects TLS re-signs server certificates with your
+organisation's own root CA. The CLI trusts the operating system's certificate
+store (the macOS keychain, the Windows certificate store, the system CA bundle
+on Linux) as well as its built-in public roots, so a root installed and
+trusted there works without configuration. The proxy itself is taken from
+`HTTPS_PROXY`.
+
+If requests still fail with `NETWORK_ERROR` (exit code `7`), often only for
+the hosts the proxy inspects, the root is not trusted by the OS. Have it
+installed there, or point `SSL_CERT_FILE` at a PEM bundle that contains it:
+
+```bash
+SSL_CERT_FILE=/path/to/ca-bundle.pem teams user me --output json
+```
+
+When `SSL_CERT_FILE` or `SSL_CERT_DIR` is set, it is read instead of the OS
+store on every platform; the built-in public roots stay trusted.
+
 ## Rate limiting
 
 Exit code `6` means rate limited after retries.
