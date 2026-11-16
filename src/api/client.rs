@@ -687,6 +687,17 @@ mod tests {
         }
     }
 
+    /// A proxy that inspects TLS re-signs certificates with a root only the operating system
+    /// trusts, so the OS store has to stay among the TLS roots. `tls_built_in_native_certs` exists
+    /// only with reqwest's `rustls-tls-native-roots` feature: dropping it stops this compiling.
+    #[test]
+    fn tls_roots_include_the_os_trust_store() {
+        Client::builder()
+            .tls_built_in_native_certs(true)
+            .build()
+            .unwrap();
+    }
+
     /// A response Graph considers successful but this crate cannot deserialize is the one failure
     /// the user cannot investigate from the message alone, so the message has to carry serde's
     /// account of it: which value was wrong, what was expected, and where it sat.
