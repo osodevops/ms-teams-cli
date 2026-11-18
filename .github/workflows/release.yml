@@ -17,8 +17,10 @@ jobs:
     strategy:
       matrix:
         include:
+          # GitHub retired the macOS 14 images on 2026-11-02 and is phasing out Intel
+          # images, so x86_64 is cross-compiled on Apple Silicon like aarch64.
           - target: x86_64-apple-darwin
-            runner: macos-14
+            runner: macos-latest
             archive: tar.gz
           - target: aarch64-apple-darwin
             runner: macos-latest
@@ -62,6 +64,25 @@ jobs:
       - name: Build (native)
         if: "!matrix.cross"
         run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Verify binary (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          bin="target/${{ matrix.target }}/release/teams"
+          case "${{ matrix.target }}" in
+            x86_64-*) arch=x86_64 ;;
+            aarch64-*) arch=arm64 ;;
+          esac
+          file "$bin"
+          file "$bin" | grep -q "executable ${arch}$"
+          # The x86_64 binary runs under Rosetta 2 on Apple Silicon.
+          if [ "$arch" = x86_64 ] && ! arch -x86_64 /usr/bin/true 2>/dev/null; then
+            sudo softwareupdate --install-rosetta --agree-to-license
+          fi
+          # Only the version: a storage namespace here means a debug-namespace build.
+          version="$(arch -"$arch" "$bin" --version)"
+          echo "$version"
+          test "$version" = "teams ${GITHUB_REF_NAME#v}"
 
       - name: Package (unix)
         if: matrix.archive == 'tar.gz'
