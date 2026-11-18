@@ -29,11 +29,11 @@ impl GraphClient {
         let timeout = Duration::from_secs(network.timeout);
         // A separate connect timeout makes a stalled connect a connect error, which
         // proves the request was never sent; the overall timeout alone cannot say.
-        let http = Client::builder()
-            .connect_timeout(timeout.min(CONNECT_TIMEOUT))
-            .timeout(timeout)
-            .build()
-            .map_err(TeamsError::NetworkError)?;
+        let http = build_http_client(
+            Client::builder()
+                .connect_timeout(timeout.min(CONNECT_TIMEOUT))
+                .timeout(timeout),
+        )?;
 
         Ok(Self {
             http,
@@ -611,6 +611,39 @@ async fn decode_json<T: DeserializeOwned>(
 /// Longest wait for a connection to Graph.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Build an HTTP client, reporting a failure as the configuration problem it is.
+///
+/// Building loads the TLS roots: the built-in public roots plus the operating system's certificate
+/// store, or `SSL_CERT_FILE` / `SSL_CERT_DIR` in place of that store when either is set. reqwest
+/// refuses to build when those hold certificates but none it can use, and `Client::new()` panics
+/// on that. No request has been made yet, so it is not a network error and retrying cannot help:
+/// the certificate bundle has to be fixed.
+pub fn build_http_client(builder: reqwest::ClientBuilder) -> Result<Client> {
+    builder.build().map_err(|e| {
+        let mut message = format!(
+            "could not set up HTTPS: {}",
+            crate::error::describe_with_causes(&e)
+        );
+        let overrides: Vec<&str> = ["SSL_CERT_FILE", "SSL_CERT_DIR"]
+            .into_iter()
+            .filter(|name| std::env::var_os(name).is_some())
+            .collect();
+        if !overrides.is_empty() {
+            message.push_str(&format!(
+                ". {} is set, so it is read in place of the operating system's certificate \
+                 store; it has to hold PEM certificates",
+                overrides.join(" and ")
+            ));
+        }
+        TeamsError::ConfigError(message)
+    })
+}
+
+/// A client with reqwest's defaults, for the sign-in and token endpoints.
+pub fn default_http_client() -> Result<Client> {
+    build_http_client(Client::builder())
+}
+
 /// Longest wait honored from a `Retry-After` header.
 const MAX_RETRY_AFTER: Duration = Duration::from_secs(300);
 
@@ -696,6 +729,28 @@ mod tests {
             .tls_built_in_native_certs(true)
             .build()
             .unwrap();
+    }
+
+    /// Building a client can fail before any request is made, for instance on a certificate
+    /// bundle with nothing usable in it. That is a configuration error carrying its cause, not a
+    /// network error to retry, and never a panic. An empty TLS version range is a builder failure
+    /// that does not depend on the machine's certificate store.
+    #[test]
+    fn a_client_that_cannot_be_built_is_a_config_error() {
+        let err = build_http_client(
+            Client::builder()
+                .min_tls_version(reqwest::tls::Version::TLS_1_3)
+                .max_tls_version(reqwest::tls::Version::TLS_1_2),
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, TeamsError::ConfigError(_)), "{err:?}");
+        assert_eq!(err.exit_code(), 10);
+        assert!(
+            err.to_string()
+                .contains("could not set up HTTPS: builder error: empty supported tls versions"),
+            "{err}"
+        );
     }
 
     /// A response Graph considers successful but this crate cannot deserialize is the one failure

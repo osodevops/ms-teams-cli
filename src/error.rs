@@ -17,11 +17,11 @@ pub enum TeamsError {
     #[error("Rate limited, retry after {retry_after}s")]
     RateLimited { retry_after: u64 },
 
-    #[error("Network error: {0}")]
+    #[error("Network error: {}", describe_network_error(.0))]
     NetworkError(#[from] reqwest::Error),
 
     /// A POST failed after it was sent, so Graph may have performed it.
-    #[error("Network error: {0}\n{UNCONFIRMED_HINT}")]
+    #[error("Network error: {}\n{UNCONFIRMED_HINT}", describe_network_error(.0))]
     UnconfirmedWrite(reqwest::Error),
 
     /// A POST was answered 2xx, so Graph performed it, but the body could not be read.
@@ -122,6 +122,29 @@ pub fn describe_with_causes(err: &dyn std::error::Error) -> String {
     }
     message
 }
+
+/// Render a failed request with everything that caused it, and say what to do when the cause is
+/// a certificate the CLI does not trust.
+///
+/// `reqwest::Error` displays a failed request as "error sending request for url (...)", which
+/// reads the same whether the connection was refused, timed out or failed its TLS handshake. The
+/// reason is further down the source chain. Behind a proxy that inspects TLS it is rustls's
+/// `invalid peer certificate: UnknownIssuer`: the proxy re-signs the server's certificate with a
+/// root the CLI does not trust, and the remedy is to trust that root, not to retry.
+pub fn describe_network_error(err: &reqwest::Error) -> String {
+    let message = describe_with_causes(err);
+    if message.contains("UnknownIssuer") {
+        format!("{message}\n{UNKNOWN_ISSUER_HINT}")
+    } else {
+        message
+    }
+}
+
+/// Appended to a failure whose server certificate was signed by a root the CLI does not trust.
+pub const UNKNOWN_ISSUER_HINT: &str = "Hint: the server's certificate was issued by a root CA \
+     this machine does not trust. Behind a proxy that inspects TLS, install the proxy's root CA \
+     in the operating system's certificate store, or point SSL_CERT_FILE at a PEM bundle that \
+     contains it.";
 
 /// Appended to a failure that leaves a POST's outcome unknown.
 pub const UNCONFIRMED_HINT: &str =

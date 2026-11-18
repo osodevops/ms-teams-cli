@@ -1,5 +1,3 @@
-use reqwest::Client;
-
 use super::token::MsTokenResponse;
 use crate::error::{Result, TeamsError};
 
@@ -19,7 +17,7 @@ pub async fn authenticate(
         ("scope", "https://graph.microsoft.com/.default"),
     ];
 
-    let http = Client::new();
+    let http = crate::api::client::default_http_client()?;
     let resp = http
         .post(&token_url)
         .form(&params)

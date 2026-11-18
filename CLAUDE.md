@@ -100,6 +100,8 @@ CLI flags > env vars (TEAMS_CLI_CLIENT_ID, TEAMS_CLI_CLIENT_SECRET, TEAMS_CLI_TE
 - `TEAMS_CLI_ACCESS_TOKEN` — Pre-obtained access token
 - `TEAMS_CLI_CLIENT_STATE` — clientState `teams listen` requires on notifications
 - `TEAMS_CLI_TOKEN_STORE` — `keyring` (default) or `file` (0600 files under the config dir's `tokens/`)
+- `HTTPS_PROXY` / `NO_PROXY` — proxy for HTTPS requests
+- `SSL_CERT_FILE` / `SSL_CERT_DIR` — PEM roots read in place of the OS certificate store (built-in webpki roots stay trusted); a bundle with no usable certificate is `CONFIG_ERROR`
 - `RUST_LOG` — Tracing filter level
 
 ## Config

@@ -1,5 +1,3 @@
-use reqwest::Client;
-
 use super::token::MsTokenResponse;
 use crate::error::{Result, TeamsError};
 
@@ -25,7 +23,7 @@ async fn refresh_access_token_at(
     refresh_token: &str,
     scope: &str,
 ) -> Result<MsTokenResponse> {
-    let http = Client::new();
+    let http = crate::api::client::default_http_client()?;
 
     let resp = http
         .post(token_url)

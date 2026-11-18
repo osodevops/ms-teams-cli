@@ -2,7 +2,6 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use bytes::Bytes;
 use http_body_util::Full;
 use hyper::{Response, StatusCode, Uri};
-use reqwest::Client;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -340,7 +339,7 @@ pub async fn authenticate(
     // Exchange code for token
     let token_url = format!("https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token");
 
-    let http = Client::new();
+    let http = crate::api::client::default_http_client()?;
     let resp = http
         .post(&token_url)
         .form(&[

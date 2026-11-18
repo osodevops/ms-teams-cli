@@ -2322,3 +2322,212 @@ fn auth_status_reports_an_unreadable_store_as_a_storage_error() {
         .code(10)
         .stdout(predicate::str::contains("KEYRING_ERROR"));
 }
+
+/// A proxy that inspects TLS, the way corporate networks run them: it answers `CONNECT`, then
+/// terminates TLS itself with a certificate for the requested host signed by its own root, which
+/// no public trust store contains. A request that gets through the handshake is answered with
+/// Graph's 401, so a CLI that trusts the root exits 3 and one that does not exits 7.
+struct InspectingProxy {
+    url: String,
+    root_pem: String,
+    requests: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+impl InspectingProxy {
+    fn start() -> Self {
+        use std::io::Write;
+        use std::sync::{Arc, Mutex};
+
+        let root_key = rcgen::KeyPair::generate().unwrap();
+        let mut root_params = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
+        root_params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        root_params.key_usages = vec![
+            rcgen::KeyUsagePurpose::KeyCertSign,
+            rcgen::KeyUsagePurpose::CrlSign,
+        ];
+        root_params
+            .distinguished_name
+            .push(rcgen::DnType::CommonName, "teams-cli test inspecting proxy");
+        let root = root_params.self_signed(&root_key).unwrap();
+        let issuer = rcgen::Issuer::new(root_params, root_key);
+
+        let leaf_key = rcgen::KeyPair::generate().unwrap();
+        let mut leaf_params = rcgen::CertificateParams::new(vec![
+            "graph.microsoft.com".to_string(),
+            "login.microsoftonline.com".to_string(),
+        ])
+        .unwrap();
+        leaf_params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ServerAuth];
+        let leaf = leaf_params.signed_by(&leaf_key, &issuer).unwrap();
+
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let config = Arc::new(
+            rustls::ServerConfig::builder_with_provider(provider)
+                .with_safe_default_protocol_versions()
+                .unwrap()
+                .with_no_client_auth()
+                .with_single_cert(
+                    vec![leaf.der().clone(), root.der().clone()],
+                    rustls::pki_types::PrivatePkcs8KeyDer::from(leaf_key.serialize_der()).into(),
+                )
+                .unwrap(),
+        );
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&requests);
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut tcp) = stream else { continue };
+                let _ = tcp.set_read_timeout(Some(std::time::Duration::from_secs(10)));
+                if read_http_head(&mut tcp).is_none()
+                    || tcp
+                        .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+                        .is_err()
+                {
+                    continue;
+                }
+                let conn = rustls::ServerConnection::new(Arc::clone(&config)).unwrap();
+                let mut tls = rustls::StreamOwned::new(conn, tcp);
+                // A client that rejects the certificate aborts the handshake, so this read fails.
+                let Some(head) = read_http_head(&mut tls) else {
+                    continue;
+                };
+                seen.lock()
+                    .unwrap()
+                    .push(head.lines().next().unwrap_or_default().to_string());
+                let body = r#"{"error":{"code":"InvalidAuthenticationToken","message":"Access token validation failure."}}"#;
+                let _ = write!(
+                    tls,
+                    "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                tls.conn.send_close_notify();
+                let _ = tls.flush();
+            }
+        });
+
+        Self {
+            url,
+            root_pem: root.pem(),
+            requests,
+        }
+    }
+
+    /// The request lines that reached the proxy inside TLS.
+    fn requests(&self) -> Vec<String> {
+        self.requests.lock().unwrap().clone()
+    }
+
+    /// `teams user me` sent through this proxy, with no trust configured beyond the machine's.
+    fn user_me(&self) -> Command {
+        let mut cmd = teams();
+        cmd.env("TEAMS_CLI_ACCESS_TOKEN", "not-a-real-token")
+            .env("HTTPS_PROXY", &self.url)
+            .env("https_proxy", &self.url)
+            .env_remove("ALL_PROXY")
+            .env_remove("all_proxy")
+            .env_remove("NO_PROXY")
+            .env_remove("no_proxy")
+            .env_remove("SSL_CERT_FILE")
+            .env_remove("SSL_CERT_DIR")
+            .args(["user", "me", "--retry", "0", "--output", "json"]);
+        cmd
+    }
+}
+
+/// Read up to and including the blank line that ends an HTTP head, one byte at a time so that
+/// nothing after it (the TLS handshake, after a `CONNECT`) is consumed.
+fn read_http_head(stream: &mut impl Read) -> Option<String> {
+    let mut head = Vec::new();
+    let mut byte = [0u8; 1];
+    while !head.ends_with(b"\r\n\r\n") {
+        if head.len() > 64 * 1024 || stream.read(&mut byte).ok()? == 0 {
+            return None;
+        }
+        head.push(byte[0]);
+    }
+    String::from_utf8(head).ok()
+}
+
+/// Behind a proxy that inspects TLS, the CLI has to trust the root the user's machine trusts, not
+/// only the public roots compiled into it, or every request fails at the handshake.
+/// `SSL_CERT_FILE` is read in place of the operating system's store, so the test needs no change
+/// to the machine's trust settings.
+#[test]
+fn a_root_trusted_through_ssl_cert_file_gets_requests_through_an_inspecting_proxy() {
+    let proxy = InspectingProxy::start();
+    let dir = tempfile::tempdir().unwrap();
+    let bundle = dir.path().join("proxy-root.pem");
+    fs::write(&bundle, &proxy.root_pem).unwrap();
+
+    proxy
+        .user_me()
+        .env("SSL_CERT_FILE", &bundle)
+        .assert()
+        .code(3)
+        .stdout(predicate::str::contains("AUTH_FAILED"));
+    assert_eq!(proxy.requests(), ["GET /v1.0/me HTTP/1.1"]);
+}
+
+/// Without that root the handshake has to fail, and the error has to say why. reqwest's own text
+/// names only the URL; the certificate problem is further down the cause chain.
+#[test]
+fn an_untrusted_inspecting_proxy_fails_with_the_certificate_problem_named() {
+    let proxy = InspectingProxy::start();
+
+    proxy.user_me().assert().code(7).stdout(
+        predicate::str::contains("NETWORK_ERROR")
+            .and(predicate::str::contains(
+                "invalid peer certificate: UnknownIssuer",
+            ))
+            .and(predicate::str::contains("SSL_CERT_FILE")),
+    );
+    assert!(proxy.requests().is_empty(), "{:?}", proxy.requests());
+}
+
+/// A certificate bundle with nothing usable in it makes building the HTTP client fail. The
+/// sign-in flows used to panic on that (`Client::new()`); it is a configuration error for every
+/// command, reported before anything is sent.
+#[test]
+fn an_unusable_ssl_cert_file_is_a_config_error_not_a_panic() {
+    let dir = tempfile::tempdir().unwrap();
+    let bundle = dir.path().join("broken.pem");
+    fs::write(
+        &bundle,
+        "-----BEGIN CERTIFICATE-----\nbm90IGEgY2VydGlmaWNhdGU=\n-----END CERTIFICATE-----\n",
+    )
+    .unwrap();
+
+    for args in [
+        &["user", "me", "--retry", "0"][..],
+        &[
+            "auth",
+            "login",
+            "--device-code",
+            "--client-id",
+            "00000000-0000-0000-0000-000000000001",
+            "--tenant-id",
+            "00000000-0000-0000-0000-000000000002",
+        ][..],
+    ] {
+        teams()
+            .env("TEAMS_CLI_ACCESS_TOKEN", "not-a-real-token")
+            .env("HTTPS_PROXY", "http://127.0.0.1:9")
+            .env("https_proxy", "http://127.0.0.1:9")
+            .env("SSL_CERT_FILE", &bundle)
+            .env_remove("SSL_CERT_DIR")
+            .args(args)
+            .args(["--output", "json"])
+            .assert()
+            .code(10)
+            .stdout(
+                predicate::str::contains("CONFIG_ERROR")
+                    .and(predicate::str::contains("could not set up HTTPS"))
+                    .and(predicate::str::contains("SSL_CERT_FILE is set")),
+            )
+            .stderr(predicate::str::contains("panicked").not());
+    }
+}

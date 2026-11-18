@@ -234,15 +234,26 @@ trusted there works without configuration. The proxy itself is taken from
 `HTTPS_PROXY`.
 
 If requests still fail with `NETWORK_ERROR` (exit code `7`), often only for
-the hosts the proxy inspects, the root is not trusted by the OS. Have it
-installed there, or point `SSL_CERT_FILE` at a PEM bundle that contains it:
+the hosts the proxy inspects, the root is not trusted by the OS. The message
+names the cause and ends with a hint:
+
+```text
+Network error: error sending request for url (https://graph.microsoft.com/v1.0/me): client error (Connect): invalid peer certificate: UnknownIssuer
+Hint: the server's certificate was issued by a root CA this machine does not trust. ...
+```
+
+Have the root installed in the OS store, or point `SSL_CERT_FILE` at a PEM
+bundle that contains it:
 
 ```bash
 SSL_CERT_FILE=/path/to/ca-bundle.pem teams user me --output json
 ```
 
 When `SSL_CERT_FILE` or `SSL_CERT_DIR` is set, it is read instead of the OS
-store on every platform; the built-in public roots stay trusted.
+store on every platform; the built-in public roots stay trusted. A bundle
+the CLI cannot use at all (no certificate in it parses) fails every command
+with `CONFIG_ERROR` (exit code `10`) before anything is sent. A path that does
+not exist is not an error: the CLI then trusts only its built-in roots.
 
 ## Rate limiting
 
