@@ -520,6 +520,20 @@ writes them unencrypted to mode 0600 files under the config
 directory's tokens/, for unattended processes and hosts without a keyring.
 Any other value is an invalid-input error (exit code 2).
 .TP
+.B HTTPS_PROXY
+Proxy for all HTTPS requests.
+.B NO_PROXY
+lists hosts to reach directly.
+.TP
+.B SSL_CERT_FILE\fR, \fBSSL_CERT_DIR
+A PEM bundle, or a directory of PEM certificates, trusted in place of the
+operating system's certificate store (the macOS keychain, the Windows
+certificate store, the system CA bundle on Linux).
+The built-in public roots stay trusted.
+Use it behind a proxy that inspects TLS when its root CA is not in the
+operating system's store.
+A bundle with no usable certificate is a configuration error (exit code 10).
+.TP
 .B RUST_LOG
 Tracing filter, for example
 .B debug

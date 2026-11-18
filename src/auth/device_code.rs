@@ -1,4 +1,3 @@
-use reqwest::Client;
 use serde::Deserialize;
 use std::time::Duration;
 
@@ -40,7 +39,7 @@ pub async fn authenticate(
     scopes: Option<&str>,
 ) -> Result<MsTokenResponse> {
     let scopes = scopes.unwrap_or(DEFAULT_DELEGATED_SCOPES);
-    let http = Client::new();
+    let http = crate::api::client::default_http_client()?;
 
     // Step 1: Request device code
     let device_code_url =

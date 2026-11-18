@@ -804,6 +804,8 @@ auth_flow = "device-code"
 | `TEAMS_CLI_SCOPES` | Delegated OAuth scopes for login (same precedence as `--scopes`; ignored by client credentials) |
 | `TEAMS_CLI_ACCESS_TOKEN` | Pre-obtained Microsoft Graph access token (skips login entirely; `--profile`/`TEAMS_CLI_PROFILE` do not affect which token is used) |
 | `TEAMS_CLI_CLIENT_STATE` | Secret `teams listen` requires in each notification's `clientState` (same as `--client-state`) |
+| `HTTPS_PROXY` | Proxy for all HTTPS requests (`NO_PROXY` lists hosts to reach directly) |
+| `SSL_CERT_FILE` / `SSL_CERT_DIR` | PEM certificate bundle / directory to trust in place of the operating system's certificate store (the built-in public roots stay trusted); see [troubleshooting](docs/troubleshooting.md#network_error-behind-a-tls-inspecting-proxy) |
 | `RUST_LOG` | Tracing filter (e.g., `debug`, `teams=trace`) |
 
 ## Verbosity
