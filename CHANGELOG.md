@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Changed
+
+- HTTP moves to `reqwest` 0.13. Server certificates are now verified by the operating system's own verifier (`rustls-platform-verifier`: the Security framework on macOS, CryptoAPI on Windows, the system CA bundle on Linux) instead of copying the OS store into rustls before every client is built. That removes the ~125 ms the keychain scan added to every command on macOS in v0.12.1, and applies the OS's own distrust settings, name constraints and revocation checks. TLS crypto moves from `ring` to `aws-lc-rs`, reqwest's default provider; the binaries grow by about 1.4 MB.
+- `SSL_CERT_FILE` / `SSL_CERT_DIR` are trusted on top of the OS store on macOS and Windows (they used to replace it); on Linux they still replace the system CA bundle. Mozilla's public roots stay built in on Linux only, so a static binary still works in a container without a CA bundle; macOS and Windows rely on the OS store. A certificate in the bundle that does not parse is still skipped, now with a warning on stderr, and a bundle in which none parses is still `CONFIG_ERROR`.
+- The hint on an untrusted certificate now appears on macOS too, where the Security framework describes the failure in its own words rather than as `UnknownIssuer`.
+
 ## v0.12.1 - 2026-11-18
 
 ### Fixed

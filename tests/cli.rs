@@ -2473,16 +2473,16 @@ fn a_root_trusted_through_ssl_cert_file_gets_requests_through_an_inspecting_prox
 }
 
 /// Without that root the handshake has to fail, and the error has to say why. reqwest's own text
-/// names only the URL; the certificate problem is further down the cause chain.
+/// names only the URL; the certificate problem is further down the cause chain. What the verifier
+/// says after `invalid peer certificate:` differs by operating system (`UnknownIssuer` on Linux
+/// and Windows, the Security framework's description on macOS).
 #[test]
 fn an_untrusted_inspecting_proxy_fails_with_the_certificate_problem_named() {
     let proxy = InspectingProxy::start();
 
     proxy.user_me().assert().code(7).stdout(
         predicate::str::contains("NETWORK_ERROR")
-            .and(predicate::str::contains(
-                "invalid peer certificate: UnknownIssuer",
-            ))
+            .and(predicate::str::contains("invalid peer certificate"))
             .and(predicate::str::contains("SSL_CERT_FILE")),
     );
     assert!(proxy.requests().is_empty(), "{:?}", proxy.requests());
@@ -2526,8 +2526,34 @@ fn an_unusable_ssl_cert_file_is_a_config_error_not_a_panic() {
             .stdout(
                 predicate::str::contains("CONFIG_ERROR")
                     .and(predicate::str::contains("could not set up HTTPS"))
-                    .and(predicate::str::contains("SSL_CERT_FILE is set")),
+                    .and(predicate::str::contains(
+                        "SSL_CERT_FILE / SSL_CERT_DIR name 1",
+                    )),
             )
             .stderr(predicate::str::contains("panicked").not());
     }
+}
+
+/// A static Linux binary runs where the system has no CA bundle (a `scratch` container), and the
+/// Linux verifier refuses to build a client without any root. Mozilla's roots, merged on Linux,
+/// keep it building: the command has to get as far as the network (exit 7, the proxy refuses the
+/// connection), not stop at the client (exit 10). An empty `SSL_CERT_DIR` and a missing
+/// `SSL_CERT_FILE` replace the system bundle, so this holds on any Linux machine.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_linux_machine_without_a_ca_bundle_still_builds_a_client() {
+    let dir = tempfile::tempdir().unwrap();
+
+    teams()
+        .env("TEAMS_CLI_ACCESS_TOKEN", "not-a-real-token")
+        .env("HTTPS_PROXY", "http://127.0.0.1:9")
+        .env("https_proxy", "http://127.0.0.1:9")
+        .env_remove("NO_PROXY")
+        .env_remove("no_proxy")
+        .env("SSL_CERT_FILE", dir.path().join("missing.pem"))
+        .env("SSL_CERT_DIR", dir.path())
+        .args(["user", "me", "--retry", "0", "--output", "json"])
+        .assert()
+        .code(7)
+        .stdout(predicate::str::contains("NETWORK_ERROR"));
 }
