@@ -2,11 +2,14 @@
 
 ## Unreleased
 
+## v0.12.1 - 2026-11-18
+
 ### Fixed
 
 - HTTPS requests now trust the operating system's certificate store (the macOS keychain, the Windows certificate store, the system CA bundle on Linux) as well as the built-in public roots. Behind a proxy that inspects TLS and re-signs certificates with an organisation's own root CA, every request to an inspected host used to fail with `NETWORK_ERROR` (rustls `UnknownIssuer`) even though the OS trusted that root. `SSL_CERT_FILE` and `SSL_CERT_DIR` are honoured on every platform and are read instead of the OS store.
 - `NETWORK_ERROR` messages now carry the cause reqwest keeps out of its own text (`invalid peer certificate: UnknownIssuer`, `Connection refused`, a timeout), and an untrusted certificate adds a hint on trusting the proxy's root.
 - A certificate bundle with no usable certificate (`SSL_CERT_FILE` / `SSL_CERT_DIR`) is a `CONFIG_ERROR` (exit code 10) for every command. The sign-in flows used to panic on a failed HTTP client build.
+- The browser sign-in on WSL2 no longer passes the authorize URL through `cmd.exe`: `webbrowser` 1.2.6 fixes a command injection there (GHSA-j2mc-vg6q-w75p). `uuid` moves to 1.29.0, and `quinn-proto` 0.11.19, `quinn-udp` 0.5.16 and `rustix` 1.1.6 clear RUSTSEC-2026-0523, RUSTSEC-2026-0524, RUSTSEC-2026-0538 and RUSTSEC-2026-0486 from `cargo audit`. The release workflow's `softprops/action-gh-release` pin moves to v3.0.4.
 
 ## v0.12.0 - 2026-11-01
 
