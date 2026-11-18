@@ -39,7 +39,8 @@ Single-crate Rust binary. Key modules:
   - `config_cmd.rs` — init, show, get, set, path
   - `user.rs` — me, get, list
 - `src/api/` — Microsoft Graph HTTP client and endpoint wrappers
-  - `client.rs` — GraphClient with retry/backoff, rate-limit handling, pagination
+  - `client.rs` — GraphClient with retry/backoff, rate-limit handling, pagination; `build_http_client` builds every reqwest client
+  - `tls.rs` — roots merged into the OS certificate verifier (rustls-platform-verifier): `SSL_CERT_FILE`/`SSL_CERT_DIR`, Mozilla's roots on Linux
   - `endpoints.rs` — URL builders for all Graph API endpoints
   - `teams.rs`, `channels.rs`, `messages.rs`, `chats.rs`, `presence.rs`, `search.rs`, `tags.rs`, `meetings.rs`, `notifications.rs`, `apps.rs`, `files.rs`, `subscriptions.rs`, `users.rs`
 - `src/models/` — Serde data models for Graph API resources
@@ -101,7 +102,7 @@ CLI flags > env vars (TEAMS_CLI_CLIENT_ID, TEAMS_CLI_CLIENT_SECRET, TEAMS_CLI_TE
 - `TEAMS_CLI_CLIENT_STATE` — clientState `teams listen` requires on notifications
 - `TEAMS_CLI_TOKEN_STORE` — `keyring` (default) or `file` (0600 files under the config dir's `tokens/`)
 - `HTTPS_PROXY` / `NO_PROXY` — proxy for HTTPS requests
-- `SSL_CERT_FILE` / `SSL_CERT_DIR` — PEM roots read in place of the OS certificate store (built-in webpki roots stay trusted); a bundle with no usable certificate is `CONFIG_ERROR`
+- `SSL_CERT_FILE` / `SSL_CERT_DIR` — PEM roots merged on top of the OS verifier (`src/api/tls.rs`; on Linux the verifier also reads them in place of the system bundle, and Mozilla's roots are always merged); a bundle with nothing usable is `CONFIG_ERROR`
 - `RUST_LOG` — Tracing filter level
 
 ## Config

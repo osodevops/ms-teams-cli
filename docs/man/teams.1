@@ -526,13 +526,15 @@ Proxy for all HTTPS requests.
 lists hosts to reach directly.
 .TP
 .B SSL_CERT_FILE\fR, \fBSSL_CERT_DIR
-A PEM bundle, or a directory of PEM certificates, trusted in place of the
+A PEM bundle, or directories of PEM certificates, trusted on top of the
 operating system's certificate store (the macOS keychain, the Windows
-certificate store, the system CA bundle on Linux).
-The built-in public roots stay trusted.
+certificate store).
+On Linux they are read in place of the system CA bundle, as OpenSSL does,
+and the built-in Mozilla roots stay trusted.
 Use it behind a proxy that inspects TLS when its root CA is not in the
 operating system's store.
-A bundle with no usable certificate is a configuration error (exit code 10).
+A certificate that does not parse is skipped; a bundle in which none parses
+is a configuration error (exit code 10).
 .TP
 .B RUST_LOG
 Tracing filter, for example

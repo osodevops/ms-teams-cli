@@ -124,27 +124,28 @@ pub fn describe_with_causes(err: &dyn std::error::Error) -> String {
 }
 
 /// Render a failed request with everything that caused it, and say what to do when the cause is
-/// a certificate the CLI does not trust.
+/// a certificate the CLI does not accept.
 ///
 /// `reqwest::Error` displays a failed request as "error sending request for url (...)", which
 /// reads the same whether the connection was refused, timed out or failed its TLS handshake. The
 /// reason is further down the source chain. Behind a proxy that inspects TLS it is rustls's
-/// `invalid peer certificate: UnknownIssuer`: the proxy re-signs the server's certificate with a
-/// root the CLI does not trust, and the remedy is to trust that root, not to retry.
+/// `invalid peer certificate: ...`: the proxy re-signs the server's certificate with a root the
+/// machine does not trust, and the remedy is to trust that root, not to retry. What follows the
+/// colon depends on the operating system's verifier (`UnknownIssuer` on Linux and Windows, the
+/// Security framework's own description on macOS), so only the prefix is matched.
 pub fn describe_network_error(err: &reqwest::Error) -> String {
     let message = describe_with_causes(err);
-    if message.contains("UnknownIssuer") {
-        format!("{message}\n{UNKNOWN_ISSUER_HINT}")
+    if message.contains("invalid peer certificate") {
+        format!("{message}\n{UNTRUSTED_CERTIFICATE_HINT}")
     } else {
         message
     }
 }
 
-/// Appended to a failure whose server certificate was signed by a root the CLI does not trust.
-pub const UNKNOWN_ISSUER_HINT: &str = "Hint: the server's certificate was issued by a root CA \
-     this machine does not trust. Behind a proxy that inspects TLS, install the proxy's root CA \
-     in the operating system's certificate store, or point SSL_CERT_FILE at a PEM bundle that \
-     contains it.";
+/// Appended to a failure whose server certificate the verifier rejected.
+pub const UNTRUSTED_CERTIFICATE_HINT: &str = "Hint: this machine does not accept the server's \
+     certificate. Behind a proxy that inspects TLS, install the proxy's root CA in the operating \
+     system's certificate store, or point SSL_CERT_FILE at a PEM bundle that contains it.";
 
 /// Appended to a failure that leaves a POST's outcome unknown.
 pub const UNCONFIRMED_HINT: &str =

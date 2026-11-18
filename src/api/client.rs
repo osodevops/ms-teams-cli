@@ -613,13 +613,15 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Build an HTTP client, reporting a failure as the configuration problem it is.
 ///
-/// Building loads the TLS roots: the built-in public roots plus the operating system's certificate
-/// store, or `SSL_CERT_FILE` / `SSL_CERT_DIR` in place of that store when either is set. reqwest
-/// refuses to build when those hold certificates but none it can use, and `Client::new()` panics
-/// on that. No request has been made yet, so it is not a network error and retrying cannot help:
-/// the certificate bundle has to be fixed.
+/// Certificates are checked by the operating system's verifier, with the roots of
+/// [`super::tls::extra_roots`] merged on top: `SSL_CERT_FILE` / `SSL_CERT_DIR` when set, and
+/// Mozilla's roots on Linux. A bundle there with nothing usable in it, or a verifier that cannot be
+/// set up, fails before any request is made, so it is not a network error and retrying cannot
+/// help: the certificate configuration has to be fixed. `Client::new()` would panic on it instead.
 pub fn build_http_client(builder: reqwest::ClientBuilder) -> Result<Client> {
-    builder.build().map_err(|e| {
+    let roots = super::tls::extra_roots()
+        .map_err(|reason| TeamsError::ConfigError(format!("could not set up HTTPS: {reason}")))?;
+    builder.tls_certs_merge(roots).build().map_err(|e| {
         let mut message = format!(
             "could not set up HTTPS: {}",
             crate::error::describe_with_causes(&e)
@@ -630,8 +632,7 @@ pub fn build_http_client(builder: reqwest::ClientBuilder) -> Result<Client> {
             .collect();
         if !overrides.is_empty() {
             message.push_str(&format!(
-                ". {} is set, so it is read in place of the operating system's certificate \
-                 store; it has to hold PEM certificates",
+                ". {} is set; it has to hold PEM certificates",
                 overrides.join(" and ")
             ));
         }
@@ -720,15 +721,12 @@ mod tests {
         }
     }
 
-    /// A proxy that inspects TLS re-signs certificates with a root only the operating system
-    /// trusts, so the OS store has to stay among the TLS roots. `tls_built_in_native_certs` exists
-    /// only with reqwest's `rustls-tls-native-roots` feature: dropping it stops this compiling.
+    /// The clients every command builds must come up on the machine running the tests, with the
+    /// operating system's verifier and the merged roots, and without a crypto provider installed
+    /// by hand (reqwest's `rustls` feature brings aws-lc-rs).
     #[test]
-    fn tls_roots_include_the_os_trust_store() {
-        Client::builder()
-            .tls_built_in_native_certs(true)
-            .build()
-            .unwrap();
+    fn the_shared_client_builds_with_the_platform_verifier() {
+        default_http_client().unwrap();
     }
 
     /// Building a client can fail before any request is made, for instance on a certificate
@@ -739,8 +737,8 @@ mod tests {
     fn a_client_that_cannot_be_built_is_a_config_error() {
         let err = build_http_client(
             Client::builder()
-                .min_tls_version(reqwest::tls::Version::TLS_1_3)
-                .max_tls_version(reqwest::tls::Version::TLS_1_2),
+                .tls_version_min(reqwest::tls::Version::TLS_1_3)
+                .tls_version_max(reqwest::tls::Version::TLS_1_2),
         )
         .unwrap_err();
 

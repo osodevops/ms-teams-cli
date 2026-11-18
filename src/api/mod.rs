@@ -13,6 +13,7 @@ pub mod search;
 pub mod subscriptions;
 pub mod tags;
 pub mod teams;
+pub mod tls;
 pub mod users;
 
 pub use client::{GraphClient, PaginationOpts};
