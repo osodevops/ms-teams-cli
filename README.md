@@ -8,6 +8,7 @@ Every command returns structured JSON with deterministic exit codes — designed
 [![Release](https://github.com/osodevops/ms-teams-cli/actions/workflows/release.yml/badge.svg)](https://github.com/osodevops/ms-teams-cli/releases)
 [![Latest Release](https://img.shields.io/github/v/release/osodevops/ms-teams-cli)](https://github.com/osodevops/ms-teams-cli/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Sponsor](https://img.shields.io/badge/Sponsor-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/osodevops)
 
 Website: [msteamscli.com](http://msteamscli.com/)
 
@@ -16,6 +17,10 @@ Website: [msteamscli.com](http://msteamscli.com/)
 AI agents need to operate in Microsoft Teams — reading messages, posting updates, managing channels, reacting to events — but there is no comprehensive CLI for Teams. Existing MCP servers cover only a fraction of the Graph API. Bot Framework SDKs assume a conversational UI inside Teams, not an external agent calling in.
 
 **teams-cli** fills this gap: a complete, headless, machine-readable interface to Teams that any agent can call as a subprocess.
+
+## Sponsorship
+
+teams-cli is free and open source. If your company relies on it, please consider [sponsoring it through GitHub Sponsors](https://github.com/sponsors/osodevops). Sponsorship pays for maintaining the GitHub Actions pipelines that test every change on Linux, macOS and Windows and build each release for five platforms, Homebrew and Scoop. It also pays for keeping up with Microsoft Graph API changes, security fixes and documentation.
 
 ## Agent Integration Contract
 
