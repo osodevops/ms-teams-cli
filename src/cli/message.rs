@@ -334,7 +334,7 @@ pub enum MessageCommand {
     },
     /// Update a message
     #[command(
-        override_usage = "teams message update (--team <TEAM> --channel <CHANNEL> [--reply <REPLY>] | --chat <CHAT>) (MESSAGE_ID | --message <MESSAGE>) (--body <BODY> | --stdin) [--content-type <CONTENT_TYPE>] [--mention <USER>]..."
+        override_usage = "teams message update (--team <TEAM> --channel <CHANNEL> [--reply <REPLY>] | --chat <CHAT>) (MESSAGE_ID | --message <MESSAGE>) (--body <BODY> | --stdin) [--content-type <CONTENT_TYPE>] [--mention <USER>]... [--subject <SUBJECT>]"
     )]
     Update {
         /// Team ID (for channel messages; requires --channel)
@@ -372,6 +372,9 @@ pub enum MessageCommand {
         /// User to @mention (repeatable): an Entra object ID or UPN
         #[arg(long, value_name = "USER")]
         mention: Vec<String>,
+        /// New subject for a channel root message; "" removes it (default: keep the current one)
+        #[arg(long, requires = "channel", conflicts_with_all = ["chat", "reply"])]
+        subject: Option<String>,
     },
 }
 
@@ -739,6 +742,7 @@ pub async fn run(
             stdin,
             content_type,
             mention,
+            subject,
         } => {
             let start = Instant::now();
             auth::require_delegated_token(&client.token, "Updating Teams messages")?;
@@ -748,7 +752,11 @@ pub async fn run(
             // PATCH, so an edit that keeps or adds a mention re-sends both.
             let content = resolve_body(body, stdin)?;
             let identities = resolve_mentions(&client, &mention, &content).await?;
-            let req = build_send_request_with_mentions(content, &content_type, None, &identities)?;
+            let mut req =
+                build_send_request_with_mentions(content, &content_type, None, &identities)?;
+            req.subject = update_subject_at(&client, &target.message_url(), &target, subject)
+                .await
+                .map_err(|err| target.explain_not_found(err))?;
             api::messages::update_message(&client, &target, &req)
                 .await
                 .map_err(|err| {
@@ -758,6 +766,26 @@ pub async fn run(
             output::print_success(format, &msg, start);
             Ok(())
         }
+    }
+}
+
+/// The subject to PATCH on an edit. Graph clears a channel root post's
+/// subject when the PATCH leaves it out (seen live on 2026-11-20, although the
+/// docs describe a partial update), so the current subject is read and sent
+/// back unless `--subject` replaces it; `--subject ""` leaves it out, which
+/// clears it. Chat messages and replies have no subject.
+async fn update_subject_at(
+    client: &GraphClient,
+    url: &str,
+    target: &MessageRef,
+    subject: Option<String>,
+) -> Result<Option<String>> {
+    match (subject, target) {
+        (Some(subject), _) => Ok(Some(subject).filter(|s| !s.is_empty())),
+        (None, MessageRef::Channel { .. }) => {
+            Ok(api::messages::get_message_at(client, url).await?.subject)
+        }
+        (None, _) => Ok(None),
     }
 }
 
@@ -2243,6 +2271,7 @@ mod tests {
                     stdin,
                     content_type,
                     mention: _,
+                    subject: _,
                 },
         } = cli.command
         else {
@@ -2275,6 +2304,182 @@ mod tests {
         )
         .await
         .unwrap();
+    }
+
+    /// Parse `teams message update ...` and return its target and `--subject`.
+    fn parse_update(args: &[&str]) -> (MessageRef, Option<String>) {
+        use clap::Parser;
+        let cli =
+            crate::cli::Cli::try_parse_from(["teams", "message", "update"].iter().chain(args))
+                .unwrap();
+        let crate::cli::Commands::Message {
+            command:
+                MessageCommand::Update {
+                    team,
+                    channel,
+                    chat,
+                    reply,
+                    message_id,
+                    message,
+                    subject,
+                    ..
+                },
+        } = cli.command
+        else {
+            panic!("expected message update");
+        };
+        let message_id = resolve_id(message_id, message, "").unwrap();
+        let target = resolve_message_ref(team, channel, chat, reply, message_id).unwrap();
+        (target, subject)
+    }
+
+    /// Run the update's subject lookup and PATCH against a mock server that
+    /// serves `existing` as the root post's subject and expects `patch` once.
+    async fn run_update(
+        args: &[&str],
+        existing: Option<&str>,
+        gets: u64,
+        req: &mut SendMessageRequest,
+        patch: serde_json::Value,
+    ) {
+        use wiremock::matchers::{body_json, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let (target, subject) = parse_update(args);
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/teams/T/channels/C/messages/P"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "id": "P", "subject": existing })),
+            )
+            .expect(gets)
+            .mount(&server)
+            .await;
+        Mock::given(method("PATCH"))
+            .and(path("/teams/T/channels/C/messages/P"))
+            .and(body_json(patch))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client = read_back::test_client();
+        let url = target
+            .message_url()
+            .replace(api::endpoints::GRAPH_V1, &server.uri());
+        req.subject = update_subject_at(&client, &url, &target, subject)
+            .await
+            .unwrap();
+        api::messages::update_message_at(&client, &url, req)
+            .await
+            .unwrap();
+    }
+
+    const ROOT: [&str; 5] = ["--team", "T", "--channel", "C", "P"];
+
+    /// Graph clears a root post's subject when the PATCH leaves it out, so an
+    /// edit without `--subject` reads the subject and sends it back alongside
+    /// the body and the synchronized mentions.
+    #[tokio::test]
+    async fn update_root_post_keeps_its_subject_and_mentions() {
+        let mut req = build_send_request_with_mentions(
+            "Hi {@0}, edited".into(),
+            "html",
+            None,
+            &[identity("u1", "Sophie")],
+        )
+        .unwrap();
+        let patch = serde_json::json!({
+            "subject": "Release plan",
+            "body": { "contentType": "html", "content": "Hi <at id=\"0\">Sophie</at>, edited" },
+            "mentions": [{
+                "id": 0,
+                "mentionText": "Sophie",
+                "mentioned": { "user": {
+                    "id": "u1", "displayName": "Sophie", "userIdentityType": "aadUser"
+                } }
+            }]
+        });
+        let args = [&ROOT[..], &["--body", "x", "--mention", "u1"]].concat();
+        run_update(&args, Some("Release plan"), 1, &mut req, patch).await;
+    }
+
+    /// `--subject` replaces the subject without reading the old one, and
+    /// `--subject ""` leaves it out of the PATCH, which clears it.
+    #[tokio::test]
+    async fn update_root_post_subject_flag_sets_or_clears_it() {
+        let body = serde_json::json!({ "contentType": "text", "content": "x" });
+        for (subject, patch) in [
+            (
+                "New plan",
+                serde_json::json!({ "subject": "New plan", "body": body }),
+            ),
+            ("", serde_json::json!({ "body": body })),
+        ] {
+            let mut req = build_send_request("x".into(), "text", None).unwrap();
+            let args = [&ROOT[..], &["--body", "x", "--subject", subject]].concat();
+            run_update(&args, Some("Release plan"), 0, &mut req, patch).await;
+        }
+    }
+
+    /// Chat messages and channel replies have no subject, so nothing is read
+    /// and none is sent.
+    #[tokio::test]
+    async fn update_chat_or_reply_sends_no_subject() {
+        for args in [
+            &["--chat", "19:x", "P", "--body", "x"][..],
+            &[
+                "--team",
+                "T",
+                "--channel",
+                "C",
+                "--reply",
+                "R",
+                "P",
+                "--body",
+                "x",
+            ],
+        ] {
+            let (target, subject) = parse_update(args);
+            let subject = update_subject_at(
+                &read_back::test_client(),
+                "http://127.0.0.1:9",
+                &target,
+                subject,
+            )
+            .await
+            .unwrap();
+            assert_eq!(subject, None, "{args:?}");
+        }
+    }
+
+    /// `--subject` belongs to channel root posts, as on `message send`: on a
+    /// chat message or a reply it is a usage error, exit code 2.
+    #[test]
+    fn update_rejects_subject_on_chat_and_reply() {
+        use clap::Parser;
+        for args in [
+            &["--chat", "19:x"][..],
+            &["--team", "T", "--channel", "C", "--reply", "R"],
+        ] {
+            let err = crate::cli::Cli::try_parse_from(
+                [
+                    "teams",
+                    "message",
+                    "update",
+                    "P",
+                    "--body",
+                    "x",
+                    "--subject",
+                    "S",
+                ]
+                .iter()
+                .chain(args),
+            )
+            .unwrap_err();
+            assert_eq!(err.exit_code(), 2, "{args:?}: {err}");
+            assert!(err.to_string().contains("--subject"), "{err}");
+        }
     }
 
     /// `--reply` picks a reply in a channel thread, so with `--chat` every
