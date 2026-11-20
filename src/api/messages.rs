@@ -81,7 +81,7 @@ impl MessageRef {
 
     /// Graph's 404 for a reply does not say whether the parent post or the
     /// reply is missing, so name both IDs.
-    fn explain_not_found(&self, err: TeamsError) -> TeamsError {
+    pub(crate) fn explain_not_found(&self, err: TeamsError) -> TeamsError {
         match (self, err) {
             (
                 Self::ChannelReply {

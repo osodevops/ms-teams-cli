@@ -433,6 +433,7 @@ teams message get --chat <chat-id> <msg-id>
 teams message attachments delete --chat <chat-id> --message <msg-id> [--index N] --yes
 teams message reply --team <team-id> --channel <channel-id> --message <msg-id> --mention <user-id-or-upn> --body "Thanks!"
 teams message update --team <team-id> --channel <channel-id> --message <msg-id> --body "Corrected"
+teams message update --team <team-id> --channel <channel-id> --message <msg-id> --subject "New subject" --body "Corrected"
 teams message update --chat <chat-id> --message <msg-id> --body "Corrected"
 teams message update --chat <chat-id> --message <msg-id> --mention <user-id-or-upn> --body "Corrected, {@0}"
 teams message update --team <team-id> --channel <channel-id> --reply <reply-id> <parent-msg-id> --content-type html --body "<p>Corrected</p>"
@@ -494,6 +495,11 @@ subject". Channel messages only: chat messages have no subject, so `--subject` w
 subject Graph stores, so a posted subject survives a read-back. Human message lists
 include a Subject column; plain lists include subjects even when the first message
 is untitled. JSON continues to omit the subject field when it is absent.
+
+`message update` keeps a channel root post's subject: Graph clears it when the PATCH
+leaves it out, so the CLI reads the post first and sends the subject back.
+`message update --subject TEXT` replaces it and `--subject ""` removes it. Chat messages
+and replies have no subject, so `--subject` with `--chat` or `--reply` exits 2.
 
 `message send --chat CHAT_ID --quote MESSAGE_ID` sends a quote-reply, as the
 Teams client's Reply does in a chat: the quoted message renders as a card above
