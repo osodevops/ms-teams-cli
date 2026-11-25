@@ -9,6 +9,7 @@
 ### Fixed
 
 - `teams message update` no longer clears a channel root post's subject or resets a message's importance, and can now edit an `urgent` chat message. Graph's PATCH treats a field the request leaves out as a change: the subject went to none, `high` dropped to `normal`, and an urgent message was refused with 403 (`PERMISSION_DENIED`). The command now reads the message first and sends both back. Reading a channel message needs `ChannelMessage.Read.All`. Without it, a root post edit with no `--subject` stops with exit code 4 and sends nothing, rather than clear the subject; a reply, or a post given `--subject`, is edited as before.
+- `url` moves to 2.5.9, which fixes a stack overflow in `Url::origin()` on nested `blob:` URLs (RUSTSEC-2026-0592). `clap` 4.6.9, `clap_complete` 4.6.12, `webbrowser` 1.2.7, `uuid` 1.29.3 and `bytes` 1.12.2 are patch updates.
 
 ### Changed
 
