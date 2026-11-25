@@ -9,7 +9,7 @@ use crate::config::ConfigFile;
 use crate::error::{Result, TeamsError};
 use crate::models::message::{
     ChatMessage, ChatMessageAttachment, ChatMessageFrom, ChatMessageMention, ChatMessageMentioned,
-    ChatMessageUser, ItemBody, SendMessageRequest,
+    ChatMessageUser, ItemBody, SendMessageRequest, UpdateMessageRequest,
 };
 use crate::models::user::User;
 use crate::output::{self, OutputFormat};
@@ -334,7 +334,7 @@ pub enum MessageCommand {
     },
     /// Update a message
     #[command(
-        override_usage = "teams message update (--team <TEAM> --channel <CHANNEL> [--reply <REPLY>] | --chat <CHAT>) (MESSAGE_ID | --message <MESSAGE>) (--body <BODY> | --stdin) [--content-type <CONTENT_TYPE>] [--mention <USER>]..."
+        override_usage = "teams message update (--team <TEAM> --channel <CHANNEL> [--reply <REPLY>] | --chat <CHAT>) (MESSAGE_ID | --message <MESSAGE>) (--body <BODY> | --stdin) [--content-type <CONTENT_TYPE>] [--mention <USER>]... [--subject <SUBJECT>]"
     )]
     Update {
         /// Team ID (for channel messages; requires --channel)
@@ -372,6 +372,9 @@ pub enum MessageCommand {
         /// User to @mention (repeatable): an Entra object ID or UPN
         #[arg(long, value_name = "USER")]
         mention: Vec<String>,
+        /// New subject for a channel root message; "" removes it (default: keep the current one)
+        #[arg(long, requires = "channel", conflicts_with_all = ["chat", "reply"])]
+        subject: Option<String>,
     },
 }
 
@@ -739,6 +742,7 @@ pub async fn run(
             stdin,
             content_type,
             mention,
+            subject,
         } => {
             let start = Instant::now();
             auth::require_delegated_token(&client.token, "Updating Teams messages")?;
@@ -748,7 +752,13 @@ pub async fn run(
             // PATCH, so an edit that keeps or adds a mention re-sends both.
             let content = resolve_body(body, stdin)?;
             let identities = resolve_mentions(&client, &mention, &content).await?;
-            let req = build_send_request_with_mentions(content, &content_type, None, &identities)?;
+            let req = UpdateMessageRequest::new(build_send_request_with_mentions(
+                content,
+                &content_type,
+                None,
+                &identities,
+            )?);
+            let req = carry_over_at(&client, &target.message_url(), &target, subject, req).await?;
             api::messages::update_message(&client, &target, &req)
                 .await
                 .map_err(|err| {
@@ -759,6 +769,86 @@ pub async fn run(
             Ok(())
         }
     }
+}
+
+/// The fields of a message that an edit has to send back.
+#[derive(serde::Deserialize)]
+struct CarriedOver {
+    subject: Option<String>,
+    importance: Option<String>,
+}
+
+/// Fill in the fields Graph resets on an edit that leaves them out. Graph's
+/// delegated PATCH treats a missing field as a change (verified live on
+/// 2026-11-25, although the docs describe a partial update): a channel root
+/// post's subject goes to `null`, `high` importance drops to `normal`, and an
+/// `urgent` message refuses the edit with 403. So the message is read first
+/// and both are sent back; `--subject` replaces the subject, and
+/// `--subject ""` clears it with an explicit `null`. Chat messages and replies
+/// have no subject.
+///
+/// Reading a channel message needs `ChannelMessage.Read.All`, which an editor
+/// holding only `ChannelMessage.ReadWrite` lacks. Without the read the edit
+/// goes ahead as it did before the read was added, without the importance,
+/// unless it would clear a root post's subject: then nothing is sent, and the
+/// error says how to keep it.
+async fn carry_over_at(
+    client: &GraphClient,
+    url: &str,
+    target: &MessageRef,
+    subject: Option<String>,
+    mut req: UpdateMessageRequest,
+) -> Result<UpdateMessageRequest> {
+    let root_post = matches!(target, MessageRef::Channel { .. });
+    let subject = subject.map(|s| Some(s).filter(|s| !s.is_empty()));
+    match client.get::<CarriedOver>(url, &[]).await {
+        Ok(current) => {
+            req.importance = current.importance;
+            if root_post {
+                req.subject = Some(subject.unwrap_or(current.subject));
+            }
+        }
+        Err(TeamsError::PermissionDenied(msg)) if root_post && subject.is_none() => {
+            return Err(TeamsError::PermissionDenied(subject_read_denied(
+                msg,
+                client.token.scope.as_deref(),
+            )));
+        }
+        Err(TeamsError::PermissionDenied(msg)) => {
+            tracing::info!(
+                "Could not read the message before editing it, so its importance is not \
+                 kept: {msg}"
+            );
+            req.subject = subject;
+        }
+        Err(err) => return Err(target.explain_not_found(err)),
+    }
+    Ok(req)
+}
+
+/// The error for an edit that would clear a root post's subject because the
+/// post cannot be read. The scope advice is left out when the token already
+/// carries `ChannelMessage.Read.All`, since the 403 then has another cause.
+fn subject_read_denied(msg: String, scope: Option<&str>) -> String {
+    let has_scope = scope.is_some_and(|scopes| {
+        scopes
+            .split_whitespace()
+            .any(|s| s.eq_ignore_ascii_case("ChannelMessage.Read.All"))
+    });
+    let advice = if has_scope {
+        ""
+    } else {
+        " Reading a channel post needs the ChannelMessage.Read.All delegated scope, which \
+         requires admin consent: have an administrator grant it with \
+         `teams auth consent-url --scopes ...`, then sign in again with \
+         `teams auth login --scopes ...` including it."
+    };
+    format!(
+        "Nothing was changed: the post could not be read, and Graph clears a channel \
+         post's subject on an edit that does not send it back.{advice} Or pass \
+         `--subject TEXT` to set the subject (`--subject \"\"` to remove it) without the \
+         read. {msg}"
+    )
 }
 
 /// Graph answers a delegated edit, delete or undelete with no content, so the
@@ -2243,6 +2333,7 @@ mod tests {
                     stdin,
                     content_type,
                     mention: _,
+                    subject: _,
                 },
         } = cli.command
         else {
@@ -2250,8 +2341,9 @@ mod tests {
         };
         let message_id = resolve_id(message_id, message, "").unwrap();
         let target = resolve_message_ref(team, channel, chat, reply, message_id).unwrap();
-        let req =
-            build_send_request(resolve_body(body, stdin).unwrap(), &content_type, None).unwrap();
+        let req = UpdateMessageRequest::new(
+            build_send_request(resolve_body(body, stdin).unwrap(), &content_type, None).unwrap(),
+        );
         let url = target.message_url();
         assert_eq!(
             url,
@@ -2275,6 +2367,293 @@ mod tests {
         )
         .await
         .unwrap();
+    }
+
+    /// Parse `teams message update ...` and return its target and `--subject`.
+    fn parse_update(args: &[&str]) -> (MessageRef, Option<String>) {
+        use clap::Parser;
+        let cli =
+            crate::cli::Cli::try_parse_from(["teams", "message", "update"].iter().chain(args))
+                .unwrap();
+        let crate::cli::Commands::Message {
+            command:
+                MessageCommand::Update {
+                    team,
+                    channel,
+                    chat,
+                    reply,
+                    message_id,
+                    message,
+                    subject,
+                    ..
+                },
+        } = cli.command
+        else {
+            panic!("expected message update");
+        };
+        let message_id = resolve_id(message_id, message, "").unwrap();
+        let target = resolve_message_ref(team, channel, chat, reply, message_id).unwrap();
+        (target, subject)
+    }
+
+    /// Run an edit's read and PATCH against a mock server. The read of the
+    /// target answers `read`; the PATCH must carry `patch`, or must not be sent
+    /// when `patch` is `None`, in which case the error is returned.
+    async fn run_update(
+        args: &[&str],
+        mut req: UpdateMessageRequest,
+        read: wiremock::ResponseTemplate,
+        patch: Option<serde_json::Value>,
+    ) -> Result<()> {
+        use wiremock::matchers::{body_json, method, path};
+        use wiremock::{Mock, MockServer};
+
+        let (target, subject) = parse_update(args);
+        let server = MockServer::start().await;
+        let url = target
+            .message_url()
+            .replace(api::endpoints::GRAPH_V1, &server.uri());
+        let target_path = url.strip_prefix(&server.uri()).unwrap().to_string();
+        Mock::given(method("GET"))
+            .and(path(target_path.as_str()))
+            .respond_with(read)
+            .expect(1)
+            .mount(&server)
+            .await;
+        let sent = patch.is_some();
+        Mock::given(method("PATCH"))
+            .and(path(target_path.as_str()))
+            .and(body_json(patch.unwrap_or_default()))
+            .respond_with(wiremock::ResponseTemplate::new(204))
+            .expect(u64::from(sent))
+            .mount(&server)
+            .await;
+        let client = read_back::test_client();
+        req = carry_over_at(&client, &url, &target, subject, req).await?;
+        api::messages::update_message_at(&client, &url, &req).await
+    }
+
+    /// A read of the message being edited.
+    fn current(subject: Option<&str>, importance: &str) -> wiremock::ResponseTemplate {
+        wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "P", "subject": subject, "importance": importance
+        }))
+    }
+
+    /// Graph's 403 for a channel message read without `ChannelMessage.Read.All`.
+    fn read_denied() -> wiremock::ResponseTemplate {
+        wiremock::ResponseTemplate::new(403).set_body_json(serde_json::json!({
+            "error": {
+                "code": "Forbidden",
+                "message": "Missing scope permissions on the request. API requires one of \
+                            'ChannelMessage.Read.All'."
+            }
+        }))
+    }
+
+    fn text_edit() -> UpdateMessageRequest {
+        UpdateMessageRequest::new(build_send_request("x".into(), "text", None).unwrap())
+    }
+
+    const ROOT: [&str; 5] = ["--team", "T", "--channel", "C", "P"];
+    const REPLY: [&str; 7] = ["--team", "T", "--channel", "C", "--reply", "R", "P"];
+    const CHAT: [&str; 3] = ["--chat", "19:x", "P"];
+
+    /// Graph clears a root post's subject and resets its importance when the
+    /// PATCH leaves them out, so an edit without `--subject` reads both and
+    /// sends them back alongside the body and the synchronized mentions.
+    #[tokio::test]
+    async fn update_root_post_keeps_its_subject_importance_and_mentions() {
+        let req = UpdateMessageRequest::new(
+            build_send_request_with_mentions(
+                "Hi {@0}, edited".into(),
+                "html",
+                None,
+                &[identity("u1", "Sophie")],
+            )
+            .unwrap(),
+        );
+        let patch = serde_json::json!({
+            "subject": "Release plan",
+            "importance": "high",
+            "body": { "contentType": "html", "content": "Hi <at id=\"0\">Sophie</at>, edited" },
+            "mentions": [{
+                "id": 0,
+                "mentionText": "Sophie",
+                "mentioned": { "user": {
+                    "id": "u1", "displayName": "Sophie", "userIdentityType": "aadUser"
+                } }
+            }]
+        });
+        let args = [&ROOT[..], &["--body", "x", "--mention", "u1"]].concat();
+        run_update(
+            &args,
+            req,
+            current(Some("Release plan"), "high"),
+            Some(patch),
+        )
+        .await
+        .unwrap();
+    }
+
+    /// A root post without a subject gets an explicit `null`, which leaves it
+    /// without one.
+    #[tokio::test]
+    async fn update_root_post_without_a_subject_sends_null() {
+        let patch = serde_json::json!({
+            "subject": null,
+            "importance": "normal",
+            "body": { "contentType": "text", "content": "x" }
+        });
+        let args = [&ROOT[..], &["--body", "x"]].concat();
+        run_update(&args, text_edit(), current(None, "normal"), Some(patch))
+            .await
+            .unwrap();
+    }
+
+    /// `--subject` replaces the subject and `--subject ""` clears it with an
+    /// explicit `null`; the importance is still carried over.
+    #[tokio::test]
+    async fn update_root_post_subject_flag_sets_or_clears_it() {
+        let body = serde_json::json!({ "contentType": "text", "content": "x" });
+        for (subject, expected) in [
+            ("New plan", serde_json::json!("New plan")),
+            ("", serde_json::Value::Null),
+        ] {
+            let patch =
+                serde_json::json!({ "subject": expected, "importance": "high", "body": body });
+            let args = [&ROOT[..], &["--body", "x", "--subject", subject]].concat();
+            run_update(
+                &args,
+                text_edit(),
+                current(Some("Release plan"), "high"),
+                Some(patch),
+            )
+            .await
+            .unwrap();
+        }
+    }
+
+    /// Chat messages and channel replies have no subject, but their
+    /// importance is carried over too. An `urgent` chat message cannot be
+    /// edited at all without it: Graph answers 403.
+    #[tokio::test]
+    async fn update_chat_or_reply_keeps_importance_and_sends_no_subject() {
+        for (args, importance) in [(&CHAT[..], "urgent"), (&REPLY[..], "high")] {
+            let patch = serde_json::json!({
+                "importance": importance,
+                "body": { "contentType": "text", "content": "x" }
+            });
+            let args = [args, &["--body", "x"]].concat();
+            run_update(&args, text_edit(), current(None, importance), Some(patch))
+                .await
+                .unwrap();
+        }
+    }
+
+    /// Without `ChannelMessage.Read.All` a channel message cannot be read.
+    /// A reply, or a root post whose subject `--subject` gives, is still
+    /// edited as before the read existed, without the importance.
+    #[tokio::test]
+    async fn update_without_read_access_still_edits_when_no_subject_is_lost() {
+        for (args, patch) in [
+            (
+                [&REPLY[..], &["--body", "x"]].concat(),
+                serde_json::json!({ "body": { "contentType": "text", "content": "x" } }),
+            ),
+            (
+                [&ROOT[..], &["--body", "x", "--subject", "Kept"]].concat(),
+                serde_json::json!({
+                    "subject": "Kept",
+                    "body": { "contentType": "text", "content": "x" }
+                }),
+            ),
+            (
+                [&ROOT[..], &["--body", "x", "--subject", ""]].concat(),
+                serde_json::json!({
+                    "subject": null,
+                    "body": { "contentType": "text", "content": "x" }
+                }),
+            ),
+        ] {
+            run_update(&args, text_edit(), read_denied(), Some(patch))
+                .await
+                .unwrap();
+        }
+    }
+
+    /// On a root post without `--subject`, an edit that cannot read the post
+    /// would clear its subject, so nothing is sent: the command fails with
+    /// PERMISSION_DENIED (exit code 4), naming the scope and `--subject`.
+    #[tokio::test]
+    async fn update_root_post_without_read_access_sends_nothing() {
+        let args = [&ROOT[..], &["--body", "x"]].concat();
+        let err = run_update(&args, text_edit(), read_denied(), None)
+            .await
+            .unwrap_err();
+        assert_eq!(err.exit_code(), 4, "{err:?}");
+        let text = err.to_string();
+        for needle in [
+            "Nothing was changed",
+            "ChannelMessage.Read.All",
+            "--subject",
+            "Missing scope",
+        ] {
+            assert!(text.contains(needle), "{needle}: {text}");
+        }
+    }
+
+    /// The scope advice is left out when the token already has the scope.
+    #[test]
+    fn subject_read_denied_names_the_scope_only_when_missing() {
+        let with = subject_read_denied("403".into(), Some("User.Read ChannelMessage.Read.All"));
+        assert!(!with.contains("consent-url"), "{with}");
+        assert!(with.contains("--subject"), "{with}");
+        let without = subject_read_denied("403".into(), Some("ChannelMessage.ReadWrite"));
+        assert!(without.contains("ChannelMessage.Read.All"), "{without}");
+    }
+
+    /// A message that is not there is reported as not found, before anything
+    /// is sent.
+    #[tokio::test]
+    async fn update_of_a_missing_message_sends_nothing() {
+        let missing = wiremock::ResponseTemplate::new(404).set_body_json(serde_json::json!({
+            "error": { "code": "NotFound", "message": "Message not found" }
+        }));
+        let args = [&CHAT[..], &["--body", "x"]].concat();
+        let err = run_update(&args, text_edit(), missing, None)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, TeamsError::NotFound(_)), "{err:?}");
+    }
+
+    /// `--subject` belongs to channel root posts, as on `message send`: on a
+    /// chat message or a reply it is a usage error, exit code 2.
+    #[test]
+    fn update_rejects_subject_on_chat_and_reply() {
+        use clap::Parser;
+        for args in [
+            &["--chat", "19:x"][..],
+            &["--team", "T", "--channel", "C", "--reply", "R"],
+        ] {
+            let err = crate::cli::Cli::try_parse_from(
+                [
+                    "teams",
+                    "message",
+                    "update",
+                    "P",
+                    "--body",
+                    "x",
+                    "--subject",
+                    "S",
+                ]
+                .iter()
+                .chain(args),
+            )
+            .unwrap_err();
+            assert_eq!(err.exit_code(), 2, "{args:?}: {err}");
+            assert!(err.to_string().contains("--subject"), "{err}");
+        }
     }
 
     /// `--reply` picks a reply in a channel thread, so with `--chat` every

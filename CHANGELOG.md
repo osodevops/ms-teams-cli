@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- `teams message update --subject TEXT` changes a channel root post's subject; `--subject ""` removes it. With `--chat` or `--reply` it is a usage error (exit code 2), as on `message send`.
+
+### Fixed
+
+- `teams message update` no longer clears a channel root post's subject or resets a message's importance, and can now edit an `urgent` chat message. Graph's PATCH treats a field the request leaves out as a change: the subject went to none, `high` dropped to `normal`, and an urgent message was refused with 403 (`PERMISSION_DENIED`). The command now reads the message first and sends both back. Reading a channel message needs `ChannelMessage.Read.All`. Without it, a root post edit with no `--subject` stops with exit code 4 and sends nothing, rather than clear the subject; a reply, or a post given `--subject`, is edited as before.
+
 ### Changed
 
 - HTTP moves to `reqwest` 0.13. Server certificates are now verified by the operating system's own verifier (`rustls-platform-verifier`: the Security framework on macOS, CryptoAPI on Windows, the system CA bundle on Linux) instead of copying the OS store into rustls before every client is built. That removes the ~125 ms the keychain scan added to every command on macOS in v0.12.1, and applies the OS's own distrust settings, name constraints and revocation checks. TLS crypto moves from `ring` to `aws-lc-rs`, reqwest's default provider; the binaries grow by about 1.4 MB.
