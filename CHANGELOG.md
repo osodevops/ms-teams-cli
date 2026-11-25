@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.13.0 - 2026-11-25
+
 ### Added
 
 - `teams message update --subject TEXT` changes a channel root post's subject; `--subject ""` removes it. With `--chat` or `--reply` it is a usage error (exit code 2), as on `message send`.
