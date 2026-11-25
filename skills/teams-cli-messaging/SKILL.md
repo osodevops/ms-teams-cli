@@ -74,7 +74,7 @@ teams message unpin --chat <chat-id> <message-id>
 - `--mention` takes an Entra object id or UPN and builds a real @mention. Do not type raw `<at>` markup.
 - Mentions are prepended unless the body places them: `{@0}` is the first `--mention`, `{@1}` the second, `{@}` the only one. Place every `--mention` once you use tokens. `{{@0}}` is the literal text.
 - `update` replaces the whole body. Pass `--mention` again for every mention the edited message should keep.
-- `--subject` works on channel root messages only. `update` keeps a root post's subject unless `--subject` replaces it; `--subject ""` removes it. `--quote` works in chats only.
+- `--subject` works on channel root messages only. `update` keeps a root post's subject unless `--subject` replaces it; `--subject ""` removes it. It also keeps any message's importance. Without `ChannelMessage.Read.All`, a root post edit exits 4 unless you pass `--subject`. `--quote` works in chats only.
 - Replies exist for channel threads. In a chat, send a normal message or use `--quote`.
 - A send that fails with exit 7 or 8 may still have posted. List recent messages before re-sending.
 - `--reply <reply-id>` targets a reply in a channel thread for `update`, `react` and `unreact`; `<message-id>` is then the parent post. Channel only.

@@ -2,7 +2,7 @@ use crate::error::{Result, TeamsError};
 use crate::models::common::Page;
 use crate::models::message::{
     ChatMessage, ChatMessageHostedContent, PinMessageRequest, PinnedMessage, ReactionRequest,
-    ReplyWithQuoteRequest, SendMessageRequest,
+    ReplyWithQuoteRequest, SendMessageRequest, UpdateMessageRequest,
 };
 
 use super::client::{GraphClient, PaginationOpts};
@@ -240,7 +240,7 @@ pub async fn reply_to_message(
 pub async fn update_message(
     client: &GraphClient,
     message: &MessageRef,
-    req: &SendMessageRequest,
+    req: &UpdateMessageRequest,
 ) -> Result<()> {
     update_message_at(client, &message.message_url(), req)
         .await
@@ -250,7 +250,7 @@ pub async fn update_message(
 pub(crate) async fn update_message_at(
     client: &GraphClient,
     url: &str,
-    req: &SendMessageRequest,
+    req: &UpdateMessageRequest,
 ) -> Result<()> {
     client.patch_no_content(url, req).await
 }
@@ -676,8 +676,8 @@ mod tests {
         assert!(matches!(err, TeamsError::PermissionDenied(_)), "{err:?}");
     }
 
-    fn edit_request() -> SendMessageRequest {
-        SendMessageRequest {
+    fn edit_request() -> UpdateMessageRequest {
+        UpdateMessageRequest::new(SendMessageRequest {
             subject: None,
             body: ItemBody {
                 content_type: Some("text".to_string()),
@@ -686,7 +686,7 @@ mod tests {
             attachments: None,
             hosted_contents: None,
             mentions: None,
-        }
+        })
     }
 
     /// A chat send carrying mentions must post the body and the `mentions`
@@ -844,7 +844,7 @@ mod tests {
                 }
             }]
         });
-        let req = SendMessageRequest {
+        let req = UpdateMessageRequest::new(SendMessageRequest {
             subject: None,
             body: ItemBody {
                 content_type: Some("html".into()),
@@ -853,7 +853,7 @@ mod tests {
             attachments: None,
             hosted_contents: None,
             mentions: Some(serde_json::from_value(expected["mentions"].clone()).unwrap()),
-        };
+        });
 
         for path_ in [
             "/chats/19:abc@thread.v2/messages/1700000000000",

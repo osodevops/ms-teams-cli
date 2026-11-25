@@ -8,7 +8,7 @@
 
 ### Fixed
 
-- `teams message update` on a channel root post no longer clears its subject. Graph drops the subject when the PATCH leaves it out, so the command now reads the post first and sends its subject back.
+- `teams message update` no longer clears a channel root post's subject or resets a message's importance, and can now edit an `urgent` chat message. Graph's PATCH treats a field the request leaves out as a change: the subject went to none, `high` dropped to `normal`, and an urgent message was refused with 403 (`PERMISSION_DENIED`). The command now reads the message first and sends both back. Reading a channel message needs `ChannelMessage.Read.All`. Without it, a root post edit with no `--subject` stops with exit code 4 and sends nothing, rather than clear the subject; a reply, or a post given `--subject`, is edited as before.
 
 ### Changed
 

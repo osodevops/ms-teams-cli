@@ -288,16 +288,22 @@ mention. The edit replaces the body: repeat
 for each mention that should stay.
 .PP
 .B message update
-keeps a channel root post's subject: Graph clears it when the PATCH leaves it
-out, so the post is read first and its subject sent back.
+keeps a channel root post's subject and any message's importance: Graph
+resets both when an edit leaves them out (and refuses to edit an urgent
+message), so the message is read first and they are sent back.
 .B message update --subject TEXT
-replaces it, and
+replaces the subject, and
 .B --subject ""
 removes it. With
 .B --chat
 or
 .B --reply
 it exits 2.
+Reading a channel message needs ChannelMessage.Read.All.
+Without it, a root post edit without
+.B --subject
+exits 4 and sends nothing; other channel edits go ahead without keeping the
+importance.
 .PP
 .B --subject TEXT
 sets the subject line on a channel root message, the bold title Teams shows

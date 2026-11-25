@@ -496,10 +496,14 @@ subject Graph stores, so a posted subject survives a read-back. Human message li
 include a Subject column; plain lists include subjects even when the first message
 is untitled. JSON continues to omit the subject field when it is absent.
 
-`message update` keeps a channel root post's subject: Graph clears it when the PATCH
-leaves it out, so the CLI reads the post first and sends the subject back.
-`message update --subject TEXT` replaces it and `--subject ""` removes it. Chat messages
-and replies have no subject, so `--subject` with `--chat` or `--reply` exits 2.
+`message update` keeps a channel root post's subject and any message's importance.
+Graph resets both when an edit leaves them out (a subject to none, `high` to `normal`,
+and it refuses to edit an `urgent` message), so the CLI reads the message first and
+sends them back. `message update --subject TEXT` replaces the subject and `--subject ""`
+removes it. Chat messages and replies have no subject, so `--subject` with `--chat` or
+`--reply` exits 2. Reading a channel message needs `ChannelMessage.Read.All`; without
+it, an edit of a root post stops with exit code 4 unless `--subject` is given, and other
+edits go ahead without keeping the importance.
 
 `message send --chat CHAT_ID --quote MESSAGE_ID` sends a quote-reply, as the
 Teams client's Reply does in a chat: the quoted message renders as a card above

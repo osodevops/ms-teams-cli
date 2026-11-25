@@ -183,6 +183,37 @@ pub struct SendMessageRequest {
     pub mentions: Option<Vec<ChatMessageMention>>,
 }
 
+/// Request body for editing a message. Graph's delegated PATCH resets the
+/// subject and importance a request leaves out, so an edit sends them back
+/// explicitly (see `message update`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateMessageRequest {
+    /// `None` leaves `subject` out of the PATCH; `Some(None)` sends `null`,
+    /// which clears a channel root post's subject.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subject: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub importance: Option<String>,
+    pub body: ItemBody,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mentions: Option<Vec<ChatMessageMention>>,
+}
+
+impl UpdateMessageRequest {
+    /// An edit that sends `message`'s body and mentions, with the subject and
+    /// importance left out until the caller fills them in. An edit carries no
+    /// attachments or hosted contents, so those are not taken over.
+    pub fn new(message: SendMessageRequest) -> Self {
+        Self {
+            subject: None,
+            importance: None,
+            body: message.body,
+            mentions: message.mentions,
+        }
+    }
+}
+
 /// Request body for Graph's chat `replyWithQuote` action: the ids of the chat
 /// messages to quote and the reply itself.
 #[derive(Debug, Serialize)]
@@ -650,6 +681,39 @@ mod tests {
         let json = serde_json::to_value(&req).unwrap();
         assert_eq!(json["subject"], "Release plan");
         assert_eq!(json["body"]["content"], "Team, details inside.");
+    }
+
+    /// An edit leaves `subject` out, sends it, or sends `null` to clear it,
+    /// and carries `importance` at the top level beside the body.
+    #[test]
+    fn update_request_leaves_out_sends_or_nulls_the_subject() {
+        let message = SendMessageRequest {
+            subject: Some("ignored: an edit sets its own".into()),
+            body: ItemBody {
+                content_type: Some("text".into()),
+                content: Some("edited".into()),
+            },
+            attachments: None,
+            hosted_contents: None,
+            mentions: None,
+        };
+        let body = serde_json::json!({ "contentType": "text", "content": "edited" });
+        let mut req = UpdateMessageRequest::new(message);
+        assert_eq!(
+            serde_json::to_value(&req).unwrap(),
+            serde_json::json!({ "body": body })
+        );
+        req.subject = Some(Some("Release plan".into()));
+        req.importance = Some("high".into());
+        assert_eq!(
+            serde_json::to_value(&req).unwrap(),
+            serde_json::json!({ "subject": "Release plan", "importance": "high", "body": body })
+        );
+        req.subject = Some(None);
+        assert_eq!(
+            serde_json::to_value(&req).unwrap(),
+            serde_json::json!({ "subject": null, "importance": "high", "body": body })
+        );
     }
 
     #[test]
