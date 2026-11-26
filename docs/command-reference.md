@@ -230,7 +230,7 @@ teams presence clear
 teams presence clear-preferred
 ```
 
-Every Graph command outside `auth`, `config`, `completions`, `listen` and `presence` sets the CLI's presence session to Available, expiring after one hour, at most once every four minutes per profile. Graph fades it to Away about ten minutes after the last command. A failure only warns. `presence set` sessions are left alone until they expire. `--appear-offline` skips it.
+Every Graph command outside `auth`, `config`, `completions`, `listen` and `presence` sets the CLI's presence session to Available, expiring after one hour, at most once every four minutes per profile. Graph fades it to Away within ten minutes of the last command. A failure only warns. `presence set` sessions are left alone until they expire. `--appear-offline` skips it.
 
 ## Search
 

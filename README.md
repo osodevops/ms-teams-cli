@@ -578,8 +578,8 @@ runs, the CLI sets its own presence session to `Available`/`Available`, expiring
 after one hour, in parallel with the command. It refreshes the session at most
 once every four minutes per profile. Graph fades an Available session that is
 not refreshed to AvailableInactive after five minutes and to Away five minutes
-later, so the account shows green while commands keep coming, then Away, then
-Offline an hour after the last command. The write is best-effort: a failure prints a warning and the
+later, so the account shows green while commands keep coming, Away within ten
+minutes of the last one, and Offline an hour after the last refresh. The write is best-effort: a failure prints a warning and the
 command still succeeds or fails on its own. A session from `presence set` is left
 alone until it expires, and a preferred presence such as "Appear offline" still
 outranks it. Pass `--appear-offline`, or set `TEAMS_CLI_APPEAR_OFFLINE=true`, to
