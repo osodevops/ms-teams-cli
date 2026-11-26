@@ -574,15 +574,17 @@ teams presence status --message "In deep focus" [--expiry <datetime>]
 
 Every Graph command except `auth`, `config`, `completions`, `listen` and
 `presence` also keeps the signed-in user shown as Available. Before the command
-runs, the CLI sets its own presence session to `Available`/`Available` for one
-hour, in parallel with the command. It refreshes the session at most once every
-ten minutes per profile, so the account stays green for about an hour after its
-last command. The write is best-effort: a failure prints a warning and the
+runs, the CLI sets its own presence session to `Available`/`Available`, expiring
+after one hour, in parallel with the command. It refreshes the session at most
+once every four minutes per profile. Graph fades an Available session that is
+not refreshed to AvailableInactive after five minutes and to Away five minutes
+later, so the account shows green while commands keep coming, then Away, then
+Offline an hour after the last command. The write is best-effort: a failure prints a warning and the
 command still succeeds or fails on its own. A session from `presence set` is left
 alone until it expires, and a preferred presence such as "Appear offline" still
 outranks it. Pass `--appear-offline`, or set `TEAMS_CLI_APPEAR_OFFLINE=true`, to
 skip it; that does not end a session an earlier command opened, which
-`presence clear` does. App-only tokens never hold presence.
+`presence clear` does. A token whose claims mark it app-only skips it.
 
 Graph keys a presence session to the application that opened it. `set` and
 `clear` send that application's ID as the session ID — a configured

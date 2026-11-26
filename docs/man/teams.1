@@ -65,8 +65,9 @@ command other than
 .B auth, config, completions, listen
 and
 .B presence
-sets the CLI's presence session to Available for one hour, at most once every
-ten minutes per profile. Also set by
+sets the CLI's presence session to Available, expiring after one hour, at most
+once every four minutes per profile. Graph fades it to Away about ten minutes
+after the last command. Also set by
 .B TEAMS_CLI_APPEAR_OFFLINE=true.
 .SH AUTHENTICATION
 .nf

@@ -27,7 +27,7 @@ Single-crate Rust binary. Key modules:
   - `message.rs` — send, list, get, reply, update, delete, undelete, react, unreact, pin, unpin; attachments list/download/delete (delete requires --yes and skips remote items)
   - `chat.rs` — list, get, create, hide, unhide, members
   - `presence.rs` — get, set, set-preferred, clear, clear-preferred, status, get-batch
-  - `hold_presence.rs` — keeps the user Available during Graph commands (1h session, refreshed ≤ every 10 min per profile, state under the config dir's `presence/`); `--appear-offline` skips it
+  - `hold_presence.rs` — keeps the user Available during Graph commands (1h session, refreshed ≤ every 4 min per profile because Graph fades Available after 5, state under the config dir's `presence/`); `--appear-offline` skips it
   - `search.rs` — messages, users, teams
   - `tag.rs` — list, get, create, delete, add-member, remove-member
   - `meeting.rs` — list, get, create, delete, join-url, attendance

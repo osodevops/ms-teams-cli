@@ -2,12 +2,15 @@
 //!
 //! Teams shows an account as Offline unless some client holds a presence session for it, so an
 //! account driven only through this CLI looks absent while it is plainly at work. Before a Graph
-//! command runs, the CLI sets this application's session to Available for [`HOLD`], so the
-//! account stays green for an hour after its last command. The write is best-effort: a failure
-//! is logged and never fails the command it accompanies.
+//! command runs, the CLI sets this application's session to Available, expiring after [`HOLD`].
+//! The write is best-effort: a failure is logged and never fails the command it accompanies.
 //!
-//! The session is refreshed at most once per [`REFRESH_AFTER`] per profile, which keeps an agent
-//! that runs many commands from sending a write with each of them. A session set explicitly with
+//! Graph fades an Available session that is not refreshed: to AvailableInactive after five
+//! minutes, and to Away five minutes later, until the session expires and the user shows Offline.
+//! So the account is green while commands keep coming, and shows Away for the rest of the hour
+//! after the last one. The CLI refreshes at most once per [`REFRESH_AFTER`] per profile, inside
+//! the five-minute fade, which keeps an agent that runs many commands from sending a write with
+//! each of them. A session set explicitly with
 //! `teams presence set` is left alone until it expires, so a deliberate Busy is not overwritten.
 //! Graph ranks a user's preferred presence, such as "Appear offline" chosen in a Teams client,
 //! above every session, so that choice still wins.
@@ -26,8 +29,9 @@ use crate::models::presence::SetPresenceRequest;
 /// How long each refresh keeps the session Available. Graph accepts up to four hours.
 const HOLD: &str = "PT1H";
 
-/// The shortest interval between two refreshes for one profile.
-const REFRESH_AFTER: chrono::Duration = chrono::Duration::minutes(10);
+/// The shortest interval between two refreshes for one profile. It must stay under the five
+/// minutes after which Graph fades an Available session that has not been refreshed.
+const REFRESH_AFTER: chrono::Duration = chrono::Duration::minutes(4);
 
 /// The longest the refresh may delay the command it accompanies.
 const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -52,14 +56,19 @@ pub struct PendingHold {
 
 /// Decide whether the profile's session needs a refresh, and prepare it if so.
 ///
-/// This resolves the token before the command does, so that a token near expiry is refreshed
-/// once, here, rather than twice in parallel.
+/// The attempt is recorded first, so a profile that cannot hold presence, for example because
+/// Presence.ReadWrite was never consented, warns at most once per refresh interval rather than on
+/// every command. This resolves the token before the command does, so that a token near expiry is
+/// refreshed once, here, rather than twice in parallel.
 pub async fn prepare(profile: &str, config: &ConfigFile) -> Option<PendingHold> {
     let state_path = state_path(profile)?;
+    let mut state = read_state(&state_path);
     let now = Utc::now();
-    if !refresh_due(&read_state(&state_path), now) {
+    if !refresh_due(&state, now) {
         return None;
     }
+    state.attempted_at = Some(now);
+    write_state(&state_path, &state);
 
     let token = match auth::resolve_token(profile).await {
         Ok(token) => token,
@@ -102,13 +111,14 @@ pub async fn prepare(profile: &str, config: &ConfigFile) -> Option<PendingHold> 
 }
 
 impl PendingHold {
-    /// Send the refresh. The attempt is recorded before the write, so a profile whose writes
-    /// fail, for example because Presence.ReadWrite was never consented, warns at most once per
-    /// refresh interval rather than on every command.
+    /// Send the refresh, unless `teams presence set` has set the session explicitly since
+    /// [`prepare`] looked.
     pub async fn send(self) {
-        let mut state = read_state(&self.state_path);
-        state.attempted_at = Some(Utc::now());
-        write_state(&self.state_path, &state);
+        let explicit_until = read_state(&self.state_path).explicit_until;
+        if explicit_until.is_some_and(|until| until > Utc::now()) {
+            tracing::debug!("Not holding presence: an explicit session was set meanwhile");
+            return;
+        }
 
         let write = api::presence::set_presence(&self.client, &self.request);
         match tokio::time::timeout(WRITE_TIMEOUT, write).await {
@@ -168,16 +178,17 @@ fn state_path(profile: &str) -> Option<PathBuf> {
     }
 }
 
-/// Profile names are free text, so anything outside a conservative set becomes `_` before the
-/// name is used as a file name.
+/// Profile names are free text, so every byte outside a conservative set is percent-encoded
+/// before the name is used as a file name. The encoding is reversible, so two profiles never
+/// share a state file.
 fn file_stem(profile: &str) -> String {
     profile
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c
+        .bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b == b'-' || b == b'_' {
+                char::from(b).to_string()
             } else {
-                '_'
+                format!("%{b:02X}")
             }
         })
         .collect()
@@ -191,12 +202,17 @@ fn read_state(path: &PathBuf) -> HoldState {
         .unwrap_or_default()
 }
 
+/// Write through a temporary file and a rename, so a concurrent reader sees the old state or the
+/// new one, never a partial file.
 fn write_state(path: &PathBuf, state: &HoldState) {
+    let temp = path.with_extension(format!("{}.tmp", std::process::id()));
     let result = path
         .parent()
         .map_or(Ok(()), std::fs::create_dir_all)
-        .and_then(|()| std::fs::write(path, serde_json::to_vec(state).unwrap_or_default()));
+        .and_then(|()| std::fs::write(&temp, serde_json::to_vec(state).unwrap_or_default()))
+        .and_then(|()| std::fs::rename(&temp, path));
     if let Err(e) = result {
+        let _ = std::fs::remove_file(&temp);
         tracing::warn!("Could not save presence state {}: {e}", path.display());
     }
 }
@@ -218,11 +234,11 @@ mod tests {
     fn refresh_waits_out_the_interval_after_an_attempt() {
         let now = Utc::now();
         let recent = HoldState {
-            attempted_at: at(9, now),
+            attempted_at: at(3, now),
             ..Default::default()
         };
         let stale = HoldState {
-            attempted_at: at(10, now),
+            attempted_at: at(4, now),
             ..Default::default()
         };
         assert!(!refresh_due(&recent, now));
@@ -258,7 +274,8 @@ mod tests {
     fn file_stem_keeps_safe_names_and_replaces_the_rest() {
         assert_eq!(file_stem("benbot"), "benbot");
         assert_eq!(file_stem("work-2_a"), "work-2_a");
-        assert_eq!(file_stem("../etc/x y"), "___etc_x_y");
+        assert_eq!(file_stem("../etc/x y"), "%2E%2E%2Fetc%2Fx%20y");
+        assert_ne!(file_stem("work.eu"), file_stem("work_eu"));
     }
 
     #[test]

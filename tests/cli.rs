@@ -2596,7 +2596,7 @@ fn presence_hold_warns_once_and_respects_appear_offline() {
     run(&["--appear-offline"], "0").stderr(predicate::str::contains(warning).not());
     run(&[], "1").stderr(predicate::str::contains(warning).not());
     run(&[], "0").stderr(predicate::str::contains(warning));
-    run(&[], "false").stderr(predicate::str::contains(warning).not());
+    run(&[], "0").stderr(predicate::str::contains(warning).not());
 
     let state = walk(home.path())
         .into_iter()
