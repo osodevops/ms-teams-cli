@@ -2598,23 +2598,23 @@ fn presence_hold_warns_once_and_respects_appear_offline() {
     run(&[], "0").stderr(predicate::str::contains(warning));
     run(&[], "0").stderr(predicate::str::contains(warning).not());
 
+    fn walk(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut found = Vec::new();
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                found.extend(walk(&path));
+            } else {
+                found.push(path);
+            }
+        }
+        found
+    }
+
     let state = walk(home.path())
         .into_iter()
-        .find(|p| p.ends_with("presence/default.json"))
+        .find(|p| p.ends_with("presence/profile-default.json"))
         .expect("presence state file");
     let state: serde_json::Value = serde_json::from_slice(&fs::read(state).unwrap()).unwrap();
     assert!(state["attempted_at"].is_string());
-}
-
-fn walk(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
-    let mut found = Vec::new();
-    for entry in fs::read_dir(dir).unwrap() {
-        let path = entry.unwrap().path();
-        if path.is_dir() {
-            found.extend(walk(&path));
-        } else {
-            found.push(path);
-        }
-    }
-    found
 }

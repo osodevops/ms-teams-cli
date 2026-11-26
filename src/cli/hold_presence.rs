@@ -15,7 +15,7 @@
 //! Graph ranks a user's preferred presence, such as "Appear offline" chosen in a Teams client,
 //! above every session, so that choice still wins.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
@@ -56,19 +56,17 @@ pub struct PendingHold {
 
 /// Decide whether the profile's session needs a refresh, and prepare it if so.
 ///
-/// The attempt is recorded first, so a profile that cannot hold presence, for example because
-/// Presence.ReadWrite was never consented, warns at most once per refresh interval rather than on
-/// every command. This resolves the token before the command does, so that a token near expiry is
-/// refreshed once, here, rather than twice in parallel.
+/// This resolves the token before the command does, so that a token near expiry is refreshed
+/// once, here, rather than twice in parallel. The attempt is recorded once a delegated token is in
+/// hand, so a profile whose write fails, for example because Presence.ReadWrite was never
+/// consented, warns at most once per refresh interval, while a command run before `auth login`
+/// does not hold back the commands after it.
 pub async fn prepare(profile: &str, config: &ConfigFile) -> Option<PendingHold> {
     let state_path = state_path(profile)?;
     let mut state = read_state(&state_path);
-    let now = Utc::now();
-    if !refresh_due(&state, now) {
+    if !refresh_due(&state, Utc::now()) {
         return None;
     }
-    state.attempted_at = Some(now);
-    write_state(&state_path, &state);
 
     let token = match auth::resolve_token(profile).await {
         Ok(token) => token,
@@ -81,6 +79,8 @@ pub async fn prepare(profile: &str, config: &ConfigFile) -> Option<PendingHold> 
         tracing::debug!("Not holding presence: `{profile}` holds an app-only token");
         return None;
     }
+    state.attempted_at = Some(Utc::now());
+    write_state(&state_path, &state);
 
     let configured_client_id = config::resolve_client_id(None, profile, config);
     let session_id = match super::presence::presence_session_id(&token, configured_client_id) {
@@ -90,7 +90,14 @@ pub async fn prepare(profile: &str, config: &ConfigFile) -> Option<PendingHold> 
             return None;
         }
     };
-    let client = match GraphClient::new(token, &config.network) {
+    // One attempt with a short timeout: the next command retries in four minutes anyway, and a
+    // retry here would only delay the command and log warnings that do not mention presence.
+    let network = config::NetworkConfig {
+        timeout: config.network.timeout.min(WRITE_TIMEOUT.as_secs()),
+        max_retries: 0,
+        ..config.network.clone()
+    };
+    let client = match GraphClient::new(token, &network) {
         Ok(client) => client,
         Err(e) => {
             tracing::warn!("Not holding presence for `{profile}`: {e}");
@@ -169,7 +176,7 @@ fn state_path(profile: &str) -> Option<PathBuf> {
     match config::config_dir() {
         Ok(dir) => Some(
             dir.join("presence")
-                .join(format!("{}.json", file_stem(profile))),
+                .join(format!("profile-{}.json", file_stem(profile))),
         ),
         Err(e) => {
             tracing::debug!("Not holding presence: {e}");
@@ -180,7 +187,8 @@ fn state_path(profile: &str) -> Option<PathBuf> {
 
 /// Profile names are free text, so every byte outside a conservative set is percent-encoded
 /// before the name is used as a file name. The encoding is reversible, so two profiles never
-/// share a state file.
+/// share a state file on a case-sensitive file system. The caller's `profile-` prefix keeps a
+/// name such as `con` from becoming a Windows device name.
 fn file_stem(profile: &str) -> String {
     profile
         .bytes()
@@ -195,7 +203,7 @@ fn file_stem(profile: &str) -> String {
 }
 
 /// A missing or unreadable state file reads as empty, which makes a refresh due.
-fn read_state(path: &PathBuf) -> HoldState {
+fn read_state(path: &Path) -> HoldState {
     std::fs::read(path)
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
@@ -204,7 +212,7 @@ fn read_state(path: &PathBuf) -> HoldState {
 
 /// Write through a temporary file and a rename, so a concurrent reader sees the old state or the
 /// new one, never a partial file.
-fn write_state(path: &PathBuf, state: &HoldState) {
+fn write_state(path: &Path, state: &HoldState) {
     let temp = path.with_extension(format!("{}.tmp", std::process::id()));
     let result = path
         .parent()

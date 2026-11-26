@@ -100,7 +100,7 @@ CLI flags > env vars (TEAMS_CLI_CLIENT_ID, TEAMS_CLI_CLIENT_SECRET, TEAMS_CLI_TE
 - `TEAMS_CLI_CLIENT_SECRET` — Azure AD client secret
 - `TEAMS_CLI_TENANT_ID` — Azure AD tenant ID
 - `TEAMS_CLI_ACCESS_TOKEN` — Pre-obtained access token
-- `TEAMS_CLI_APPEAR_OFFLINE` — `true` acts as `--appear-offline`: commands do not hold presence Available (`src/cli/hold_presence.rs`)
+- `TEAMS_CLI_APPEAR_OFFLINE` — `true`/`1`/`yes`/`on` acts as `--appear-offline`: commands do not hold presence Available (`src/cli/hold_presence.rs`)
 - `TEAMS_CLI_CLIENT_STATE` — clientState `teams listen` requires on notifications
 - `TEAMS_CLI_TOKEN_STORE` — `keyring` (default) or `file` (0600 files under the config dir's `tokens/`)
 - `HTTPS_PROXY` / `NO_PROXY` — proxy for HTTPS requests

@@ -579,8 +579,11 @@ after one hour, in parallel with the command. It refreshes the session at most
 once every four minutes per profile. Graph fades an Available session that is
 not refreshed to AvailableInactive after five minutes and to Away five minutes
 later, so the account shows green while commands keep coming, Away within ten
-minutes of the last one, and Offline an hour after the last refresh. The write is best-effort: a failure prints a warning and the
-command still succeeds or fails on its own. A session from `presence set` is left
+minutes of the last one, and Offline an hour after the last refresh. The write
+is best-effort: it makes one attempt with a timeout of at most ten seconds, a
+failure prints a warning, and the command still succeeds or fails on its own. A
+command that fails as a usage error (exit code 2) does not wait for the write;
+one already sent is not recalled. A session from `presence set` is left
 alone until it expires, and a preferred presence such as "Appear offline" still
 outranks it. Pass `--appear-offline`, or set `TEAMS_CLI_APPEAR_OFFLINE=true`, to
 skip it; that does not end a session an earlier command opened, which
@@ -832,7 +835,7 @@ auth_flow = "device-code"
 | `TEAMS_CLI_PROFILE` | Named credential profile (overridden by `--profile`; an explicit value beats the config's `default.profile`) |
 | `TEAMS_CLI_SCOPES` | Delegated OAuth scopes for login (same precedence as `--scopes`; ignored by client credentials) |
 | `TEAMS_CLI_ACCESS_TOKEN` | Pre-obtained Microsoft Graph access token (skips login entirely; `--profile`/`TEAMS_CLI_PROFILE` do not affect which token is used) |
-| `TEAMS_CLI_APPEAR_OFFLINE` | `true` does what `--appear-offline` does: commands do not keep the account's presence Available |
+| `TEAMS_CLI_APPEAR_OFFLINE` | `true`, `1`, `yes` or `on` does what `--appear-offline` does: commands do not keep the account's presence Available |
 | `TEAMS_CLI_CLIENT_STATE` | Secret `teams listen` requires in each notification's `clientState` (same as `--client-state`) |
 | `HTTPS_PROXY` | Proxy for all HTTPS requests (`NO_PROXY` lists hosts to reach directly) |
 | `SSL_CERT_FILE` / `SSL_CERT_DIR` | PEM certificate bundle / directories of PEM files to trust on top of the operating system's certificate store (on Linux in place of the system bundle, as with OpenSSL); see [troubleshooting](docs/troubleshooting.md#network_error-behind-a-tls-inspecting-proxy) |

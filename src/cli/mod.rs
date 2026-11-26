@@ -72,8 +72,8 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub all_pages: bool,
 
-    /// Do not show the account as Available while it runs commands. Without this flag each
-    /// Graph command keeps the account's Teams presence Available for an hour
+    /// Do not set the account's Teams presence. Without this flag each Graph command sets it to
+    /// Available, which Graph fades to Away within ten minutes of the last command
     #[arg(
         long,
         global = true,
@@ -207,11 +207,18 @@ pub async fn run(cli: Cli, config: &ConfigFile) -> Result<()> {
     } else {
         hold_presence::prepare(&profile, &runtime_config).await
     };
-    let command = dispatch(cli, config, &runtime_config, &profile, format, &pagination);
-    match hold {
-        Some(hold) => tokio::join!(hold.send(), command).1,
-        None => command.await,
+    let hold = hold.map(|hold| tokio::spawn(hold.send()));
+    let result = dispatch(cli, config, &runtime_config, &profile, format, &pagination).await;
+    if let Some(hold) = hold {
+        // A usage error is reported at once rather than after the presence write; a write
+        // already sent is not recalled.
+        if matches!(result, Err(TeamsError::InvalidInput(_))) {
+            hold.abort();
+        } else {
+            let _ = hold.await;
+        }
     }
+    result
 }
 
 /// Whether a command acts in Teams as the signed-in user, and so should keep them shown as
