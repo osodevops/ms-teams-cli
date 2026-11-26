@@ -2648,5 +2648,7 @@ fn presence_hold_retries_after_a_usage_error() {
     run(&["message", "list"]).code(2);
     run(&["user", "me"])
         .code(7)
-        .stderr(predicate::str::contains("Could not set presence to Available"));
+        .stderr(predicate::str::contains(
+            "Could not set presence to Available",
+        ));
 }
