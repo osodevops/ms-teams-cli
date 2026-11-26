@@ -74,7 +74,12 @@ pub struct Cli {
 
     /// Do not show the account as Available while it runs commands. Without this flag each
     /// Graph command keeps the account's Teams presence Available for an hour
-    #[arg(long, global = true, env = "TEAMS_CLI_APPEAR_OFFLINE")]
+    #[arg(
+        long,
+        global = true,
+        env = "TEAMS_CLI_APPEAR_OFFLINE",
+        value_parser = clap::builder::BoolishValueParser::new()
+    )]
     pub appear_offline: bool,
 
     #[command(subcommand)]

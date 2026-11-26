@@ -2564,8 +2564,8 @@ fn a_linux_machine_without_a_ca_bundle_still_builds_a_client() {
 /// Without `--appear-offline`, a Graph command first tries to hold the user's
 /// presence Available, and a failed write only warns: the command still ends
 /// with its own outcome. The attempt is recorded, so a second command inside
-/// the refresh interval sends nothing, and `--appear-offline` sends nothing at
-/// all. The proxy points at a closed local port, so no request leaves the host.
+/// the refresh interval sends nothing, and `--appear-offline` or a truthy
+/// `TEAMS_CLI_APPEAR_OFFLINE` sends nothing at all. The proxy points at a closed local port, so no request leaves the host.
 /// Not on Windows, whose config directory ignores `HOME`.
 #[cfg(not(windows))]
 #[test]
@@ -2576,11 +2576,11 @@ fn presence_hold_warns_once_and_respects_appear_offline() {
         "header.{}.signature",
         URL_SAFE_NO_PAD.encode(payload.to_string())
     );
-    let run = |extra: &[&str]| {
+    let run = |extra: &[&str], appear_offline: &str| {
         teams()
             .env("HOME", home.path())
             .env("XDG_CONFIG_HOME", home.path())
-            .env_remove("TEAMS_CLI_APPEAR_OFFLINE")
+            .env("TEAMS_CLI_APPEAR_OFFLINE", appear_offline)
             .env("TEAMS_CLI_ACCESS_TOKEN", &token)
             .env("HTTPS_PROXY", "http://127.0.0.1:9")
             .env("https_proxy", "http://127.0.0.1:9")
@@ -2593,9 +2593,10 @@ fn presence_hold_warns_once_and_respects_appear_offline() {
     };
     let warning = "Could not set presence to Available";
 
-    run(&["--appear-offline"]).stderr(predicate::str::contains(warning).not());
-    run(&[]).stderr(predicate::str::contains(warning));
-    run(&[]).stderr(predicate::str::contains(warning).not());
+    run(&["--appear-offline"], "0").stderr(predicate::str::contains(warning).not());
+    run(&[], "1").stderr(predicate::str::contains(warning).not());
+    run(&[], "0").stderr(predicate::str::contains(warning));
+    run(&[], "false").stderr(predicate::str::contains(warning).not());
 
     let state = walk(home.path())
         .into_iter()
