@@ -214,6 +214,7 @@ pub async fn run(cli: Cli, config: &ConfigFile) -> Result<()> {
         // already sent is not recalled.
         if matches!(result, Err(TeamsError::InvalidInput(_))) {
             hold.abort();
+            hold_presence::forget_attempt(&profile);
         } else {
             let _ = hold.await;
         }

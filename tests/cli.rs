@@ -2618,3 +2618,35 @@ fn presence_hold_warns_once_and_respects_appear_offline() {
     let state: serde_json::Value = serde_json::from_slice(&fs::read(state).unwrap()).unwrap();
     assert!(state["attempted_at"].is_string());
 }
+
+/// A usage error abandons the presence write, and the command that follows it
+/// tries again at once rather than waiting out the refresh interval.
+#[cfg(not(windows))]
+#[test]
+fn presence_hold_retries_after_a_usage_error() {
+    let home = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    let payload = serde_json::json!({ "azp": "application-id", "scp": "Presence.ReadWrite" });
+    let token = format!(
+        "header.{}.signature",
+        URL_SAFE_NO_PAD.encode(payload.to_string())
+    );
+    let run = |args: &[&str]| {
+        teams()
+            .env("HOME", home.path())
+            .env("XDG_CONFIG_HOME", home.path())
+            .env("TEAMS_CLI_APPEAR_OFFLINE", "0")
+            .env("TEAMS_CLI_ACCESS_TOKEN", &token)
+            .env("HTTPS_PROXY", "http://127.0.0.1:9")
+            .env("https_proxy", "http://127.0.0.1:9")
+            .env_remove("NO_PROXY")
+            .env_remove("no_proxy")
+            .args(args)
+            .args(["--retry", "0", "--output", "json"])
+            .assert()
+    };
+
+    run(&["message", "list"]).code(2);
+    run(&["user", "me"])
+        .code(7)
+        .stderr(predicate::str::contains("Could not set presence to Available"));
+}

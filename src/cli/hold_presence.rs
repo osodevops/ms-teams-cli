@@ -152,6 +152,17 @@ pub fn record_explicit(profile: &str, expires_at: DateTime<Utc>) {
     write_state(&path, &state);
 }
 
+/// Forget the attempt `prepare` recorded, after the command failed as a usage error and its
+/// write was abandoned, so the corrected command that follows holds presence at once.
+pub fn forget_attempt(profile: &str) {
+    let Some(path) = state_path(profile) else {
+        return;
+    };
+    let mut state = read_state(&path);
+    state.attempted_at = None;
+    write_state(&path, &state);
+}
+
 /// Forget the profile's session after `teams presence clear`, so the next command sets it again.
 pub fn forget(profile: &str) {
     let Some(path) = state_path(profile) else {
