@@ -20,6 +20,7 @@ teams [OPTIONS] <COMMAND>
 | `--retry <count>` | Override retry attempts. |
 | `--page-size <count>` | Page size for paginated list operations. |
 | `--all-pages` | Follow paginated Graph results until complete. |
+| `--appear-offline` | Do not keep the account's presence Available while the command runs (also `TEAMS_CLI_APPEAR_OFFLINE=true`). |
 
 ## Auth
 
@@ -228,6 +229,8 @@ teams presence status --message TEXT [--expiry ISO8601_DATETIME]
 teams presence clear
 teams presence clear-preferred
 ```
+
+Every Graph command outside `auth`, `config`, `completions`, `listen` and `presence` sets the CLI's presence session to Available for one hour, at most once every ten minutes per profile. A failure only warns. `presence set` sessions are left alone until they expire. `--appear-offline` skips it.
 
 ## Search
 

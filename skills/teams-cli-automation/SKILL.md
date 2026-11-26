@@ -28,6 +28,8 @@ teams presence clear
 teams presence clear-preferred
 ```
 
+Other Graph commands keep the account Available for an hour after its last command. Add `--appear-offline` or set `TEAMS_CLI_APPEAR_OFFLINE=true` to stay out of sight.
+
 - `set` needs a valid pair: `--availability` and `--activity` (for example `Available` + `Available`, `Busy` + `InACall`). Expiration is `PT5M` to `PT4H`.
 - `set-preferred` overrides every session until it expires. Always set an expiration and tell the user to `clear-preferred` afterwards.
 - Read presence for other people only when the user asked for it.

@@ -22,6 +22,9 @@ fn teams_process() -> std::process::Command {
     cmd.env_remove("TEAMS_CLI_REDIRECT_URI");
     cmd.env_remove("TEAMS_CLI_ACCESS_TOKEN");
     cmd.env_remove("TEAMS_CLI_TOKEN_STORE");
+    // Holding presence would send a write to Graph before commands that a test
+    // expects to fail locally; `presence_hold_*` tests opt back in.
+    cmd.env("TEAMS_CLI_APPEAR_OFFLINE", "true");
     cmd
 }
 
@@ -2556,4 +2559,61 @@ fn a_linux_machine_without_a_ca_bundle_still_builds_a_client() {
         .assert()
         .code(7)
         .stdout(predicate::str::contains("NETWORK_ERROR"));
+}
+
+/// Without `--appear-offline`, a Graph command first tries to hold the user's
+/// presence Available, and a failed write only warns: the command still ends
+/// with its own outcome. The attempt is recorded, so a second command inside
+/// the refresh interval sends nothing, and `--appear-offline` sends nothing at
+/// all. The proxy points at a closed local port, so no request leaves the host.
+/// Not on Windows, whose config directory ignores `HOME`.
+#[cfg(not(windows))]
+#[test]
+fn presence_hold_warns_once_and_respects_appear_offline() {
+    let home = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    let payload = serde_json::json!({ "azp": "application-id", "scp": "Presence.ReadWrite" });
+    let token = format!(
+        "header.{}.signature",
+        URL_SAFE_NO_PAD.encode(payload.to_string())
+    );
+    let run = |extra: &[&str]| {
+        teams()
+            .env("HOME", home.path())
+            .env("XDG_CONFIG_HOME", home.path())
+            .env_remove("TEAMS_CLI_APPEAR_OFFLINE")
+            .env("TEAMS_CLI_ACCESS_TOKEN", &token)
+            .env("HTTPS_PROXY", "http://127.0.0.1:9")
+            .env("https_proxy", "http://127.0.0.1:9")
+            .env_remove("NO_PROXY")
+            .env_remove("no_proxy")
+            .args(["user", "me", "--retry", "0", "--output", "json"])
+            .args(extra)
+            .assert()
+            .code(7)
+    };
+    let warning = "Could not set presence to Available";
+
+    run(&["--appear-offline"]).stderr(predicate::str::contains(warning).not());
+    run(&[]).stderr(predicate::str::contains(warning));
+    run(&[]).stderr(predicate::str::contains(warning).not());
+
+    let state = walk(home.path())
+        .into_iter()
+        .find(|p| p.ends_with("presence/default.json"))
+        .expect("presence state file");
+    let state: serde_json::Value = serde_json::from_slice(&fs::read(state).unwrap()).unwrap();
+    assert!(state["attempted_at"].is_string());
+}
+
+fn walk(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut found = Vec::new();
+    for entry in fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            found.extend(walk(&path));
+        } else {
+            found.push(path);
+        }
+    }
+    found
 }

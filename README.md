@@ -572,6 +572,18 @@ teams presence clear-preferred
 teams presence status --message "In deep focus" [--expiry <datetime>]
 ```
 
+Every Graph command except `auth`, `config`, `completions`, `listen` and
+`presence` also keeps the signed-in user shown as Available. Before the command
+runs, the CLI sets its own presence session to `Available`/`Available` for one
+hour, in parallel with the command. It refreshes the session at most once every
+ten minutes per profile, so the account stays green for about an hour after its
+last command. The write is best-effort: a failure prints a warning and the
+command still succeeds or fails on its own. A session from `presence set` is left
+alone until it expires, and a preferred presence such as "Appear offline" still
+outranks it. Pass `--appear-offline`, or set `TEAMS_CLI_APPEAR_OFFLINE=true`, to
+skip it; that does not end a session an earlier command opened, which
+`presence clear` does. App-only tokens never hold presence.
+
 Graph keys a presence session to the application that opened it. `set` and
 `clear` send that application's ID as the session ID — a configured
 `client_id`, or the one the access token was issued to — and report it back, so
@@ -818,6 +830,7 @@ auth_flow = "device-code"
 | `TEAMS_CLI_PROFILE` | Named credential profile (overridden by `--profile`; an explicit value beats the config's `default.profile`) |
 | `TEAMS_CLI_SCOPES` | Delegated OAuth scopes for login (same precedence as `--scopes`; ignored by client credentials) |
 | `TEAMS_CLI_ACCESS_TOKEN` | Pre-obtained Microsoft Graph access token (skips login entirely; `--profile`/`TEAMS_CLI_PROFILE` do not affect which token is used) |
+| `TEAMS_CLI_APPEAR_OFFLINE` | `true` does what `--appear-offline` does: commands do not keep the account's presence Available |
 | `TEAMS_CLI_CLIENT_STATE` | Secret `teams listen` requires in each notification's `clientState` (same as `--client-state`) |
 | `HTTPS_PROXY` | Proxy for all HTTPS requests (`NO_PROXY` lists hosts to reach directly) |
 | `SSL_CERT_FILE` / `SSL_CERT_DIR` | PEM certificate bundle / directories of PEM files to trust on top of the operating system's certificate store (on Linux in place of the system bundle, as with OpenSSL); see [troubleshooting](docs/troubleshooting.md#network_error-behind-a-tls-inspecting-proxy) |

@@ -27,6 +27,7 @@ Single-crate Rust binary. Key modules:
   - `message.rs` — send, list, get, reply, update, delete, undelete, react, unreact, pin, unpin; attachments list/download/delete (delete requires --yes and skips remote items)
   - `chat.rs` — list, get, create, hide, unhide, members
   - `presence.rs` — get, set, set-preferred, clear, clear-preferred, status, get-batch
+  - `hold_presence.rs` — keeps the user Available during Graph commands (1h session, refreshed ≤ every 10 min per profile, state under the config dir's `presence/`); `--appear-offline` skips it
   - `search.rs` — messages, users, teams
   - `tag.rs` — list, get, create, delete, add-member, remove-member
   - `meeting.rs` — list, get, create, delete, join-url, attendance
@@ -99,6 +100,7 @@ CLI flags > env vars (TEAMS_CLI_CLIENT_ID, TEAMS_CLI_CLIENT_SECRET, TEAMS_CLI_TE
 - `TEAMS_CLI_CLIENT_SECRET` — Azure AD client secret
 - `TEAMS_CLI_TENANT_ID` — Azure AD tenant ID
 - `TEAMS_CLI_ACCESS_TOKEN` — Pre-obtained access token
+- `TEAMS_CLI_APPEAR_OFFLINE` — `true` acts as `--appear-offline`: commands do not hold presence Available (`src/cli/hold_presence.rs`)
 - `TEAMS_CLI_CLIENT_STATE` — clientState `teams listen` requires on notifications
 - `TEAMS_CLI_TOKEN_STORE` — `keyring` (default) or `file` (0600 files under the config dir's `tokens/`)
 - `HTTPS_PROXY` / `NO_PROXY` — proxy for HTTPS requests

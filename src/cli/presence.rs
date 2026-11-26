@@ -287,6 +287,7 @@ pub async fn run(
             };
             let session_id = req.session_id.clone();
             api::presence::set_presence(&client, &req).await?;
+            super::hold_presence::record_explicit(profile, explicit_expiry(&req));
             let result = serde_json::json!({
                 "status": "presence_set",
                 "session_id": session_id,
@@ -327,6 +328,7 @@ pub async fn run(
             };
             let session_id = req.session_id.clone();
             let cleared = api::presence::clear_presence(&client, &req).await?;
+            super::hold_presence::forget(profile);
             let result = serde_json::json!({
                 "status": if cleared {
                     "presence_cleared"
@@ -372,13 +374,27 @@ pub async fn run(
     }
 }
 
+/// When a session set by `presence set` lapses: after its expiration, or Graph's five-minute
+/// default when none was given.
+fn explicit_expiry(req: &SetPresenceRequest) -> chrono::DateTime<chrono::Utc> {
+    let seconds = req
+        .expiration_duration
+        .as_deref()
+        .and_then(iso8601_duration_seconds)
+        .unwrap_or(EXPIRATION_MIN_SECONDS);
+    chrono::Utc::now() + chrono::Duration::seconds(i64::try_from(seconds).unwrap_or(i64::MAX))
+}
+
 /// Graph identifies a presence session by the application that owns it and expects that
 /// application's ID as `sessionId`. A configured client ID names that application directly and
 /// wins, because Microsoft asks callers to treat access tokens as opaque and a Graph token is
 /// not guaranteed to be a readable JSON Web Token. Logins through the built-in application
 /// configure no client ID, so the token's own `azp` or `appid` claim stands in. `set` and
 /// `clear` agree either way, because both resolve the value the same way.
-fn presence_session_id(token: &TokenInfo, configured_client_id: Option<String>) -> Result<String> {
+pub(super) fn presence_session_id(
+    token: &TokenInfo,
+    configured_client_id: Option<String>,
+) -> Result<String> {
     let configured = configured_client_id
         .map(|id| id.trim().to_string())
         .filter(|id| !id.is_empty());

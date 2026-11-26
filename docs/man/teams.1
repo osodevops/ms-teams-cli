@@ -58,6 +58,16 @@ Set page size for paginated list commands.
 .TP
 .B --all-pages
 Follow Graph pagination and return all pages.
+.TP
+.B --appear-offline
+Do not keep the account's Teams presence Available. Without it, each Graph
+command other than
+.B auth, config, completions, listen
+and
+.B presence
+sets the CLI's presence session to Available for one hour, at most once every
+ten minutes per profile. Also set by
+.B TEAMS_CLI_APPEAR_OFFLINE=true.
 .SH AUTHENTICATION
 .nf
 teams auth login [--client-credentials] [--device-code] [--client-id ID] [--client-secret SECRET] [--tenant-id ID] [--redirect-uri URI] [--scopes SCOPES]
@@ -522,6 +532,12 @@ Redirect URI for the browser login. Same precedence as
 .B TEAMS_CLI_PROFILE
 Named credential profile. Overridden by
 .B --profile.
+.TP
+.B TEAMS_CLI_APPEAR_OFFLINE
+Set to
+.B true
+to act as
+.B --appear-offline.
 .TP
 .B TEAMS_CLI_SCOPES
 Delegated OAuth scopes for login. Same precedence as
