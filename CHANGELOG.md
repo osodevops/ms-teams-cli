@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- Graph commands now keep the signed-in user's Teams presence Available while they run. Before each command other than `auth`, `config`, `completions`, `listen` and `presence`, the CLI sets its presence session to `Available`, expiring after one hour, at most once every four minutes per profile; Graph fades it to Away within ten minutes of the last command. A failed write only warns. A session from `presence set` is left alone until it expires, and a preferred presence such as "Appear offline" still outranks it. `--appear-offline` or `TEAMS_CLI_APPEAR_OFFLINE=true` turns it off. It needs the `Presence.ReadWrite` scope, which is in the default login scopes.
+
 ## v0.13.0 - 2026-11-25
 
 ### Added

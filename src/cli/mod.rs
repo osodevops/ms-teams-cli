@@ -4,6 +4,7 @@ pub mod channel;
 pub mod chat;
 pub mod config_cmd;
 pub mod file;
+pub mod hold_presence;
 pub mod listen;
 pub mod meeting;
 pub mod message;
@@ -70,6 +71,16 @@ pub struct Cli {
     /// Automatically fetch all pages of paginated results
     #[arg(long, global = true)]
     pub all_pages: bool,
+
+    /// Do not set the account's Teams presence. Without this flag each Graph command sets it to
+    /// Available, which Graph fades to Away within ten minutes of the last command
+    #[arg(
+        long,
+        global = true,
+        env = "TEAMS_CLI_APPEAR_OFFLINE",
+        value_parser = clap::builder::BoolishValueParser::new()
+    )]
+    pub appear_offline: bool,
 
     #[command(subcommand)]
     pub command: Commands,
@@ -191,55 +202,95 @@ pub async fn run(cli: Cli, config: &ConfigFile) -> Result<()> {
         all_pages: cli.all_pages,
     };
 
+    let hold = if cli.appear_offline || !holds_presence(&cli.command) {
+        None
+    } else {
+        hold_presence::prepare(&profile, &runtime_config).await
+    };
+    let hold = hold.map(|hold| tokio::spawn(hold.send()));
+    let result = dispatch(cli, config, &runtime_config, &profile, format, &pagination).await;
+    if let Some(hold) = hold {
+        // A usage error is reported at once rather than after the presence write; a write
+        // already sent is not recalled.
+        if matches!(result, Err(TeamsError::InvalidInput(_))) {
+            hold.abort();
+            hold_presence::forget_attempt(&profile);
+        } else {
+            let _ = hold.await;
+        }
+    }
+    result
+}
+
+/// Whether a command acts in Teams as the signed-in user, and so should keep them shown as
+/// Available. Local commands have nothing to do with Teams, `presence` commands set presence
+/// themselves, and `listen` only receives what Graph sends.
+fn holds_presence(command: &Commands) -> bool {
+    !matches!(
+        command,
+        Commands::Auth { .. }
+            | Commands::Config { .. }
+            | Commands::Completions { .. }
+            | Commands::Presence { .. }
+            | Commands::Listen { .. }
+    )
+}
+
+async fn dispatch(
+    cli: Cli,
+    config: &ConfigFile,
+    runtime_config: &ConfigFile,
+    profile: &str,
+    format: OutputFormat,
+    pagination: &PaginationOpts,
+) -> Result<()> {
     match cli.command {
         Commands::Auth { command } => {
-            auth::run(command, config, cli.config.as_deref(), &profile, format).await
+            auth::run(command, config, cli.config.as_deref(), profile, format).await
         }
         Commands::User { command } => {
-            user::run(command, &runtime_config, &profile, format, &pagination).await
+            user::run(command, runtime_config, profile, format, pagination).await
         }
         Commands::Config { command } => {
             config_cmd::run(command, config, cli.config.as_deref(), format).await
         }
         Commands::Completions { shell } => generate_completions(shell),
         Commands::Team { command } => {
-            team::run(command, &runtime_config, &profile, format, &pagination).await
+            team::run(command, runtime_config, profile, format, pagination).await
         }
         Commands::Channel { command } => {
-            channel::run(command, &runtime_config, &profile, format, &pagination).await
+            channel::run(command, runtime_config, profile, format, pagination).await
         }
         Commands::Message { command } => {
-            message::run(command, &runtime_config, &profile, format, &pagination).await
+            message::run(command, runtime_config, profile, format, pagination).await
         }
         Commands::Chat { command } => {
-            chat::run(command, &runtime_config, &profile, format, &pagination).await
+            chat::run(command, runtime_config, profile, format, pagination).await
         }
         Commands::Presence { command } => {
-            presence::run(command, &runtime_config, &profile, format).await
+            presence::run(command, runtime_config, profile, format).await
         }
-        Commands::Search { command } => {
-            search::run(command, &runtime_config, &profile, format).await
-        }
+        Commands::Search { command } => search::run(command, runtime_config, profile, format).await,
         Commands::Tag { command } => {
-            tag::run(command, &runtime_config, &profile, format, &pagination).await
+            tag::run(command, runtime_config, profile, format, pagination).await
         }
         Commands::Meeting { command } => {
-            meeting::run(command, &runtime_config, &profile, format, &pagination).await
+            meeting::run(command, runtime_config, profile, format, pagination).await
         }
         Commands::Notify { command } => {
-            notification::run(command, &runtime_config, &profile, format).await
+            notification::run(command, runtime_config, profile, format).await
         }
         Commands::App { command } => {
-            app::run(command, &runtime_config, &profile, format, &pagination).await
+            app::run(command, runtime_config, profile, format, pagination).await
         }
         Commands::Tab { command } => {
-            tab::run(command, &runtime_config, &profile, format, &pagination).await
+            tab::run(command, runtime_config, profile, format, pagination).await
         }
         Commands::File { command } => {
-            file::run(command, &runtime_config, &profile, format, &pagination).await
+            file::run(command, runtime_config, profile, format, pagination).await
         }
         Commands::Subscribe { command } => {
-            subscribe::run(command, &runtime_config, &profile, format, &pagination).await
+            subscribe::run(command, runtime_config, profile, format, pagination).await
         }
         Commands::Listen {
             port,

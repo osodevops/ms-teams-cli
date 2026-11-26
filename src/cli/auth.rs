@@ -609,6 +609,7 @@ pub async fn run(
                 for p in &profiles {
                     auth::keyring::delete_token(p)?;
                     auth::keyring::remove_profile_from_index(p)?;
+                    super::hold_presence::forget(p);
                 }
                 let msg = serde_json::json!({
                     "message": format!("Logged out from {} profile(s)", profiles.len()),
@@ -618,6 +619,7 @@ pub async fn run(
                 let target = target.as_deref().unwrap_or(profile);
                 auth::keyring::delete_token(target)?;
                 auth::keyring::remove_profile_from_index(target)?;
+                super::hold_presence::forget(target);
                 let msg = serde_json::json!({
                     "message": format!("Logged out from profile '{target}'"),
                 });
