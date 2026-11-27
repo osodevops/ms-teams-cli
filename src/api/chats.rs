@@ -320,6 +320,10 @@ mod tests {
         .unwrap();
         assert_eq!(member.id.as_deref(), Some("member-id"));
         assert_eq!(member.display_name.as_deref(), Some("Alice"));
+        assert_eq!(
+            member.visible_history_start_date_time.as_deref(),
+            Some("0001-01-01T00:00:00Z")
+        );
     }
 
     /// A failed read-back must not turn the completed add into an error exit.

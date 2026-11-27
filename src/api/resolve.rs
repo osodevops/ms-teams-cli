@@ -473,6 +473,7 @@ mod tests {
             user_id: Some("u1".into()),
             tenant_id: None,
             email: Some("JSmith@example.com".into()),
+            visible_history_start_date_time: None,
         };
         assert_eq!(
             member_match("jsmith@example.com", &member),

@@ -205,9 +205,11 @@ teams chat update CHAT_ID --topic TOPIC
 teams chat hide CHAT_ID --user-id USER_ID
 teams chat unhide CHAT_ID --user-id USER_ID
 teams chat members list CHAT_ID
-teams chat members add CHAT_ID --user-id USER_ID [--role member|owner]
+teams chat members add CHAT_ID --user-id USER_ID [--role member|owner] [--history all|none|TIMESTAMP]
 teams chat members remove CHAT_ID MEMBER_ID
 ```
+
+`chat members add` shares no earlier messages with the new member unless `--history` is given: `all` shares the whole history, and an RFC 3339 timestamp such as `2026-11-01T00:00:00Z` shares messages from that time on. `none` is the default. Group chats only.
 
 `chat list --order-by activity` lists the chats with the newest message first and includes that message's preview on each row as `lastMessagePreview` (id, `createdDateTime`, `messageType`, `isDeleted`, `body`, `from`, and `eventDetail` when the newest message is a system event), so one page says which chats have something new. The default listing carries no such signal: Graph's order is not by activity, and `lastUpdatedDateTime` moves on renames and membership changes rather than messages. Graph orders `/me/chats` by `lastMessagePreview/createdDateTime` only, descending only, and returns the preview only when it is expanded, which is why the one flag does both.
 

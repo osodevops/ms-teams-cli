@@ -16,6 +16,10 @@ pub struct ConversationMember {
     pub tenant_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
+    /// How far back the member can see the chat's history, when Graph returns it.
+    /// It can be set only for chat members.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visible_history_start_date_time: Option<String>,
 }
 
 /// Request body for adding a member to a team, channel, or chat.
