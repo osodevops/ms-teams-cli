@@ -553,7 +553,9 @@ teams chat create --type oneOnOne --members <your-user-id>,<guest-user-id>:guest
 teams chat hide <chat-id>
 teams chat unhide <chat-id>
 teams chat members list <chat-id>
-teams chat members add <chat-id> --user-id <user-id>
+teams chat members add <chat-id> --user-id <user-id>                  # new member sees no earlier messages
+teams chat members add <chat-id> --user-id <user-id> --history all    # new member sees the whole chat history
+teams chat members add <chat-id> --user-id <user-id> --history 2026-11-01T00:00:00Z   # history from that time on
 teams chat members remove <chat-id> <member-id>
 ```
 

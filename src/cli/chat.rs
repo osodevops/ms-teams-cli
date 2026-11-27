@@ -7,7 +7,7 @@ use crate::auth;
 use crate::config::ConfigFile;
 use crate::error::{Result, TeamsError};
 use crate::models::chat::{Chat, ChatCreateRequest, ChatUpdateRequest};
-use crate::models::member::AddMemberRequest;
+use crate::models::member::{AddMemberRequest, ALL_HISTORY};
 use crate::models::message::ChatMessageFrom;
 use crate::output::{self, OutputFormat};
 
@@ -85,6 +85,11 @@ pub enum ChatMemberCommand {
         /// Role (owner or member)
         #[arg(long, default_value = "member")]
         role: String,
+        /// Chat history the new member can see: `all`, `none`, or an RFC 3339
+        /// timestamp (e.g. `2026-11-01T00:00:00Z`) to share messages from then
+        /// on. Without it the member sees no earlier history. Group chats only.
+        #[arg(long, value_name = "all|none|TIMESTAMP", value_parser = parse_history)]
+        history: Option<HistoryShare>,
     },
     /// Remove a member from a chat
     Remove {
@@ -247,6 +252,50 @@ fn parse_member_spec(spec: &str) -> Result<(String, String)> {
     }
 }
 
+/// How much earlier chat history `chat members add --history` shares.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HistoryShare {
+    All,
+    None,
+    /// An RFC 3339 timestamp, already validated; sent as given.
+    Since(String),
+}
+
+impl HistoryShare {
+    /// The `visibleHistoryStartDateTime` value to send; `None` leaves the
+    /// field out, which Graph treats as no history.
+    fn visible_history_start(&self) -> Option<&str> {
+        match self {
+            HistoryShare::All => Some(ALL_HISTORY),
+            HistoryShare::None => None,
+            HistoryShare::Since(ts) => Some(ts),
+        }
+    }
+}
+
+/// Parses `--history`. Runs inside clap, so a bad value is a usage error
+/// (exit code 2) before any token is read or request made.
+fn parse_history(value: &str) -> std::result::Result<HistoryShare, String> {
+    match value {
+        "all" => Ok(HistoryShare::All),
+        "none" => Ok(HistoryShare::None),
+        // chrono also takes a Unicode minus sign (U+2212) in the offset, which
+        // RFC 3339 does not; Graph would get a value it may reject.
+        ts if !ts.is_ascii() => Err(format!(
+            "expected 'all', 'none' or an RFC 3339 timestamp such as \
+             2026-11-01T00:00:00Z; '{ts}' has a non-ASCII character"
+        )),
+        ts => chrono::DateTime::parse_from_rfc3339(ts)
+            .map(|_| HistoryShare::Since(ts.to_string()))
+            .map_err(|e| {
+                format!(
+                    "expected 'all', 'none' or an RFC 3339 timestamp such as \
+                     2026-11-01T00:00:00Z ({e})"
+                )
+            }),
+    }
+}
+
 async fn run_members(
     cmd: ChatMemberCommand,
     client: &GraphClient,
@@ -283,10 +332,17 @@ async fn run_members(
             chat_id,
             user_id,
             role,
+            history,
         } => {
             let start = Instant::now();
             let roles = if role == "member" { vec![] } else { vec![role] };
-            let req = AddMemberRequest::new(&user_id, roles);
+            let mut req = AddMemberRequest::new(&user_id, roles);
+            if let Some(ts) = history
+                .as_ref()
+                .and_then(HistoryShare::visible_history_start)
+            {
+                req = req.with_visible_history(ts);
+            }
             let member = api::chats::add_member(client, &chat_id, &req).await?;
             output::print_success(format, &member, start);
             Ok(())
@@ -305,6 +361,39 @@ async fn run_members(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn history_all_maps_to_graphs_all_history_value() {
+        let share = parse_history("all").unwrap();
+        assert_eq!(share.visible_history_start(), Some("0001-01-01T00:00:00Z"));
+    }
+
+    #[test]
+    fn history_none_leaves_the_field_out() {
+        assert_eq!(parse_history("none").unwrap().visible_history_start(), None);
+    }
+
+    #[test]
+    fn history_accepts_rfc3339_timestamps_as_given() {
+        for ts in ["2026-11-01T00:00:00Z", "2026-11-01T09:30:00.5+01:00"] {
+            assert_eq!(parse_history(ts).unwrap().visible_history_start(), Some(ts));
+        }
+    }
+
+    #[test]
+    fn history_rejects_values_that_are_not_rfc3339() {
+        for bad in [
+            "",
+            "All",
+            "2026-11-01",
+            "2026-11-01 00:00:00",
+            "yesterday",
+            "2026-11-01T00:00:00\u{2212}05:00",
+        ] {
+            let err = parse_history(bad).unwrap_err();
+            assert!(err.contains("RFC 3339"), "{bad}: {err}");
+        }
+    }
 
     #[test]
     fn activity_row_shows_the_newest_message_not_the_update_time() {

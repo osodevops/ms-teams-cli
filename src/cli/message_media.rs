@@ -427,6 +427,7 @@ mod tests {
             user_id: user_id.map(str::to_string),
             tenant_id: Some("tenant-local".to_string()),
             email: email.map(str::to_string),
+            visible_history_start_date_time: None,
         }
     }
 

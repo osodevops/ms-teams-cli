@@ -131,9 +131,12 @@ teams chat update <chat-id> --topic "New topic"
 teams chat hide <chat-id> --user-id <user-id>
 teams chat unhide <chat-id> --user-id <user-id>
 teams chat members list <chat-id> --output json
+teams chat members add <chat-id> --user-id <user-id> --history all
 ```
 
 Include your own id (`teams user me`) in `--members`; the CLI does not add it. Mark guest users as `<user-id>:guest`. Members default to owner.
+
+`chat members add` shares no earlier messages unless you pass `--history`: `all` for the whole history, or an RFC 3339 timestamp such as `2026-11-01T00:00:00Z` for messages from then on. It works on group chats only.
 
 ## Limits
 

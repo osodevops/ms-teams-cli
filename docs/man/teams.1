@@ -360,9 +360,20 @@ teams chat update CHAT_ID --topic TOPIC
 teams chat hide CHAT_ID --user-id USER_ID
 teams chat unhide CHAT_ID --user-id USER_ID
 teams chat members list CHAT_ID
-teams chat members add CHAT_ID --user-id USER_ID [--role member|owner]
+teams chat members add CHAT_ID --user-id USER_ID [--role member|owner] [--history all|none|TIMESTAMP]
 teams chat members remove CHAT_ID MEMBER_ID
 .fi
+.PP
+.B chat members add
+shares no earlier messages with the new member unless
+.B \-\-history
+is given:
+.B all
+shares the whole history, and an RFC 3339 timestamp such as
+.B 2026-11-01T00:00:00Z
+shares messages from that time on.
+.B none
+is the default. Group chats only.
 .SH PRESENCE COMMANDS
 .nf
 teams presence get

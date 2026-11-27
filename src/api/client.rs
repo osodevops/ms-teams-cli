@@ -198,6 +198,63 @@ impl GraphClient {
         .await
     }
 
+    /// POST that creates a resource Graph may not return. Adding a chat member is
+    /// documented as `201 Created` with a `Location` header and no body; other
+    /// tenants answer with the member. An empty body is `body: None`, not a parse
+    /// failure, because the write has already happened.
+    pub async fn post_created<T: DeserializeOwned, B: serde::Serialize>(
+        &self,
+        url: &str,
+        body: &B,
+    ) -> Result<Created<T>> {
+        let resp = self
+            .send(false, |this| {
+                this.http
+                    .post(url)
+                    .header("Authorization", this.token.bearer_header())
+                    .json(body)
+            })
+            .await?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(self.error_for_status(status, body));
+        }
+
+        let location = resp
+            .headers()
+            .get("location")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string);
+        let code = status.as_u16();
+        let bytes = resp
+            .bytes()
+            .await
+            .map_err(|source| TeamsError::AcceptedUnread {
+                status: code,
+                source,
+            })?;
+        if bytes.iter().all(u8::is_ascii_whitespace) {
+            return Ok(Created {
+                body: None,
+                location,
+            });
+        }
+        let body = serde_json::from_slice(&bytes).map_err(|e| TeamsError::ApiError {
+            status: code,
+            message: format!(
+                "Failed to parse API response: {}\n{}",
+                crate::error::describe_with_causes(&e),
+                crate::error::accepted_hint(code)
+            ),
+        })?;
+        Ok(Created {
+            body: Some(body),
+            location,
+        })
+    }
+
     /// POST that only reads, such as `/search/query`. Graph performs nothing, so it retries like
     /// a GET.
     pub async fn post_read_only<T: DeserializeOwned, B: serde::Serialize>(
@@ -560,6 +617,15 @@ impl GraphClient {
 
         Ok(())
     }
+}
+
+/// The answer to a [`GraphClient::post_created`] that succeeded.
+#[derive(Debug)]
+pub struct Created<T> {
+    /// The created resource, when Graph returned one.
+    pub body: Option<T>,
+    /// The `Location` header, when Graph sent one.
+    pub location: Option<String>,
 }
 
 /// Whether a request is a POST, and if so whether it writes. Decides replay and what an
